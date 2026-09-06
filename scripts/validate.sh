@@ -41,6 +41,21 @@ PYTHONPYCACHEPREFIX="$validation_dir/pycache" \
 # Base는 안전하게 빈 workload를 렌더하고, 각 환경은 gate를 연 상태까지 검증한다.
 helm lint charts/umc-product-server --strict
 
+# Git에 선언된 실제 values 조합이 Argo CD에서도 그대로 렌더되는지 확인한다.
+# 합성 검증의 --set override가 누락된 운영값을 가리지 않게 한다.
+helm template umc-product-server charts/umc-product-server \
+  --namespace app \
+  -f charts/umc-product-server/values-prod.yaml \
+  >"$validation_dir/prod-desired-state.yaml"
+helm template dev-umc-product-server charts/umc-product-server \
+  --namespace dev-app \
+  -f charts/umc-product-server/values-dev.yaml \
+  >"$validation_dir/dev-desired-state.yaml"
+helm template umc-product-preview charts/umc-product-server \
+  --namespace preview \
+  -f charts/umc-product-server/values-preview.yaml \
+  >"$validation_dir/preview-desired-state.yaml"
+
 # 실제 FE origin을 넣지 않으면 workload gate가 열리지 않아야 한다.
 if helm template umc-product-server charts/umc-product-server \
   -f charts/umc-product-server/values-prod.yaml "${common_args[@]}" \
