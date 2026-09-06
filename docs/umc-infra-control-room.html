@@ -1037,9 +1037,7 @@
           </article>
         </div>
 
-        <pre class="command" aria-label="인프라 검증과 GitHub 보호 명령"><span class="prompt">$</span> ./scripts/validate.sh
-<span class="comment"># initial main의 Static validation 성공 후</span>
-<span class="prompt">$</span> scripts/configure-github-trust-root.sh --apply</pre>
+        <pre class="command" aria-label="인프라 검증 명령"><span class="prompt">$</span> ./scripts/validate.sh</pre>
       </section>
 
       <section class="section-block" id="environments">
@@ -1290,7 +1288,7 @@
         </div>
 
         <details class="collapsible" open>
-          <summary>scripts/ — 실행 진입점 12개</summary>
+          <summary>scripts/ — 실행 진입점 11개</summary>
           <div class="collapsible__body table-scroll">
             <table class="data-table">
               <thead><tr><th>종류</th><th>파일</th><th class="wide">역할</th></tr></thead>
@@ -1300,7 +1298,6 @@
                 <tr><td>Bootstrap</td><td><code>bootstrap_nonprod_aws_access_keys.py</code></td><td>dev/preview S3와 공유 nonprod SES 최초 key 발급.</td></tr>
                 <tr><td>Bootstrap</td><td><code>bootstrap_aws_secrets.py</code></td><td>local worksheet 검증 후 missing AWS Secrets Manager source만 생성.</td></tr>
                 <tr><td>Bootstrap</td><td><code>bootstrap-external-secrets-aws.sh</code></td><td>live cluster secret-zero 직접 주입. 표준 Ansible 역할과 중복되어 정리 후보.</td></tr>
-                <tr><td>GitHub</td><td><code>configure-github-trust-root.sh</code></td><td>main 보호, 승인, linear/squash, force push 금지를 적용.</td></tr>
                 <tr><td>Generate</td><td><code>gen-configmaps.py</code></td><td><code>observability/</code> 원본을 배포용 ConfigMap으로 결정적 변환.</td></tr>
                 <tr><td>Validate</td><td><code>validate.sh</code></td><td>전체 검증 단일 진입점.</td></tr>
                 <tr><td>Validate</td><td><code>validate_argocd.py</code></td><td>pinned Argo CD chart, checksum, version, RBAC 계약 검사.</td></tr>

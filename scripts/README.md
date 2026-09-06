@@ -5,7 +5,7 @@
 
 > [!CAUTION]
 > `bootstrap_*_access_keys.py`, `bootstrap_aws_secrets.py --apply`,
-> `bootstrap-external-secrets-aws.sh`, `configure-github-trust-root.sh --apply`는 외부 상태를
+> `bootstrap-external-secrets-aws.sh`는 외부 상태를
 > 변경한다. 각 절의 실행 조건을 확인하지 않고 반복 실행하지 않는다.
 
 ## 전체 흐름
@@ -42,7 +42,6 @@ observability/ 원본
 | [`bootstrap-external-secrets-aws.sh`](bootstrap-external-secrets-aws.sh) | ESO가 AWS에 접근할 `aws-bootstrap` Secret 직접 주입 | Kubernetes | 수동 복구·직접 주입 시 |
 | [`gen-configmaps.py`](gen-configmaps.py) | 관측 원본을 Kubernetes ConfigMap으로 변환 | `manifests/observability/` | dashboard·alert 변경 시 |
 | [`validate.sh`](validate.sh) | 저장소 전체 검증 | 외부 인프라 변경 없음 | 모든 변경 후 |
-| [`configure-github-trust-root.sh`](configure-github-trust-root.sh) | PR-only `main` branch와 merge 정책 보호 | GitHub 저장소 설정 | direct-push 배포 bot 예외 지원 전에는 실행 금지 |
 | `validate_*.py` | 영역별 상세 계약 검사 | 검증 출력 디렉터리 | `validate.sh` 내부 호출 |
 | [`tests/`](tests/) | bootstrap·Secret·네트워크 안전장치 단위 테스트 | 없음 | `validate.sh` 내부 호출 |
 
@@ -245,43 +244,7 @@ Kubernetes 상태는 바꾸지 않는다. 최종 기준은
 | [`validate_observability.py`](validate_observability.py) | 모니터링 chart·image digest·resource·NetworkPolicy·runtime config |
 | [`validate_contracts.py`](validate_contracts.py) | AWS·Helm·Secret·PostgreSQL·preview 등 UMC 전용 교차 파일 계약 |
 
-## 6. GitHub 신뢰 경계 설정
-
-[`configure-github-trust-root.sh`](configure-github-trust-root.sh)는 Argo CD가 읽는 `main`을
-사실상의 배포 권한으로 보고 GitHub branch protection을 설정한다.
-
-> [!WARNING]
-> 현재 스크립트는 `main` direct push를 모두 차단하므로, backend의 사전 검증 후
-> infra `main` direct-push 배포 계약과 충돌한다. 배포 bot만 명시적 예외로 허용하도록
-> 스크립트를 갱신하기 전에는 아래 명령을 실행하지 않는다.
-
-실행 전 조건:
-
-1. `UMC-PRODUCT/umc-product-infra` 저장소와 `main`이 존재한다.
-2. 현재 `main` SHA에서 GitHub Actions의 `Static validation`이 성공했다.
-3. 실행 계정이 저장소 관리자이며 `gh`, `jq` 로그인이 준비됐다.
-4. PR을 승인할 다른 maintainer가 있다.
-
-```bash
-scripts/configure-github-trust-root.sh --apply
-```
-
-설정하는 정책:
-
-- `main` 직접 push, force push와 삭제 차단
-- 최신 `main` 기반 `Static validation` 통과 필수
-- 승인 1명과 마지막 push 작성자 외 승인 요구
-- unresolved conversation 차단
-- squash·linear history, auto-merge와 merge 후 branch 삭제
-
-부분 실패해도 이미 적용된 branch protection을 약하게 되돌리지 않는다. 원인을 해결한 뒤 같은
-명령을 다시 실행해 목표 상태로 수렴시킨다. 상세 내용은
-[GitHub 신뢰 경계 가이드](../docs/guides/github-trust-root.md)를 본다.
-
-조직 2FA 강제와 복구 수단 관리는 권장하지만 조직 owner가 별도로 다룰 정책이다. 이 스크립트는
-조직 구성원을 조회하거나 조직 보안 설정을 변경하지 않는다.
-
-## 7. 단위 테스트
+## 6. 단위 테스트
 
 [`tests/`](tests/)는 `validate.sh`에서 자동 실행된다.
 
@@ -307,7 +270,7 @@ python3 -m unittest discover -s scripts/tests -p 'test_*.py'
 5. 검토 후 bootstrap_aws_secrets.py --apply
 6. ./scripts/validate.sh
 7. 최초 Git push와 Static validation 성공 확인
-8. direct-push 배포 bot 예외를 지원하는 GitHub 보호 규칙 적용(현재 script 사용 금지)
+8. GitHub에서 일반 변경은 PR로 제한하고 배포 bot만 direct push 예외로 설정
 9. Ansible로 Tailscale·K3s·Argo CD·ESO bootstrap
 10. SecretStore와 ExternalSecret의 Ready 상태 확인
 ```

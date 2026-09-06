@@ -37,12 +37,11 @@ workflow 표시명은 `Validate infrastructure`, check context는 job `Static va
    backend 저장소의 `UMC_INFRA_GITOPS_TOKEN` Secret으로 저장한다.
 5. 일반 변경은 PR로 제한하되 해당 배포 bot만 direct push 예외로 명시한다.
 
-> [!WARNING]
-> 현재 `scripts/configure-github-trust-root.sh --apply`는 `main` direct push를 모두 차단하는 PR-only
-> 규칙을 적용한다. 배포 bot 예외를 지원하도록 스크립트를 갱신하기 전에는 실행하지 않는다.
+이 정책은 GitHub 저장소 Settings에서 관리한다. 배포 bot 예외 없이 PR-only 보호 규칙을
+적용하면 backend 자동 배포의 infra `main` push가 거부되므로, 둘을 반드시 함께 설정한다.
 
 조직 2FA 강제와 복구 수단 관리는 권장하지만 조직 owner가 별도로 다룰 정책이다. 저장소 branch
-protection 적용과 결합하지 않으며, 이 스크립트도 조직 구성원이나 2FA 상태를 조회하지 않는다.
+protection 적용과는 별도로 관리한다.
 
 ## Backend 배포 자동화 계약
 
