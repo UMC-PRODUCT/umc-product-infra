@@ -227,7 +227,8 @@ Helm release로 설치한다. 이후 앱과 platform chart는 Argo CD가 관리�
 
 ```text
 Git에서 values 또는 manifest 변경
-  → PR 검증·승인·merge
+  → 반영할 desired state 사전 검증
+  → infra main 반영
   → Argo CD가 변경 감지
   → Helm render 또는 raw manifest 적용
   → Kubernetes가 새 상태로 수렴
@@ -276,7 +277,7 @@ Ansible 명령 한 번이 성공했다고 서비스 배포가 끝난 것은 아�
 - root: 초기 이관 중 child Application 오삭제를 막는 `prune: false`
 
 각 gate는 독립적으로 관리한다. prod/dev는 검증된 image tag·digest가 준비되면 해당 환경의
-Deployment와 Ingress를 같은 Git PR에서 열 수 있다.
+Deployment와 Ingress를 연 values를 Helm으로 사전 검증한 뒤 infra `main`에 직접 반영한다.
 
 ## 9. 실행 전에 사람이 확인할 외부 영역
 

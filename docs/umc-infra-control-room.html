@@ -992,7 +992,7 @@
               <ul class="clean-list">
                 <li>현재 remote 없음</li>
                 <li>write는 cluster-admin급</li>
-                <li>BE bot도 PR만 허용</li>
+                <li>BE bot은 사전 검증한 image values만 직접 반영</li>
               </ul>
             </div>
           </article>
@@ -1027,7 +1027,7 @@
             <div class="phase-body">
               <span class="status-chip is-later">be later</span>
               <h3>Image and activation</h3>
-              <p>BE CI가 public GHCR에 SHA image를 게시하고 infra tag·digest PR을 만든다. dev 검증 후 prod, preview는 마지막이다.</p>
+              <p>BE CI가 public GHCR에 SHA image를 게시하고, Helm 사전 검증 후 infra main에 tag·digest를 직접 반영한다. Argo CD가 변경을 감지해 자동 동기화하며 dev 검증 후 prod, preview는 마지막이다.</p>
               <ul class="clean-list">
                 <li>prod/dev는 tag + digest</li>
                 <li>production TLS 뒤 Ingress</li>
@@ -1177,7 +1177,7 @@
           <div class="sec-index">05 / GATE</div>
           <div class="sec-copy">
             <h2>체크리스트 대신 현재 상태판</h2>
-            <p>gate는 문서 장식이 아니라 fail-closed 값이다. 조건이 확인된 항목만 별도 PR로 바꾼다.</p>
+            <p>gate는 문서 장식이 아니라 fail-closed 값이다. 조건이 확인되고 사전 검증을 통과한 항목만 infra main에 반영한다.</p>
           </div>
         </div>
 
@@ -1409,7 +1409,7 @@
           </article>
           <article class="next-item is-deferred">
             <h3>BE image 공급 경로 수정</h3>
-            <p><code>.env.local</code> packaging을 차단하고 실제 image를 scan한다. CI는 public GHCR에 12-char SHA를 게시하고 prod/dev digest를 infra PR에 기록한다.</p>
+            <p><code>.env.local</code> packaging을 차단하고 실제 image를 scan한다. CI는 public GHCR에 12-char SHA를 게시하고, prod/dev values를 Helm으로 사전 검증한 뒤 digest를 infra main에 직접 기록한다.</p>
           </article>
           <article class="next-item is-deferred">
             <h3>dev → prod → preview 순차 활성화</h3>

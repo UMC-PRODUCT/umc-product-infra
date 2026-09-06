@@ -20,7 +20,8 @@ UMC Product의 단일 노드 K3s 클러스터를 선언적으로 운영하는 Gi
 
 ### 2. CI/CD flow
 
-Backend CI가 GHCR에 이미지를 게시하고 GitOps PR을 거쳐 K3s에 배포하는 경로다.
+Backend CI가 GHCR에 이미지를 게시하고, 선택한 환경 values를 사전 검증한 뒤
+infra `main`에 직접 반영하여 K3s에 배포하는 경로다.
 
 [![UMC Product CI/CD 흐름](docs/diagrams/out/cicd-flow.png)](docs/diagrams/out/cicd-flow.png)
 
@@ -116,14 +117,14 @@ DNS와 접근 정책은 [도메인/TLS 가이드](docs/guides/domains-tls.md)를
 | TLS | Let's Encrypt production | 설정 완료 | Certificate의 최신 generation이 `Ready=True`인지 확인 |
 | Grafana | public Ingress 활성 | 배포 후 확인 | HTTPS 접속, 로그인과 팀원 권한 확인 |
 | prod/dev 앱 | `deployment.enabled: false`, image placeholder | 잠금 유지 | 검증된 GHCR tag·digest와 runtime 계약 반영 |
-| prod/dev API | `ingress.enabled: false` | 잠금 유지 | 앱 gate와 같은 PR에서 활성화하고 외부 HTTPS 확인 |
+| prod/dev API | `ingress.enabled: false` | 잠금 유지 | 검증된 첫 image 직접 반영에서 앱 gate와 함께 활성화하고 외부 HTTPS 확인 |
 | Preview API | Deployment·Ingress 비활성 | 잠금 유지 | 신뢰된 PR 이미지 발행 CI를 만든 뒤 활성화 |
 | DB backup | `suspend: true` | 잠금 유지 | S3 업로드와 클러스터 외부 복원 테스트 성공 |
 | root/cluster 자동 삭제 | `prune: false` | 안전장치 유지 | 첫 운영 안정화와 삭제 복구 절차 검증 후 재검토 |
 
 `설정 완료`는 실제 서비스 검증 완료를 뜻하지 않는다. DNS와 TLS controller는 클러스터가
-동작한 뒤 레코드와 Certificate를 만든다. 첫 앱 이미지 배포 PR에서는 tag·digest와
-Deployment·Ingress를 함께 활성화하며, Argo CD는 prod/dev Application 안에서
+동작한 뒤 레코드와 Certificate를 만든다. 첫 앱 image는 tag·digest와 활성화된
+Deployment·Ingress를 Helm으로 사전 검증한 뒤 infra `main`에 직접 반영하며, Argo CD는 prod/dev Application 안에서
 Certificate → Deployment → Ingress 순서로 기다린다. Preview는 공용 wildcard Certificate가
 `Ready=True`인 것을 확인한 뒤 PR 이미지 발행과 함께 연다.
 

@@ -3,8 +3,8 @@
 cicd_flow.py 는 "push 하면 어떻게 배포되나"를 그린다. 이 그림은 그 앞단이다:
 기능 브랜치를 따서 develop을 거쳐 prod까지 올리는 순서와, 잘못됐을 때 되돌리는 두 경로.
 
-앱 승격은 사람이 결정하고, 각 환경의 infra tag+digest 변경은 PR·필수 CI·
-squash auto-merge를 거친다. 저장소 branch protection은 최초 CI 성공 후 적용한다.
+앱 승격은 사람이 결정하고, 각 환경의 infra tag+digest 변경은 사전 Helm 검증 후
+main에 직접 push한다. dev/prod 갱신은 직렬화하며 force push하지 않는다.
 
     python branch_flow.py   →  out/branch-flow.png
 """
@@ -45,11 +45,11 @@ def build(theme: dict) -> None:
         cd_prod = GithubActions("trusted publish CI\nprod run")
 
         with Cluster("umc-infra", graph_attr=ca):
-            pr_dev = Github("deploy/dev/<tag>-<digest>\nvalues-dev image PR")
-            pr_prod = Github("deploy/prod/<tag>-<digest>\nvalues image PR")
-            checks = GithubActions("Static validation\nrequired · strict")
-            infra_main = Github("origin/main\nbranch protection\nPR only · approval 1")
-            revert_pr = Git("known-good tag + digest\nrevert PR")
+            update_dev = Git("values-dev.yaml 갱신\nSHA tag + digest")
+            update_prod = Git("values-prod.yaml 갱신\nSHA tag + digest")
+            checks = GithubActions("사전 Helm 검증\nlint --strict · template")
+            infra_main = Github("origin/main\nbot direct push\nserial · non-force")
+            rollback_values = Git("known-good tag + digest\nvalues 복구")
 
         argo = Argocd("ArgoCD\nself-heal")
 
@@ -59,34 +59,34 @@ def build(theme: dict) -> None:
             with Cluster("app  운영", graph_attr=ca):
                 prod_pod = Deployment("umc-product-server\nprod")
 
-        # 올리는 길 — 앱 승격은 사람, infra tag PR부터는 자동이다.
+        # 올리는 길 — 앱 승격은 사람, infra values 갱신부터는 자동이다.
         me >> Edge(label="① 브랜치 따서 작업", color=MANUAL, fontcolor=MANUAL) >> feat
         feat >> Edge(label="② PR → Squash 머지", color=MANUAL, fontcolor=MANUAL) >> dev_br
 
         dev_br >> Edge(label="자동 트리거", color=AUTO, fontcolor=AUTO) >> cd_dev
-        cd_dev >> Edge(label="SHA image + digest PR", color=AUTO, fontcolor=AUTO) >> pr_dev
-        pr_dev >> Edge(label="필수 CI", color=AUTO, fontcolor=AUTO) >> checks
+        cd_dev >> Edge(label="SHA image + values 갱신", color=AUTO, fontcolor=AUTO) >> update_dev
+        update_dev >> Edge(label="Helm lint + template", color=AUTO, fontcolor=AUTO) >> checks
 
         dev_pod >> Edge(label="③ dev 에서 확인", color=MANUAL, fontcolor=MANUAL, style="dotted") >> me
         dev_br >> Edge(label="④ PR → Merge commit\n(장수 브랜치라 squash 금지)",
                        color=MANUAL, fontcolor=MANUAL) >> main_br
 
         main_br >> Edge(label="자동 트리거", color=AUTO, fontcolor=AUTO) >> cd_prod
-        cd_prod >> Edge(label="SHA image + digest PR", color=AUTO, fontcolor=AUTO) >> pr_prod
-        pr_prod >> Edge(label="필수 CI", color=AUTO, fontcolor=AUTO) >> checks
-        checks >> Edge(label="squash auto-merge", color=AUTO, fontcolor=AUTO) >> infra_main
-        argo >> Edge(label="protected main pull", color=AUTO, fontcolor=AUTO,
+        cd_prod >> Edge(label="SHA image + values 갱신", color=AUTO, fontcolor=AUTO) >> update_prod
+        update_prod >> Edge(label="Helm lint + template", color=AUTO, fontcolor=AUTO) >> checks
+        checks >> Edge(label="commit → direct push", color=AUTO, fontcolor=AUTO) >> infra_main
+        argo >> Edge(label="infra main pull", color=AUTO, fontcolor=AUTO,
                      style="dashed") >> infra_main
         argo >> Edge(label="values-dev", color=AUTO, fontcolor=AUTO) >> dev_pod
         argo >> Edge(label="values-prod", color=AUTO, fontcolor=AUTO) >> prod_pod
 
-        # 되돌리는 길 — 두 가지
+        # 되돌리는 길 — 즉시 Argo CD rollback과 Git 기준값 복구
         prod_pod >> Edge(label="문제 발견", color=BACK, fontcolor=BACK, style="dotted") >> me
         me >> Edge(label="ⓐ ArgoCD UI 에서 이전 버전 선택\n(빠름 · Git 은 그대로)",
                    color=BACK, fontcolor=BACK) >> argo
-        me >> Edge(label="ⓑ known-good tag+digest revert PR\n(Git 이 정답지로 남음)",
-                   color=BACK, fontcolor=BACK) >> revert_pr
-        revert_pr >> Edge(label="필수 CI", color=BACK, fontcolor=BACK) >> checks
+        me >> Edge(label="ⓑ known-good tag+digest로 values 복구\n(Git 이 정답지로 남음)",
+                   color=BACK, fontcolor=BACK) >> rollback_values
+        rollback_values >> Edge(label="사전 Helm 검증", color=BACK, fontcolor=BACK) >> checks
 
 
 if __name__ == "__main__":

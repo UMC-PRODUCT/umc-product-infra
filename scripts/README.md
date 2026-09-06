@@ -42,7 +42,7 @@ observability/ 원본
 | [`bootstrap-external-secrets-aws.sh`](bootstrap-external-secrets-aws.sh) | ESO가 AWS에 접근할 `aws-bootstrap` Secret 직접 주입 | Kubernetes | 수동 복구·직접 주입 시 |
 | [`gen-configmaps.py`](gen-configmaps.py) | 관측 원본을 Kubernetes ConfigMap으로 변환 | `manifests/observability/` | dashboard·alert 변경 시 |
 | [`validate.sh`](validate.sh) | 저장소 전체 검증 | 외부 인프라 변경 없음 | 모든 변경 후 |
-| [`configure-github-trust-root.sh`](configure-github-trust-root.sh) | `main` branch와 merge 정책 보호 | GitHub 저장소 설정 | 최초 push·CI 성공 후 |
+| [`configure-github-trust-root.sh`](configure-github-trust-root.sh) | PR-only `main` branch와 merge 정책 보호 | GitHub 저장소 설정 | direct-push 배포 bot 예외 지원 전에는 실행 금지 |
 | `validate_*.py` | 영역별 상세 계약 검사 | 검증 출력 디렉터리 | `validate.sh` 내부 호출 |
 | [`tests/`](tests/) | bootstrap·Secret·네트워크 안전장치 단위 테스트 | 없음 | `validate.sh` 내부 호출 |
 
@@ -250,6 +250,11 @@ Kubernetes 상태는 바꾸지 않는다. 최종 기준은
 [`configure-github-trust-root.sh`](configure-github-trust-root.sh)는 Argo CD가 읽는 `main`을
 사실상의 배포 권한으로 보고 GitHub branch protection을 설정한다.
 
+> [!WARNING]
+> 현재 스크립트는 `main` direct push를 모두 차단하므로, backend의 사전 검증 후
+> infra `main` direct-push 배포 계약과 충돌한다. 배포 bot만 명시적 예외로 허용하도록
+> 스크립트를 갱신하기 전에는 아래 명령을 실행하지 않는다.
+
 실행 전 조건:
 
 1. `UMC-PRODUCT/umc-product-infra` 저장소와 `main`이 존재한다.
@@ -302,7 +307,7 @@ python3 -m unittest discover -s scripts/tests -p 'test_*.py'
 5. 검토 후 bootstrap_aws_secrets.py --apply
 6. ./scripts/validate.sh
 7. 최초 Git push와 Static validation 성공 확인
-8. configure-github-trust-root.sh --apply
+8. direct-push 배포 bot 예외를 지원하는 GitHub 보호 규칙 적용(현재 script 사용 금지)
 9. Ansible로 Tailscale·K3s·Argo CD·ESO bootstrap
 10. SecretStore와 ExternalSecret의 Ready 상태 확인
 ```
