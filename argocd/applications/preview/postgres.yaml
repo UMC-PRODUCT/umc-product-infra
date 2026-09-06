@@ -1,0 +1,24 @@
+# 프리뷰 공유 PostgreSQL — PR 마다 database 를 나눠 쓴다
+# wave 0: 시크릿(-1) 이후, 프리뷰 앱보다 먼저
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: preview-postgres
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: preview
+  source:
+    repoURL: https://github.com/UMC-PRODUCT/umc-product-infra.git
+    targetRevision: main
+    path: manifests/postgres/preview
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: preview
+  syncPolicy:
+    automated:
+      selfHeal: true
+      prune: true

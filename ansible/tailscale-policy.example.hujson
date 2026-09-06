@@ -1,0 +1,33 @@
+{
+  // Merge these entries into the tailnet policy. Replace the email first.
+  // Remove any broader default grant that would also reach tag:umc-idc.
+  "groups": {
+    "group:umc-infra-admins": [
+      "CHANGE_ME_ADMIN_EMAIL"
+    ]
+  },
+
+  "tagOwners": {
+    "tag:umc-idc": [
+      "group:umc-infra-admins"
+    ]
+  },
+
+  "grants": [
+    {
+      "src": ["group:umc-infra-admins"],
+      "dst": ["tag:umc-idc"],
+      "ip": ["tcp:22"]
+    }
+  ],
+
+  // 정책 변경 때 SSH 허용과 Kubernetes API 차단을 함께 회귀 검사한다.
+  "tests": [
+    {
+      "src": "CHANGE_ME_ADMIN_EMAIL",
+      "proto": "tcp",
+      "accept": ["tag:umc-idc:22"],
+      "deny": ["tag:umc-idc:6443"]
+    }
+  ]
+}

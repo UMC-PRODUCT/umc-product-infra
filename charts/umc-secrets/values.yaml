@@ -1,0 +1,277 @@
+# AWS 계정 ID는 비밀이 아니며 UMC 운영 계정으로 고정한다.
+aws:
+  accountId: "351284652562"
+  partition: aws
+  region: ap-northeast-2
+
+refreshInterval: 1h
+
+# 환경별 SecretStore는 읽을 수 있는 prefix와 IAM role을 분리한다.
+stores:
+  - name: aws-secretsmanager
+    namespace: app
+    role: umc-secrets-prod
+    prefix: /umc-product/prod/
+  - name: aws-secretsmanager
+    namespace: db
+    role: umc-secrets-prod
+    prefix: /umc-product/prod/
+  - name: aws-secretsmanager
+    namespace: dev-app
+    role: umc-secrets-dev
+    prefix: /umc-product/dev/
+  - name: aws-secretsmanager
+    namespace: dev-db
+    role: umc-secrets-dev
+    prefix: /umc-product/dev/
+  - name: aws-secretsmanager
+    namespace: preview
+    role: umc-secrets-preview
+    prefix: /umc-product/preview/
+  - name: aws-secretsmanager
+    namespace: monitoring
+    role: umc-secrets-monitoring
+    prefix: /umc-product/platform/monitoring/
+  - name: aws-secretsmanager
+    namespace: argocd
+    role: umc-secrets-argocd
+    prefix: /umc-product/platform/argocd/
+  - name: aws-secretsmanager
+    namespace: cert-manager
+    role: umc-secrets-cert-manager
+    prefix: /umc-product/platform/cert-manager/
+  - name: aws-secretsmanager
+    namespace: external-dns
+    role: umc-secrets-external-dns
+    prefix: /umc-product/platform/external-dns/
+
+# AWS Secrets Manager에는 아래 remoteKey별 JSON object를 만든다.
+# data는 Kubernetes Secret key와 JSON property를 1:1로 제한한다.
+externalSecrets:
+  # prod application
+  - name: app-db
+    namespace: app
+    store: aws-secretsmanager
+    targetName: app-db
+    remoteKey: app-db
+    data: &appDbData
+      DATABASE_PASSWORD: DATABASE_PASSWORD
+
+  - name: app-jwt
+    namespace: app
+    store: aws-secretsmanager
+    targetName: app-jwt
+    remoteKey: app-jwt
+    data: &appJwtData
+      JWT_ACCESS_TOKEN_SECRET: JWT_ACCESS_TOKEN_SECRET
+      JWT_REFRESH_TOKEN_SECRET: JWT_REFRESH_TOKEN_SECRET
+      JWT_OAUTH_VERIFICATION_TOKEN_SECRET: JWT_OAUTH_VERIFICATION_TOKEN_SECRET
+      JWT_EMAIL_VERIFICATION_TOKEN_SECRET: JWT_EMAIL_VERIFICATION_TOKEN_SECRET
+      JWT_SSO_LOGIN_TOKEN_SECRET: JWT_SSO_LOGIN_TOKEN_SECRET
+      DEMODAY_STAMP_CREDENTIAL_ENCRYPTION_KEY: DEMODAY_STAMP_CREDENTIAL_ENCRYPTION_KEY
+      DEMODAY_VOTE_QR_SIGNING_KEY: DEMODAY_VOTE_QR_SIGNING_KEY
+      DEMODAY_VOTE_AUTHORIZATION_SIGNING_KEY: DEMODAY_VOTE_AUTHORIZATION_SIGNING_KEY
+      DEMODAY_PARTICIPANT_TOKEN_SECRET: DEMODAY_PARTICIPANT_TOKEN_SECRET
+
+  - name: app-oauth
+    namespace: app
+    store: aws-secretsmanager
+    targetName: app-oauth
+    remoteKey: app-oauth
+    data: &appOauthData
+      APPLE_IOS_CLIENT_ID: APPLE_IOS_CLIENT_ID
+      APPLE_WEB_CLIENT_ID: APPLE_WEB_CLIENT_ID
+      APPLE_TEAM_ID: APPLE_TEAM_ID
+      APPLE_KEY_ID: APPLE_KEY_ID
+      APPLE_PRIVATE_KEY: APPLE_PRIVATE_KEY
+      KAKAO_CLIENT_ID: KAKAO_CLIENT_ID
+      KAKAO_CLIENT_SECRET: KAKAO_CLIENT_SECRET
+
+  - name: app-storage
+    namespace: app
+    store: aws-secretsmanager
+    targetName: app-storage
+    remoteKey: app-storage
+    data: &appStorageData
+      S3_ACCESS_KEY_ID: S3_ACCESS_KEY_ID
+      S3_SECRET_ACCESS_KEY: S3_SECRET_ACCESS_KEY
+
+  - name: app-email
+    namespace: app
+    store: aws-secretsmanager
+    targetName: app-email
+    remoteKey: app-email
+    data: &appEmailData
+      SES_ACCESS_KEY_ID: SES_ACCESS_KEY_ID
+      SES_SECRET_ACCESS_KEY: SES_SECRET_ACCESS_KEY
+
+  - name: app-fcm
+    namespace: app
+    store: aws-secretsmanager
+    targetName: app-fcm
+    remoteKey: app-fcm
+    data:
+      FIREBASE_CONFIGURATION: FIREBASE_CONFIGURATION
+
+  # DB bootstrap Job도 같은 app role password를 읽지만 관리자 Secret은 읽지 않는다.
+  - name: app-db
+    namespace: db
+    store: aws-secretsmanager
+    targetName: app-db
+    remoteKey: app-db
+    data: *appDbData
+
+  # dev application
+  - name: app-db
+    namespace: dev-app
+    store: aws-secretsmanager
+    targetName: app-db
+    remoteKey: app-db
+    data: *appDbData
+  - name: app-jwt
+    namespace: dev-app
+    store: aws-secretsmanager
+    targetName: app-jwt
+    remoteKey: app-jwt
+    data: *appJwtData
+  - name: app-oauth
+    namespace: dev-app
+    store: aws-secretsmanager
+    targetName: app-oauth
+    remoteKey: app-oauth
+    data: *appOauthData
+  - name: app-storage
+    namespace: dev-app
+    store: aws-secretsmanager
+    targetName: app-storage
+    remoteKey: app-storage
+    data: *appStorageData
+  - name: app-email
+    namespace: dev-app
+    store: aws-secretsmanager
+    targetName: app-email
+    remoteKey: app-email
+    data: *appEmailData
+  - name: app-db
+    namespace: dev-db
+    store: aws-secretsmanager
+    targetName: app-db
+    remoteKey: app-db
+    data: *appDbData
+
+  # preview application and shared preview database bootstrap
+  - name: app-db
+    namespace: preview
+    store: aws-secretsmanager
+    targetName: app-db
+    remoteKey: app-db
+    data: *appDbData
+  - name: app-jwt
+    namespace: preview
+    store: aws-secretsmanager
+    targetName: app-jwt
+    remoteKey: app-jwt
+    data: *appJwtData
+  - name: app-oauth
+    namespace: preview
+    store: aws-secretsmanager
+    targetName: app-oauth
+    remoteKey: app-oauth
+    data: *appOauthData
+  - name: app-storage
+    namespace: preview
+    store: aws-secretsmanager
+    targetName: app-storage
+    remoteKey: app-storage
+    data: *appStorageData
+  - name: app-email
+    namespace: preview
+    store: aws-secretsmanager
+    targetName: app-email
+    remoteKey: app-email
+    data: *appEmailData
+
+  # Database administrator and backup contracts
+  - name: postgres-secrets
+    namespace: db
+    store: aws-secretsmanager
+    targetName: postgres-secrets
+    remoteKey: postgres-secrets
+    data:
+      POSTGRES_PASSWORD: POSTGRES_PASSWORD
+      POSTGRES_USER: POSTGRES_USER
+  - name: postgres-readonly
+    namespace: db
+    store: aws-secretsmanager
+    targetName: postgres-readonly
+    remoteKey: postgres-readonly
+    data:
+      RO_PASSWORD: RO_PASSWORD
+  - name: backup-s3
+    namespace: db
+    store: aws-secretsmanager
+    targetName: backup-s3
+    remoteKey: backup-s3
+    data:
+      AWS_ACCESS_KEY_ID: AWS_ACCESS_KEY_ID
+      AWS_REGION: AWS_REGION
+      AWS_SECRET_ACCESS_KEY: AWS_SECRET_ACCESS_KEY
+      S3_BUCKET: S3_BUCKET
+      S3_EXPECTED_BUCKET_OWNER: S3_EXPECTED_BUCKET_OWNER
+  - name: postgres-secrets
+    namespace: dev-db
+    store: aws-secretsmanager
+    targetName: postgres-secrets
+    remoteKey: postgres-secrets
+    data:
+      POSTGRES_PASSWORD: POSTGRES_PASSWORD
+      POSTGRES_USER: POSTGRES_USER
+  - name: postgres-preview-secrets
+    namespace: preview
+    store: aws-secretsmanager
+    targetName: postgres-preview-secrets
+    remoteKey: postgres-preview-secrets
+    data:
+      POSTGRES_PASSWORD: POSTGRES_PASSWORD
+      POSTGRES_USER: POSTGRES_USER
+
+  # Platform contracts
+  - name: grafana-admin
+    namespace: monitoring
+    store: aws-secretsmanager
+    targetName: grafana-admin
+    remoteKey: grafana-admin
+    data:
+      admin-password: admin-password
+      admin-user: admin-user
+  - name: alertmanager-discord
+    namespace: monitoring
+    store: aws-secretsmanager
+    targetName: alertmanager-discord
+    remoteKey: alertmanager-discord
+    data:
+      discord-webhook: discord-webhook
+  - name: preview-github-token
+    namespace: argocd
+    store: aws-secretsmanager
+    targetName: preview-github-token
+    remoteKey: preview-github-token
+    data:
+      token: token
+  # 인증서 발급과 DNS 동기화는 서로 다른 최소 권한 Route 53 자격증명으로 격리한다.
+  - name: route53-credentials
+    namespace: cert-manager
+    store: aws-secretsmanager
+    targetName: route53-credentials
+    remoteKey: route53-credentials
+    data:
+      access-key-id: access-key-id
+      secret-access-key: secret-access-key
+  - name: route53-credentials
+    namespace: external-dns
+    store: aws-secretsmanager
+    targetName: route53-credentials
+    remoteKey: route53-credentials
+    data:
+      access-key-id: access-key-id
+      secret-access-key: secret-access-key

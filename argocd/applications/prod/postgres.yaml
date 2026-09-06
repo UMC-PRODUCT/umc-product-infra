@@ -1,0 +1,24 @@
+# PostgreSQL — 자작 raw manifest 디렉터리 sync (D18: Bitnami 안 씀)
+# wave 0: 시크릿 이후, 앱 이전
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: postgres
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: prod
+  source:
+    repoURL: https://github.com/UMC-PRODUCT/umc-product-infra.git
+    targetRevision: main
+    path: manifests/postgres/prod
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: db
+  syncPolicy:
+    automated:
+      selfHeal: true
+      prune: true

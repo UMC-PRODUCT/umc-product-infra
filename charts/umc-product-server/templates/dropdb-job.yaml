@@ -1,0 +1,125 @@
+{{- if and .Values.deployment.enabled .Values.deleteDatabase.enabled }}
+{{- $targetDatabase := required "createDatabase.name 이 필요하다" .Values.createDatabase.name -}}
+{{- $postgresClientImage := required "postgresClient.image가 필요하다" .Values.postgresClient.image -}}
+{{- if ne $postgresClientImage "postgis/postgis:18-3.6@sha256:60f6ad1d21ea86a67d47780b9a0d1e1d200500f62b19293fa834d0dea80b8677" -}}
+{{- fail "postgresClient.image는 StatefulSet과 같은 검증된 PG18/PostGIS 3.6 digest여야 한다" -}}
+{{- end -}}
+{{- if not .Values.createDatabase.enabled -}}
+{{- fail "deleteDatabase.enabled=true 이면 createDatabase.enabled=true 여야 한다" -}}
+{{- end -}}
+{{- if ne .Values.environment "preview" -}}
+{{- fail "deleteDatabase는 preview 환경에서만 사용할 수 있다" -}}
+{{- end -}}
+{{- if not (regexMatch "^umc_product_pr[0-9]+$" $targetDatabase) -}}
+{{- fail "createDatabase.name은 ^umc_product_pr[0-9]+$ 형식이어야 한다" -}}
+{{- end -}}
+{{- /*
+  PR Application이 삭제된 뒤 그 PR의 database만 지운다. 생성과 삭제가 서로 다른
+  이름을 가리킬 수 없도록 target과 접속 계약은 createDatabase 값을 그대로 쓴다.
+
+  postgres-preview-secrets는 이 Application의 리소스가 아니라 platform의 secrets
+  Application이 관리하므로 Application 리소스가 모두 prune된 뒤에도 PostDelete에서
+  읽을 수 있다. 실패한 hook은 남기고 Application 삭제를 DeletionError로 끝내 DB를
+  자동 추측하거나 다른 database를 지우지 않는다.
+*/ -}}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "umc-product-server.fullname" . }}-dropdb
+  labels:
+    {{- include "umc-product-server.labels" . | nindent 4 }}
+    app.kubernetes.io/component: database-cleanup
+  annotations:
+    argocd.argoproj.io/hook: PostDelete
+    # 성공한 hook만 정리하고, 삭제 재시도 때는 이전 실패 Job을 교체한다.
+    argocd.argoproj.io/hook-delete-policy: HookSucceeded,BeforeHookCreation
+spec:
+  activeDeadlineSeconds: {{ .Values.deleteDatabase.activeDeadlineSeconds }}
+  backoffLimit: {{ .Values.deleteDatabase.backoffLimit }}
+  template:
+    metadata:
+      labels:
+        {{- include "umc-product-server.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: database-cleanup
+    spec:
+      restartPolicy: Never
+      priorityClassName: {{ .Values.priorityClassName }}
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999
+        runAsGroup: 999
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: dropdb
+          image: {{ $postgresClientImage | quote }}
+          imagePullPolicy: IfNotPresent
+          command: ["sh", "-c"]
+          args:
+            - |
+              set -eu
+
+              reject_target() {
+                echo "database 삭제 거부: 허용되지 않은 이름: $TARGET_DB" >&2
+                exit 64
+              }
+
+              # Helm render guard를 runtime에도 반복한다. whitelist를 통과하지 못하면
+              # SQL을 보내지 않으며, 운영·bootstrap 이름은 중복해서 명시적으로 막는다.
+              case "$TARGET_DB" in
+                admin|bootstrap|prod|dev|postgres|template0|template1|preview_bootstrap|umc_product|umc_product_prod|umc_product_dev)
+                  reject_target
+                  ;;
+              esac
+              case "$TARGET_DB" in
+                umc_product_pr[0-9]*) ;;
+                *) reject_target ;;
+              esac
+              target_suffix="${TARGET_DB#umc_product_pr}"
+              case "$target_suffix" in
+                ""|*[!0-9]*) reject_target ;;
+              esac
+
+              # PostDelete 시점에도 외부 연결이 남아 있으면 DROP은 실패한다. 강제로
+              # 세션을 끊지 않고 Job/Application을 실패 상태로 남기는 fail-safe 동작이다.
+              psql -v ON_ERROR_STOP=1 --set=db="$TARGET_DB" <<'SQL'
+              DROP DATABASE IF EXISTS :"db";
+              SQL
+              echo "preview database 삭제 완료: $TARGET_DB"
+          env:
+            - name: PGHOST
+              value: {{ .Values.createDatabase.host | quote }}
+            - name: PGUSER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.createDatabase.existingSecret | quote }}
+                  key: POSTGRES_USER
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.createDatabase.existingSecret | quote }}
+                  key: POSTGRES_PASSWORD
+            - name: PGDATABASE
+              value: {{ .Values.createDatabase.bootstrapDatabase | quote }}
+            - name: PGCONNECT_TIMEOUT
+              value: {{ .Values.deleteDatabase.connectTimeoutSeconds | quote }}
+            - name: PGOPTIONS
+              value: {{ printf "-c statement_timeout=%s -c lock_timeout=%s" .Values.deleteDatabase.statementTimeout .Values.deleteDatabase.lockTimeout | quote }}
+            - name: TARGET_DB
+              value: {{ $targetDatabase | quote }}
+          resources:
+            {{- toYaml .Values.deleteDatabase.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: 32Mi
+{{- end }}

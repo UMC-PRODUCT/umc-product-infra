@@ -1,0 +1,39 @@
+# 앱 — 자작 Helm 차트 sync
+# wave 1: DB 이후 (기동 순서는 어차피 probe가 지켜주지만 부트스트랩 시 불필요한 재시작 줄임)
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: umc-product-server
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: prod
+  source:
+    repoURL: https://github.com/UMC-PRODUCT/umc-product-infra.git
+    targetRevision: main
+    path: charts/umc-product-server
+    helm:
+      # 공통값 뒤에 prod 값을 명시적으로 덮어쓴다.
+      valueFiles:
+        - values.yaml
+        - values-prod.yaml
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: app
+  # Reloader가 재시작 시 쓰는 runtime annotation만 Git diff에서 제외한다.
+  ignoreDifferences:
+    - group: apps
+      kind: Deployment
+      name: umc-product-server
+      namespace: app
+      jsonPointers:
+        - /spec/template/metadata/annotations/reloader.stakater.com~1last-reloaded-from
+  syncPolicy:
+    automated:
+      selfHeal: true
+      prune: true
+    syncOptions:
+      - RespectIgnoreDifferences=true

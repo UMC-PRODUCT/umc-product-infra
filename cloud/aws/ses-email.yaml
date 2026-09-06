@@ -1,0 +1,228 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Shared SES domain identity, custom MAIL FROM, and least-privilege prod/nonprod IAM senders for UMC Product email
+
+Parameters:
+  SesDomainIdentity:
+    Type: String
+    Default: university.neordinary.com
+    Description: Shared SES domain identity used to send prod and nonprod email
+    MinLength: 3
+    MaxLength: 253
+    AllowedPattern: "^[A-Za-z0-9][A-Za-z0-9.-]*[A-Za-z0-9]$"
+  SesMailFromDomain:
+    Type: String
+    Default: mail.university.neordinary.com
+    Description: Custom MAIL FROM domain used for SPF alignment and SES feedback
+    MinLength: 3
+    MaxLength: 253
+    AllowedPattern: "^[A-Za-z0-9][A-Za-z0-9.-]*[A-Za-z0-9]$"
+  SenderEmailAddress:
+    Type: String
+    Default: no-reply@university.neordinary.com
+    Description: Exact From address allowed for the production application
+    MinLength: 3
+    MaxLength: 254
+    AllowedPattern: "^[^@\\s]+@[^@\\s]+$"
+  NonprodSenderEmailAddress:
+    Type: String
+    Default: no-reply-nonprod@university.neordinary.com
+    Description: Exact From address shared by the development and preview applications
+    MinLength: 3
+    MaxLength: 254
+    AllowedPattern: "^[^@\\s]+@[^@\\s]+$"
+  Route53HostedZoneId:
+    Type: String
+    Description: Public Route 53 hosted zone ID that owns the SES identity and MAIL FROM records
+    MinLength: 1
+    MaxLength: 32
+    AllowedPattern: "^[A-Z0-9]{1,32}$"
+
+Rules:
+  SeoulRegionOnly:
+    Assertions:
+      - Assert: !Equals [!Ref "AWS::Region", ap-northeast-2]
+        AssertDescription: This stack must be deployed in ap-northeast-2
+  DistinctSenderAddresses:
+    Assertions:
+      - Assert: !Not [!Equals [!Ref SenderEmailAddress, !Ref NonprodSenderEmailAddress]]
+        AssertDescription: Production and nonprod From addresses must differ
+  MailFromIsNotIdentityApex:
+    Assertions:
+      - Assert: !Not [!Equals [!Ref SesMailFromDomain, !Ref SesDomainIdentity]]
+        AssertDescription: Custom MAIL FROM must be a subdomain of the SES identity
+
+Resources:
+  SesDomainIdentityResource:
+    Type: AWS::SES::EmailIdentity
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      EmailIdentity: !Ref SesDomainIdentity
+      DkimAttributes:
+        SigningEnabled: true
+      MailFromAttributes:
+        BehaviorOnMxFailure: REJECT_MESSAGE
+        MailFromDomain: !Ref SesMailFromDomain
+      Tags:
+        - Key: managed-by
+          Value: cloudformation
+        - Key: environment
+          Value: shared
+        - Key: purpose
+          Value: application-email
+
+  DkimDnsRecord1:
+    Type: AWS::Route53::RecordSet
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      HostedZoneId: !Ref Route53HostedZoneId
+      Name: !GetAtt SesDomainIdentityResource.DkimDNSTokenName1
+      Type: CNAME
+      TTL: "300"
+      ResourceRecords:
+        - !GetAtt SesDomainIdentityResource.DkimDNSTokenValue1
+
+  DkimDnsRecord2:
+    Type: AWS::Route53::RecordSet
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      HostedZoneId: !Ref Route53HostedZoneId
+      Name: !GetAtt SesDomainIdentityResource.DkimDNSTokenName2
+      Type: CNAME
+      TTL: "300"
+      ResourceRecords:
+        - !GetAtt SesDomainIdentityResource.DkimDNSTokenValue2
+
+  DkimDnsRecord3:
+    Type: AWS::Route53::RecordSet
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      HostedZoneId: !Ref Route53HostedZoneId
+      Name: !GetAtt SesDomainIdentityResource.DkimDNSTokenName3
+      Type: CNAME
+      TTL: "300"
+      ResourceRecords:
+        - !GetAtt SesDomainIdentityResource.DkimDNSTokenValue3
+
+  MailFromMxDnsRecord:
+    Type: AWS::Route53::RecordSet
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      HostedZoneId: !Ref Route53HostedZoneId
+      Name: !Ref SesMailFromDomain
+      Type: MX
+      TTL: "300"
+      ResourceRecords:
+        - !Sub "10 feedback-smtp.${AWS::Region}.amazonses.com"
+
+  MailFromSpfDnsRecord:
+    Type: AWS::Route53::RecordSet
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      HostedZoneId: !Ref Route53HostedZoneId
+      Name: !Ref SesMailFromDomain
+      Type: TXT
+      TTL: "300"
+      ResourceRecords:
+        - '"v=spf1 include:amazonses.com ~all"'
+
+  SesSenderUser:
+    Type: AWS::IAM::User
+    Properties:
+      UserName: umc-product-prod-email-sender
+      Policies:
+        - PolicyName: send-production-application-email
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: SendFromProductionAddress
+                Effect: Allow
+                Action: ses:SendEmail
+                Resource: !Sub "arn:${AWS::Partition}:ses:${AWS::Region}:${AWS::AccountId}:identity/${SesDomainIdentity}"
+                Condition:
+                  StringEquals:
+                    "ses:FromAddress": !Ref SenderEmailAddress
+      Tags:
+        - Key: managed-by
+          Value: cloudformation
+        - Key: environment
+          Value: prod
+        - Key: purpose
+          Value: application-email-sender
+
+  NonprodSesSenderUser:
+    Type: AWS::IAM::User
+    Properties:
+      UserName: umc-product-nonprod-email-sender
+      Policies:
+        - PolicyName: send-nonprod-application-email
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: SendFromNonprodAddress
+                Effect: Allow
+                Action: ses:SendEmail
+                Resource: !Sub "arn:${AWS::Partition}:ses:${AWS::Region}:${AWS::AccountId}:identity/${SesDomainIdentity}"
+                Condition:
+                  StringEquals:
+                    "ses:FromAddress": !Ref NonprodSenderEmailAddress
+      Tags:
+        - Key: managed-by
+          Value: cloudformation
+        - Key: environment
+          Value: nonprod
+        - Key: purpose
+          Value: application-email-sender
+
+Outputs:
+  SesIdentityName:
+    Value: !Ref SesDomainIdentityResource
+  SesIdentityArn:
+    Value: !Sub "arn:${AWS::Partition}:ses:${AWS::Region}:${AWS::AccountId}:identity/${SesDomainIdentity}"
+  SesSenderUserName:
+    Value: !Ref SesSenderUser
+  SesSenderUserArn:
+    Value: !GetAtt SesSenderUser.Arn
+  SesRegion:
+    Value: !Ref AWS::Region
+  Route53HostedZoneId:
+    Value: !Ref Route53HostedZoneId
+  MailFromDomain:
+    Value: !Ref SesMailFromDomain
+  MailFromBehaviorOnMxFailure:
+    Value: REJECT_MESSAGE
+  MailFromMxDnsName:
+    Value: !Ref SesMailFromDomain
+  MailFromMxPriority:
+    Value: "10"
+  MailFromMxValue:
+    Value: !Sub "feedback-smtp.${AWS::Region}.amazonses.com"
+  MailFromSpfDnsName:
+    Value: !Ref SesMailFromDomain
+  MailFromSpfValue:
+    Value: "v=spf1 include:amazonses.com ~all"
+  SenderEmailAddress:
+    Value: !Ref SenderEmailAddress
+  NonprodSesSenderUserName:
+    Value: !Ref NonprodSesSenderUser
+  NonprodSesSenderUserArn:
+    Value: !GetAtt NonprodSesSenderUser.Arn
+  NonprodSenderEmailAddress:
+    Value: !Ref NonprodSenderEmailAddress
+  DkimDnsTokenName1:
+    Value: !GetAtt SesDomainIdentityResource.DkimDNSTokenName1
+  DkimDnsTokenValue1:
+    Value: !GetAtt SesDomainIdentityResource.DkimDNSTokenValue1
+  DkimDnsTokenName2:
+    Value: !GetAtt SesDomainIdentityResource.DkimDNSTokenName2
+  DkimDnsTokenValue2:
+    Value: !GetAtt SesDomainIdentityResource.DkimDNSTokenValue2
+  DkimDnsTokenName3:
+    Value: !GetAtt SesDomainIdentityResource.DkimDNSTokenName3
+  DkimDnsTokenValue3:
+    Value: !GetAtt SesDomainIdentityResource.DkimDNSTokenValue3

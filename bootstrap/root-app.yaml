@@ -1,0 +1,25 @@
+# app-of-apps 루트 — Ansible이 AppProject를 먼저 적용한 뒤 생성한다.
+# root만 단독 apply하면 bootstrap project가 없어 sync할 수 없다.
+# 이후 argocd/ 아래 AppProject와 Application들이 자동 생성·동기화된다.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: root
+  namespace: argocd
+spec:
+  project: bootstrap
+  source:
+    repoURL: https://github.com/UMC-PRODUCT/umc-product-infra.git
+    targetRevision: main
+    path: argocd
+    directory:
+      recurse: true
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd
+  syncPolicy:
+    automated:
+      selfHeal: true
+      # 루트는 prune 끔 — argocd/에서 파일을 삭제해도 자식 Application을 자동 삭제하지 않음(초기 운영 안전장치).
+      # 구조가 안정되면 true로 올려도 됨
+      prune: false

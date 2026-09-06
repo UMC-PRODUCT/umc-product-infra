@@ -1,0 +1,40 @@
+---
+# argo-cd chart 10.3.0의 appVersion과 함께 검증한 Argo CD 버전이다.
+# 업그레이드할 때 chart/app 버전, URL, checksum과 values를 한 묶음으로 갱신한다.
+argocd_version: v3.5.0
+argocd_namespace: argocd
+
+argocd_helm_version: v4.2.4
+argocd_helm_archive_url: >-
+  https://get.helm.sh/helm-v4.2.4-linux-amd64.tar.gz
+argocd_helm_archive_checksum: >-
+  sha256:c306b46f719b0a4da32d0f78ee21bf90ce8d602f15b22ab753f0674d1670a7f3
+argocd_helm_binary_checksum: >-
+  92e191314f44aac173711bb0247c38c727f3ddf65ad16a01c0861d509a63a9e1
+argocd_helm_archive_path: >-
+  /var/lib/umc-product/bootstrap/helm-v4.2.4-linux-amd64.tar.gz
+argocd_helm_install_directory: >-
+  /var/lib/umc-product/bootstrap/helm-v4.2.4-linux-amd64
+argocd_helm_binary_path: /usr/local/bin/helm
+
+argocd_helm_release_name: argocd
+argocd_helm_chart_version: 10.3.0
+argocd_helm_chart_url: >-
+  https://github.com/argoproj/argo-helm/releases/download/argo-cd-10.3.0/argo-cd-10.3.0.tgz
+argocd_helm_chart_checksum: >-
+  sha256:d08882d22d0c76e3174e005cc09abe300c70ba556aec76725a4410d172b9c1f3
+argocd_helm_chart_path: >-
+  /var/lib/umc-product/bootstrap/argo-cd-10.3.0.tgz
+argocd_helm_values_path: >-
+  /var/lib/umc-product/bootstrap/argo-cd-values-10.3.0.yaml
+argocd_helm_release_timeout: 15m0s
+argocd_helm_history_max: 10
+
+argocd_health_manifest_path: >-
+  {{ playbook_dir }}/../../manifests/cluster/argocd-health.yaml
+argocd_projects_manifest_path: "{{ playbook_dir }}/../../argocd/projects.yaml"
+argocd_root_app_manifest_path: >-
+  {{ playbook_dir }}/../../bootstrap/root-app.yaml
+argocd_root_app_ready_timeout: 30m
+argocd_root_app_refresh_retries: 900
+argocd_root_app_refresh_delay: 2

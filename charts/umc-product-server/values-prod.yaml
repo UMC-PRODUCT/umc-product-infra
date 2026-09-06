@@ -1,0 +1,71 @@
+# 운영 환경 override. bootstrap gate는 필수 이미지와 시크릿 검증 후에만 연다.
+
+environment: prod
+
+deployment:
+  enabled: false
+
+image:
+  tag: bootstrap-required
+  digest: ""
+
+priorityClassName: app-important
+
+networkPolicy:
+  enabled: true
+  database:
+    namespace: db
+
+ingress:
+  enabled: false
+  host: api.university.neordinary.com
+  tls:
+    - hosts: [api.university.neordinary.com]
+      secretName: api-university-neordinary-com-tls
+
+certificate:
+  enabled: true
+
+resources:
+  requests:
+    cpu: 1000m
+    memory: 4Gi
+  limits:
+    cpu: 3000m
+    memory: 6Gi
+
+env:
+  SPRING_PROFILES_ACTIVE: prod
+  SPRING_APPLICATION_NAME: prod-umc-product
+  APP_ENVIRONMENT: prod
+  FCM_ENABLED: "true"
+  DEMODAY_QR_BASE_URL: https://university.neordinary.com
+  SSO_ISSUER: https://api.university.neordinary.com
+  CERTIFICATE_VERIFICATION_URL_TEMPLATE: https://api.university.neordinary.com/api/v1/certificates/verify/{serialNumber}
+  S3_BUCKET_NAME: umc-product-prod-app-storage-351284652562-ap-northeast-2
+  S3_REGION: ap-northeast-2
+  SES_REGION: ap-northeast-2
+  EMAIL_NO_REPLY_ADDRESS: no-reply@university.neordinary.com
+  GOOGLE_CLIENT_ID_LIST: "882297658822-ag179p23eqhc5lti8ue5cgbf5phekbfh.apps.googleusercontent.com,882297658822-qaf493b6fu6a9f33artnu435jimkoome.apps.googleusercontent.com,882297658822-gsl0u8uo78qtt5h0ggkm421sml9c02pd.apps.googleusercontent.com,882297658822-d47kcffbv3eoms278pak6rcv21lhcei8.apps.googleusercontent.com"
+  CORS_ALLOWED_ORIGIN_PATTERNS: "https://university.neordinary.com,https://admin.university.neordinary.com,https://tech.university.neordinary.com"
+  APP_SEED_ENABLED: "false"
+  DATABASE_URL: jdbc:postgresql://postgres.db.svc.cluster.local:5432/umc_product
+  DATABASE_USERNAME: umc_product_app
+  MEDIA_STORAGE_PURGE_ENABLED: "true"
+  PRIVACY_RETENTION_ENABLED: "true"
+
+# prod만 FCM을 활성화하므로 Firebase 자격증명 Secret을 추가로 주입한다.
+requiredSecrets:
+  - app-db
+  - app-jwt
+  - app-oauth
+  - app-storage
+  - app-email
+  - app-fcm
+
+reloader:
+  secretNames:
+    - app-oauth
+    - app-storage
+    - app-email
+    - app-fcm

@@ -1,0 +1,130 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: postgres
+  labels:
+    app.kubernetes.io/name: postgres
+    app.kubernetes.io/component: database
+    environment: prod
+spec:
+  serviceName: postgres-headless
+  replicas: 1 # 단일 노드 — 복제 없음, 백업이 유일한 복구선 (D3, D4)
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: postgres
+      app.kubernetes.io/component: database
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: postgres
+        app.kubernetes.io/component: database
+    spec:
+      priorityClassName: db-critical # manifests/cluster/priorityclasses.yaml
+      automountServiceAccountToken: false
+      # 체크포인트/정리 시간 확보 — 짧으면 강제종료로 복구 시간 늘어남
+      terminationGracePeriodSeconds: 120
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999 # 공식 postgres(debian) 이미지의 postgres 유저
+        runAsGroup: 999
+        fsGroup: 999
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: postgres
+          # UMC migration이 postgis와 btree_gist를 사용하므로 plain postgres 이미지는 쓸 수 없다.
+          # x86_64 IDC에서 검증한 PostgreSQL 18 / PostGIS 3.6 OCI index digest를 고정한다.
+          # bootstrap/backup helper Job도 같은 이미지와 메이저 버전을 사용한다.
+          image: postgis/postgis:18-3.6@sha256:60f6ad1d21ea86a67d47780b9a0d1e1d200500f62b19293fa834d0dea80b8677
+          args:
+            # 튜닝은 ConfigMap 대신 args로 — 파일 하나 덜 만들고 값이 여기 다 보임 (계획 Phase 3의 "튜닝 ConfigMap"을 단순화)
+            # 아래 값은 limits.memory 8Gi 기준 (계획 §4-2). 메모리를 바꾸면 같이 조정
+            - -c
+            - shared_buffers=2GB # 컨테이너 메모리의 25%
+            - -c
+            - effective_cache_size=6GB
+            - -c
+            - work_mem=16MB
+            - -c
+            - maintenance_work_mem=512MB
+            - -c
+            - max_connections=60 # §8-4 해결: 앱 Hikari 풀 10 (application.yml) — 60이면 충분한 여유
+          ports:
+            - name: postgres
+              containerPort: 5432
+              protocol: TCP
+          env:
+            # Secrets Manager /umc-product/prod/postgres-secrets JSON → ExternalSecret/postgres-secrets (db)
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef: { name: postgres-secrets, key: POSTGRES_USER }
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: postgres-secrets, key: POSTGRES_PASSWORD }
+            - name: POSTGRES_DB
+              value: umc_product
+          # Guaranteed QoS: requests == limits (cpu·memory 모두) — 계획 §4-3 eviction 방어
+          # Guaranteed QoS 조건: cpu·memory 모두 requests == limits
+          # 예약해도 유휴분은 다른 파드가 쓴다 — vacuum·인덱스 빌드·pg_dump에 실코어 2개 확보
+          resources:
+            requests:
+              cpu: 2000m
+              memory: 8Gi
+            limits:
+              cpu: 2000m
+              memory: 8Gi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          startupProbe:
+            exec:
+              # exec 배열은 $(VAR)를 확장하지 않으므로 shell을 명시한다.
+              command: ["sh", "-ec", "exec pg_isready -U \"$POSTGRES_USER\" -d \"$POSTGRES_DB\""]
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 60
+          readinessProbe:
+            exec:
+              command: ["sh", "-ec", "exec pg_isready -U \"$POSTGRES_USER\" -d \"$POSTGRES_DB\""]
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          livenessProbe:
+            exec:
+              command: ["sh", "-ec", "exec pg_isready -U \"$POSTGRES_USER\" -d \"$POSTGRES_DB\""]
+            periodSeconds: 30
+            timeoutSeconds: 3
+            failureThreshold: 3
+          volumeMounts:
+            # PostgreSQL 18 이미지의 기본 PGDATA는 /var/lib/postgresql/18/docker이고
+            # VOLUME 선언은 /var/lib/postgresql이다. 메이저 업그레이드 경계를 보존하도록
+            # 정확히 상위 디렉터리에 PVC를 마운트한다.
+            - name: data
+              mountPath: /var/lib/postgresql
+            - name: tmp
+              mountPath: /tmp
+            - name: run
+              mountPath: /var/run/postgresql
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: 256Mi
+        - name: run
+          emptyDir:
+            sizeLimit: 64Mi
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      # environment 라벨을 여기 넣으면 안 된다. spec.volumeClaimTemplates 는 불변 필드라
+      # 기존 StatefulSet 갱신이 admission 단계에서 거부된다(서버 dry-run 으로 확인).
+      #   Forbidden: updates to statefulset spec for fields other than 'replicas',
+      #   'ordinals', 'template', 'updateStrategy', ... are forbidden
+      # 그래서 이 PVC 는 다이어그램의 환경 박스 밖에 남는다 — 그림의 한계로 받아들인다.
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        storageClassName: local-path # k3s 내장 — NVMe 직결. 노드 소실 = 데이터 소실 → 백업 필수
+        resources:
+          requests:
+            storage: 20Gi

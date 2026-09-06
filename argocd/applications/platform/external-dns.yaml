@@ -1,0 +1,70 @@
+# ExternalDNS — opted-in Ingress의 정확한 host만 Route 53과 동기화한다.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: external-dns
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: external-dns
+  source:
+    repoURL: https://kubernetes-sigs.github.io/external-dns/
+    chart: external-dns
+    targetRevision: 1.21.1
+    helm:
+      valuesObject:
+        fullnameOverride: external-dns
+        image:
+          tag: v0.21.0@sha256:f53faaf71cb270d1ca9dce6ea0c94bfebf1a18696263487f0fbc74b9bf2bd7ff
+        provider:
+          name: aws
+        sources: [ingress]
+        # A record와 TXT registry ownership만 허용한다.
+        managedRecordTypes: [A, TXT]
+        domainFilters: [university.neordinary.com]
+        annotationFilter: external-dns.kubernetes.io/managed-by=umc-infra
+        policy: sync
+        registry: txt
+        txtOwnerId: umc-infra-idc
+        txtPrefix: _external-dns.
+        interval: 1m
+        triggerLoopOnEvent: true
+        extraArgs:
+          # Route 53의 university.neordinary.com Hosted Zone ID(비밀값 아님).
+          - --zone-id-filter=Z02258617BWIPPUVEV88
+          - --ingress-class=traefik
+          - --aws-zone-type=public
+          # 실제 IDC public IPv4/32로 바꾸기 전에는 어떤 운영 target도 통과하지 않는다.
+          - --target-net-filter=192.0.2.0/32
+        env:
+          - name: AWS_DEFAULT_REGION
+            value: ap-northeast-2
+          - name: AWS_ACCESS_KEY_ID
+            valueFrom:
+              secretKeyRef:
+                name: route53-credentials
+                key: access-key-id
+          - name: AWS_SECRET_ACCESS_KEY
+            valueFrom:
+              secretKeyRef:
+                name: route53-credentials
+                key: secret-access-key
+        resources:
+          requests: { cpu: 50m, memory: 64Mi }
+          limits: { memory: 128Mi }
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: external-dns
+  syncPolicy:
+    automated:
+      selfHeal: true
+      prune: true
+    retry:
+      limit: 5
+      backoff:
+        duration: 10s
+        factor: 2
+        maxDuration: 3m

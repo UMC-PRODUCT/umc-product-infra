@@ -1,0 +1,1496 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="color-scheme" content="light dark">
+  <title>UMC Infra Control Room</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='10' fill='%230c1412'/%3E%3Cpath d='M14 19h36v26H14z' fill='none' stroke='%2353d69f' stroke-width='4'/%3E%3Cpath d='M21 27h9M21 36h22' stroke='%23f2b85b' stroke-width='4' stroke-linecap='square'/%3E%3C/svg%3E">
+  <style>
+    :root {
+      --font-body: "Avenir Next", Pretendard, "Noto Sans KR", sans-serif;
+      --font-mono: "SFMono-Regular", "JetBrains Mono", Consolas, monospace;
+      --bg: #f4f7f5;
+      --surface: #ffffff;
+      --surface-2: #eaf0ed;
+      --surface-3: #dfe9e4;
+      --border: #cfdad5;
+      --border-strong: #9eb1a8;
+      --text: #17231f;
+      --text-dim: #63716c;
+      --accent: #0b7a55;
+      --accent-dim: rgba(11, 122, 85, 0.09);
+      --amber: #a85f05;
+      --amber-dim: rgba(168, 95, 5, 0.10);
+      --blue: #1f5c91;
+      --blue-dim: rgba(31, 92, 145, 0.10);
+      --red: #b84444;
+      --red-dim: rgba(184, 68, 68, 0.09);
+      --shadow: 0 12px 34px rgba(23, 35, 31, 0.08);
+      --grid-line: rgba(11, 122, 85, 0.055);
+    }
+
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #0c1412;
+        --surface: #111d19;
+        --surface-2: #172520;
+        --surface-3: #203129;
+        --border: #263b33;
+        --border-strong: #466358;
+        --text: #e7f2ed;
+        --text-dim: #96aaa1;
+        --accent: #53d69f;
+        --accent-dim: rgba(83, 214, 159, 0.12);
+        --amber: #f2b85b;
+        --amber-dim: rgba(242, 184, 91, 0.12);
+        --blue: #77bdf5;
+        --blue-dim: rgba(119, 189, 245, 0.12);
+        --red: #ff8585;
+        --red-dim: rgba(255, 133, 133, 0.11);
+        --shadow: 0 18px 44px rgba(0, 0, 0, 0.28);
+        --grid-line: rgba(83, 214, 159, 0.045);
+      }
+    }
+
+    * { box-sizing: border-box; }
+    html { font-size: 16px; scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      overflow-wrap: break-word;
+      color: var(--text);
+      background-color: var(--bg);
+      background-image:
+        linear-gradient(var(--grid-line) 1px, transparent 1px),
+        linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
+      background-size: 28px 28px;
+      font-family: var(--font-body);
+      font-size: 0.9375rem;
+      line-height: 1.62;
+    }
+
+    a { color: var(--accent); text-underline-offset: 0.18em; }
+    a:hover { color: var(--blue); }
+    code, pre, .mono { font-family: var(--font-mono); }
+    code {
+      font-size: 0.75rem;
+      color: var(--accent);
+      background: var(--accent-dim);
+      border: 1px solid color-mix(in srgb, var(--accent) 20%, transparent);
+      border-radius: 3px;
+      padding: 0.08rem 0.3rem;
+    }
+    button, input { font: inherit; }
+    :focus-visible { outline: 3px solid var(--amber); outline-offset: 3px; }
+
+    .skip-link {
+      position: fixed;
+      top: 10px;
+      left: 10px;
+      z-index: 1000;
+      transform: translateY(-160%);
+      padding: 8px 12px;
+      color: var(--surface);
+      background: var(--text);
+      border-radius: 5px;
+    }
+    .skip-link:focus { transform: translateY(0); }
+
+    .page-progress {
+      position: fixed;
+      inset: 0 auto auto 0;
+      width: 0;
+      height: 3px;
+      z-index: 500;
+      background: var(--accent);
+    }
+
+    .wrap {
+      width: min(1500px, 100%);
+      margin: 0 auto;
+      display: grid;
+      grid-template-columns: 210px minmax(0, 1fr);
+      gap: 0 42px;
+      padding: 26px 38px 80px;
+    }
+    .main { min-width: 0; }
+
+    .toc {
+      position: sticky;
+      top: 24px;
+      align-self: start;
+      grid-row: 1 / -1;
+      max-height: calc(100dvh - 48px);
+      overflow-y: auto;
+      padding: 4px 0 18px;
+    }
+    .toc::-webkit-scrollbar { width: 3px; }
+    .toc::-webkit-scrollbar-thumb { background: var(--border-strong); }
+    .toc-brand {
+      padding: 15px 14px 17px;
+      margin-bottom: 16px;
+      border: 1px solid var(--border-strong);
+      border-top: 4px solid var(--accent);
+      background: color-mix(in srgb, var(--surface) 86%, transparent);
+      box-shadow: var(--shadow);
+    }
+    .toc-brand strong {
+      display: block;
+      font-family: var(--font-mono);
+      font-size: 0.875rem;
+      letter-spacing: 0.04em;
+    }
+    .toc-brand span {
+      display: block;
+      margin-top: 4px;
+      color: var(--text-dim);
+      font-family: var(--font-mono);
+      font-size: 0.6875rem;
+      letter-spacing: 0.12em;
+    }
+    .toc-title {
+      margin: 0 8px 8px;
+      color: var(--text-dim);
+      font-family: var(--font-mono);
+      font-size: 0.6875rem;
+      font-weight: 700;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+    }
+    .toc a {
+      display: block;
+      margin: 1px 0;
+      padding: 7px 10px;
+      border-left: 2px solid transparent;
+      color: var(--text-dim);
+      font-size: 0.75rem;
+      text-decoration: none;
+      transition: color 120ms ease, background 120ms ease, border-color 120ms ease;
+    }
+    .toc a:hover { color: var(--text); background: var(--surface-2); }
+    .toc a.active {
+      color: var(--text);
+      border-left-color: var(--accent);
+      background: var(--accent-dim);
+    }
+    .toc-note {
+      margin: 18px 10px 0;
+      padding-top: 13px;
+      border-top: 1px solid var(--border);
+      color: var(--text-dim);
+      font-family: var(--font-mono);
+      font-size: 0.6875rem;
+      line-height: 1.55;
+    }
+
+    .hero {
+      position: relative;
+      overflow: hidden;
+      min-height: 430px;
+      padding: 42px;
+      border: 1px solid var(--border-strong);
+      border-top: 5px solid var(--accent);
+      background: var(--surface);
+      box-shadow: var(--shadow);
+    }
+    .hero::after {
+      content: "";
+      position: absolute;
+      width: 360px;
+      height: 360px;
+      right: -180px;
+      bottom: -220px;
+      border: 1px solid var(--border);
+      transform: rotate(45deg);
+      background: var(--accent-dim);
+    }
+    .eyebrow {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      color: var(--accent);
+      font-family: var(--font-mono);
+      font-size: 0.6875rem;
+      font-weight: 700;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+    }
+    .eyebrow::before {
+      content: "";
+      width: 28px;
+      height: 2px;
+      background: currentColor;
+    }
+    .hero-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1.15fr) minmax(310px, 0.85fr);
+      gap: 42px;
+      align-items: end;
+      margin-top: 38px;
+    }
+    h1 {
+      max-width: 800px;
+      margin: 0;
+      font-size: clamp(2.65rem, 6vw, 5.3rem);
+      line-height: 0.96;
+      letter-spacing: -0.055em;
+      text-wrap: balance;
+    }
+    .hero-lead {
+      max-width: 66ch;
+      margin: 25px 0 0;
+      color: var(--text-dim);
+      font-size: 1.05rem;
+      line-height: 1.75;
+    }
+    .hero-lead strong { color: var(--text); }
+    .status-console {
+      position: relative;
+      z-index: 1;
+      border: 1px solid var(--border-strong);
+      background: var(--surface-2);
+    }
+    .console-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 10px 14px;
+      border-bottom: 1px solid var(--border);
+      color: var(--text-dim);
+      font-family: var(--font-mono);
+      font-size: 0.6875rem;
+      letter-spacing: 0.08em;
+    }
+    .console-lights { display: flex; gap: 5px; }
+    .console-lights i { width: 7px; height: 7px; border-radius: 50%; background: var(--border-strong); }
+    .console-lights i:nth-child(1) { background: var(--red); }
+    .console-lights i:nth-child(2) { background: var(--amber); }
+    .console-lights i:nth-child(3) { background: var(--accent); }
+    .console-body { padding: 16px 17px 18px; }
+    .console-line {
+      display: grid;
+      grid-template-columns: 98px minmax(0, 1fr);
+      gap: 12px;
+      padding: 8px 0;
+      border-bottom: 1px dashed var(--border);
+      font-family: var(--font-mono);
+      font-size: 0.75rem;
+    }
+    .console-line:last-child { border-bottom: 0; }
+    .console-line dt { color: var(--text-dim); }
+    .console-line dd { margin: 0; color: var(--text); overflow-wrap: anywhere; }
+
+    .kpi-row {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      margin-top: 22px;
+      border: 1px solid var(--border);
+      background: var(--surface);
+    }
+    .kpi {
+      min-width: 0;
+      padding: 18px 20px;
+      border-right: 1px solid var(--border);
+    }
+    .kpi:last-child { border-right: 0; }
+    .kpi strong {
+      display: block;
+      font-family: var(--font-mono);
+      font-size: 1.55rem;
+      line-height: 1.1;
+      font-variant-numeric: tabular-nums;
+    }
+    .kpi span {
+      display: block;
+      margin-top: 6px;
+      color: var(--text-dim);
+      font-size: 0.75rem;
+    }
+
+    .notice {
+      margin-top: 18px;
+      padding: 14px 18px;
+      border-left: 4px solid var(--amber);
+      background: var(--amber-dim);
+      color: var(--text-dim);
+    }
+    .notice strong { color: var(--text); }
+
+    .section-block { margin-top: 76px; scroll-margin-top: 28px; }
+    .sec-head {
+      display: grid;
+      grid-template-columns: 58px minmax(0, 1fr);
+      gap: 18px;
+      align-items: start;
+      margin-bottom: 24px;
+      scroll-margin-top: 28px;
+    }
+    .sec-index {
+      padding-top: 3px;
+      color: var(--accent);
+      font-family: var(--font-mono);
+      font-size: 0.75rem;
+      font-weight: 700;
+      letter-spacing: 0.12em;
+    }
+    .sec-copy h2 {
+      margin: 0;
+      font-size: clamp(1.65rem, 3vw, 2.45rem);
+      line-height: 1.1;
+      letter-spacing: -0.035em;
+      text-wrap: balance;
+    }
+    .sec-copy p {
+      max-width: 72ch;
+      margin: 9px 0 0;
+      color: var(--text-dim);
+      font-size: 0.875rem;
+    }
+
+    .status-chip, .tag {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      width: fit-content;
+      padding: 3px 7px;
+      border: 1px solid currentColor;
+      border-radius: 999px;
+      font-family: var(--font-mono);
+      font-size: 0.6875rem;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      line-height: 1.3;
+      text-transform: uppercase;
+    }
+    .status-chip::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+    .is-ready { color: var(--accent); background: var(--accent-dim); }
+    .is-wait { color: var(--amber); background: var(--amber-dim); }
+    .is-closed { color: var(--red); background: var(--red-dim); }
+    .is-later { color: var(--blue); background: var(--blue-dim); }
+    .tag { color: var(--text-dim); background: var(--surface-2); border-color: var(--border-strong); }
+    .tag::before { display: none; }
+
+    .card-grid {
+      display: grid;
+      grid-template-columns: repeat(12, minmax(0, 1fr));
+      gap: 14px;
+    }
+    .ve-card {
+      grid-column: span 4;
+      min-width: 0;
+      padding: 20px;
+      border: 1px solid var(--border);
+      background: var(--surface);
+    }
+    .ve-card--wide { grid-column: span 8; }
+    .ve-card--half { grid-column: span 6; }
+    .ve-card--full { grid-column: 1 / -1; }
+    .ve-card--accent { border-top: 3px solid var(--accent); }
+    .ve-card--amber { border-top: 3px solid var(--amber); }
+    .ve-card--blue { border-top: 3px solid var(--blue); }
+    .ve-card--red { border-top: 3px solid var(--red); }
+    .ve-card__label {
+      margin-bottom: 11px;
+      color: var(--text-dim);
+      font-family: var(--font-mono);
+      font-size: 0.6875rem;
+      font-weight: 700;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+    }
+    .ve-card h3 { margin: 0 0 8px; font-size: 1rem; line-height: 1.35; }
+    .ve-card p { margin: 0; color: var(--text-dim); font-size: 0.8125rem; }
+    .ve-card p + p { margin-top: 9px; }
+
+    .clean-list {
+      list-style: none;
+      margin: 12px 0 0;
+      padding: 0;
+      color: var(--text-dim);
+      font-size: 0.8125rem;
+    }
+    .clean-list li { position: relative; padding: 5px 0 5px 15px; }
+    .clean-list li::before { content: "›"; position: absolute; left: 0; color: var(--accent); font-weight: 700; }
+    .clean-list strong { color: var(--text); }
+
+    figure { margin: 0; }
+    .diagram-shell {
+      border: 1px solid var(--border-strong);
+      background: var(--surface);
+      box-shadow: var(--shadow);
+    }
+    .diagram-titlebar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 14px;
+      padding: 10px 15px;
+      border-bottom: 1px solid var(--border);
+      background: var(--surface-2);
+      color: var(--text-dim);
+      font-family: var(--font-mono);
+      font-size: 0.6875rem;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+    .diagram-body { padding: 22px; }
+    .flow-chain {
+      display: flex;
+      align-items: stretch;
+      gap: 0;
+      min-width: max-content;
+    }
+    .flow-scroll { overflow-x: auto; padding-bottom: 8px; }
+    .flow-card {
+      width: 176px;
+      min-width: 176px;
+      padding: 13px 14px;
+      border: 1px solid var(--border);
+      background: var(--surface-2);
+    }
+    .flow-card strong { display: block; font-size: 0.8125rem; }
+    .flow-card span { display: block; margin-top: 4px; color: var(--text-dim); font-size: 0.6875rem; }
+    .flow-card--accent { border-color: var(--accent); background: var(--accent-dim); }
+    .flow-card--blue { border-color: var(--blue); background: var(--blue-dim); }
+    .flow-card--amber { border-color: var(--amber); background: var(--amber-dim); }
+    .flow-arrow {
+      display: grid;
+      place-content: center;
+      width: 92px;
+      min-width: 92px;
+      color: var(--text-dim);
+      text-align: center;
+      font-family: var(--font-mono);
+      font-size: 0.625rem;
+    }
+    .flow-arrow b { display: block; color: var(--accent); font-size: 1.15rem; font-weight: 500; line-height: 1; }
+    .cluster-box {
+      margin-top: 18px;
+      padding: 18px;
+      border: 1px solid var(--border-strong);
+      background: color-mix(in srgb, var(--surface-2) 72%, transparent);
+    }
+    .cluster-heading {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 14px;
+      color: var(--text-dim);
+      font-family: var(--font-mono);
+      font-size: 0.6875rem;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+    .lane-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 11px; }
+    .lane { min-width: 0; border: 1px solid var(--border); background: var(--surface); }
+    .lane h3 {
+      margin: 0;
+      padding: 9px 12px;
+      border-bottom: 1px solid var(--border);
+      color: var(--text-dim);
+      font-family: var(--font-mono);
+      font-size: 0.6875rem;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+    .lane ul { list-style: none; margin: 0; padding: 11px 13px 13px; }
+    .lane li { position: relative; padding: 4px 0 4px 13px; font-size: 0.75rem; }
+    .lane li::before { content: "·"; position: absolute; left: 0; color: var(--accent); }
+    figcaption {
+      padding: 13px 16px;
+      border-top: 1px solid var(--border);
+      color: var(--text-dim);
+      background: var(--surface-2);
+      font-size: 0.75rem;
+    }
+
+    .timeline {
+      position: relative;
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 14px;
+    }
+    .timeline::before {
+      content: "";
+      position: absolute;
+      top: 31px;
+      left: 7%;
+      right: 7%;
+      height: 1px;
+      background: var(--border-strong);
+    }
+    .phase { position: relative; min-width: 0; }
+    .phase-num {
+      position: relative;
+      z-index: 1;
+      display: grid;
+      place-items: center;
+      width: 62px;
+      height: 62px;
+      margin-bottom: 12px;
+      border: 1px solid var(--border-strong);
+      background: var(--bg);
+      color: var(--accent);
+      font-family: var(--font-mono);
+      font-weight: 700;
+    }
+    .phase-body { min-height: 265px; padding: 17px; border: 1px solid var(--border); background: var(--surface); }
+    .phase-body h3 { margin: 10px 0 7px; font-size: 0.95rem; }
+    .phase-body p { margin: 0; color: var(--text-dim); font-size: 0.75rem; }
+
+    .table-wrap { overflow: hidden; border: 1px solid var(--border); background: var(--surface); }
+    .table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+    .data-table { width: 100%; border-collapse: collapse; font-size: 0.8125rem; }
+    .data-table caption {
+      padding: 12px 15px;
+      color: var(--text-dim);
+      background: var(--surface-2);
+      text-align: left;
+      font-size: 0.75rem;
+    }
+    .data-table th {
+      padding: 11px 13px;
+      border-bottom: 2px solid var(--border-strong);
+      color: var(--text-dim);
+      background: var(--surface-2);
+      font-family: var(--font-mono);
+      font-size: 0.6875rem;
+      font-weight: 700;
+      letter-spacing: 0.07em;
+      text-align: left;
+      text-transform: uppercase;
+      white-space: nowrap;
+    }
+    .data-table td { padding: 12px 13px; border-bottom: 1px solid var(--border); vertical-align: top; }
+    .data-table tr:last-child td { border-bottom: 0; }
+    .data-table tbody tr:hover { background: var(--accent-dim); }
+    .data-table .wide { min-width: 240px; }
+    .data-table .num { text-align: right; font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+
+    .gate-board { border: 1px solid var(--border-strong); background: var(--surface); }
+    .gate-row {
+      display: grid;
+      grid-template-columns: 170px 110px minmax(0, 1fr);
+      gap: 18px;
+      align-items: center;
+      padding: 14px 16px;
+      border-bottom: 1px solid var(--border);
+    }
+    .gate-row:last-child { border-bottom: 0; }
+    .gate-row h3 { margin: 0; font-size: 0.875rem; }
+    .gate-row p { margin: 0; color: var(--text-dim); font-size: 0.75rem; }
+
+    .decision-ledger { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 13px; }
+    .decision {
+      min-width: 0;
+      padding: 18px;
+      border: 1px solid var(--border);
+      background: var(--surface);
+    }
+    .decision-top { display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; }
+    .decision-id { color: var(--text-dim); font-family: var(--font-mono); font-size: 0.6875rem; }
+    .decision h3 { margin: 13px 0 7px; font-size: 1rem; }
+    .decision p { margin: 0; color: var(--text-dim); font-size: 0.8125rem; }
+    .decision .why { margin-top: 12px; padding-top: 10px; border-top: 1px dashed var(--border); }
+
+    .risk-panel {
+      display: grid;
+      grid-template-columns: minmax(0, 0.75fr) minmax(0, 1.25fr);
+      margin-top: 15px;
+      border: 1px solid var(--red);
+      background: var(--red-dim);
+    }
+    .risk-title { padding: 21px; border-right: 1px solid color-mix(in srgb, var(--red) 40%, transparent); }
+    .risk-title .mono { color: var(--red); font-size: 0.6875rem; font-weight: 700; letter-spacing: 0.12em; }
+    .risk-title h3 { margin: 10px 0 0; font-size: 1.15rem; }
+    .risk-copy { padding: 21px; }
+    .risk-copy p { margin: 0; color: var(--text-dim); font-size: 0.8125rem; }
+    .risk-copy p + p { margin-top: 8px; }
+
+    .dir-layout { display: grid; grid-template-columns: minmax(320px, 0.9fr) minmax(0, 1.1fr); gap: 15px; align-items: start; }
+    .dir-tree {
+      margin: 0;
+      overflow-x: auto;
+      padding: 19px 21px;
+      border: 1px solid var(--border-strong);
+      background: var(--surface);
+      color: var(--text-dim);
+      font-size: 0.75rem;
+      line-height: 1.75;
+      white-space: pre;
+    }
+    .dir-tree .hl { color: var(--accent); font-weight: 700; }
+    .dir-tree .ann { color: var(--text-dim); font-size: 0.6875rem; }
+    .task-router { border: 1px solid var(--border); background: var(--surface); }
+    .task-link {
+      display: grid;
+      grid-template-columns: minmax(150px, 0.7fr) minmax(0, 1.3fr);
+      gap: 13px;
+      padding: 12px 14px;
+      border-bottom: 1px solid var(--border);
+      text-decoration: none;
+    }
+    .task-link:last-child { border-bottom: 0; }
+    .task-link:hover { background: var(--accent-dim); }
+    .task-link strong { color: var(--text); font-size: 0.8125rem; }
+    .task-link span { color: var(--text-dim); font-size: 0.75rem; }
+
+    .detail-controls { display: flex; justify-content: flex-end; gap: 8px; margin-bottom: 10px; }
+    .detail-controls button {
+      padding: 7px 10px;
+      border: 1px solid var(--border-strong);
+      color: var(--text-dim);
+      background: var(--surface);
+      cursor: pointer;
+      font-family: var(--font-mono);
+      font-size: 0.6875rem;
+    }
+    .detail-controls button:hover { color: var(--text); border-color: var(--accent); }
+    details.collapsible { margin-top: 10px; border: 1px solid var(--border); background: var(--surface); }
+    details.collapsible summary {
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      padding: 13px 16px;
+      cursor: pointer;
+      list-style: none;
+      font-family: var(--font-mono);
+      font-size: 0.75rem;
+      font-weight: 700;
+    }
+    details.collapsible summary::-webkit-details-marker { display: none; }
+    details.collapsible summary::before { content: "+"; color: var(--accent); width: 13px; }
+    details.collapsible[open] summary::before { content: "−"; }
+    details.collapsible summary:hover { background: var(--surface-2); }
+    .collapsible__body { padding: 17px; border-top: 1px solid var(--border); }
+
+    .secret-flow {
+      display: grid;
+      grid-template-columns: repeat(6, minmax(0, 1fr));
+      gap: 7px;
+      align-items: stretch;
+    }
+    .secret-step { position: relative; min-width: 0; padding: 14px 12px; border: 1px solid var(--border); background: var(--surface); }
+    .secret-step:not(:last-child)::after {
+      content: "→";
+      position: absolute;
+      z-index: 2;
+      top: 50%;
+      right: -11px;
+      transform: translateY(-50%);
+      color: var(--accent);
+      font-family: var(--font-mono);
+    }
+    .secret-step strong { display: block; font-size: 0.75rem; }
+    .secret-step span { display: block; margin-top: 5px; color: var(--text-dim); font-size: 0.6875rem; }
+
+    .command {
+      position: relative;
+      margin: 12px 0 0;
+      overflow-x: auto;
+      padding: 16px 18px;
+      border: 1px solid var(--border-strong);
+      background: #0a100e;
+      color: #d5e9df;
+      font-size: 0.75rem;
+      line-height: 1.65;
+      white-space: pre;
+    }
+    .command .prompt { color: #53d69f; }
+    .command .comment { color: #789087; }
+
+    .never-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+    .never-card { padding: 17px; border-left: 4px solid var(--red); background: var(--red-dim); }
+    .never-card h3 { margin: 0 0 7px; font-size: 0.9rem; }
+    .never-card p { margin: 0; color: var(--text-dim); font-size: 0.75rem; }
+
+    .next-rail { border-left: 2px solid var(--border-strong); margin-left: 16px; }
+    .next-item { position: relative; margin-left: 24px; padding: 0 0 25px 17px; }
+    .next-item:last-child { padding-bottom: 0; }
+    .next-item::before {
+      content: "";
+      position: absolute;
+      width: 10px;
+      height: 10px;
+      left: -30px;
+      top: 6px;
+      border: 2px solid var(--bg);
+      outline: 1px solid var(--border-strong);
+      background: var(--accent);
+    }
+    .next-item.is-pending::before { background: var(--amber); }
+    .next-item.is-deferred::before { background: var(--blue); }
+    .next-item h3 { margin: 0; font-size: 0.95rem; }
+    .next-item p { max-width: 78ch; margin: 5px 0 0; color: var(--text-dim); font-size: 0.8125rem; }
+
+    .source-links { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 12px; }
+    .source-link {
+      padding: 4px 7px;
+      border: 1px solid var(--border);
+      color: var(--text-dim);
+      background: var(--surface-2);
+      font-family: var(--font-mono);
+      font-size: 0.6875rem;
+      text-decoration: none;
+    }
+    .source-link:hover { color: var(--text); border-color: var(--accent); }
+
+    .footer {
+      margin-top: 78px;
+      padding: 22px 0 0;
+      border-top: 1px solid var(--border-strong);
+      color: var(--text-dim);
+      font-size: 0.75rem;
+    }
+    .footer strong { color: var(--text); }
+
+    @keyframes rise {
+      from { opacity: 0; transform: translateY(9px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    .hero, .section-block { animation: rise 320ms ease-out both; }
+    .section-block { animation-delay: 80ms; }
+
+    @media (max-width: 1120px) {
+      .wrap { grid-template-columns: 1fr; padding-top: 0; }
+      body { padding-top: 0; }
+      .toc {
+        position: sticky;
+        top: 0;
+        z-index: 200;
+        display: flex;
+        gap: 3px;
+        align-items: center;
+        max-height: none;
+        margin: 0 -38px 24px;
+        padding: 8px 38px;
+        overflow-x: auto;
+        border-bottom: 1px solid var(--border);
+        background: color-mix(in srgb, var(--bg) 94%, transparent);
+        backdrop-filter: blur(12px);
+      }
+      .toc-brand, .toc-title, .toc-note { display: none; }
+      .toc a { flex-shrink: 0; border-left: 0; border-bottom: 2px solid transparent; white-space: nowrap; }
+      .toc a.active { border-left: 0; border-bottom-color: var(--accent); }
+      .section-block, .sec-head { scroll-margin-top: 70px; }
+      .hero-grid { grid-template-columns: 1fr; align-items: start; }
+      .status-console { max-width: 620px; }
+      .timeline { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .timeline::before { display: none; }
+      .phase-body { min-height: 0; }
+    }
+
+    @media (max-width: 780px) {
+      .wrap { padding-left: 18px; padding-right: 18px; }
+      .toc { margin-left: -18px; margin-right: -18px; padding-left: 18px; padding-right: 18px; }
+      .hero { padding: 28px 22px; }
+      .hero-grid { gap: 26px; }
+      .kpi-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .kpi:nth-child(2) { border-right: 0; }
+      .kpi:nth-child(-n+2) { border-bottom: 1px solid var(--border); }
+      .ve-card, .ve-card--wide, .ve-card--half { grid-column: 1 / -1; }
+      .lane-grid, .decision-ledger, .risk-panel, .dir-layout, .never-grid { grid-template-columns: 1fr; }
+      .risk-title { border-right: 0; border-bottom: 1px solid color-mix(in srgb, var(--red) 40%, transparent); }
+      .timeline { grid-template-columns: 1fr; }
+      .phase { display: grid; grid-template-columns: 48px minmax(0, 1fr); gap: 11px; }
+      .phase-num { width: 48px; height: 48px; }
+      .gate-row { grid-template-columns: 1fr; gap: 8px; }
+      .secret-flow { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .secret-step:not(:last-child)::after { display: none; }
+      .sec-head { grid-template-columns: 42px minmax(0, 1fr); gap: 10px; }
+      .task-link { grid-template-columns: 1fr; gap: 3px; }
+    }
+
+    @media (max-width: 470px) {
+      html { font-size: 15px; }
+      h1 { font-size: 2.55rem; }
+      .kpi-row, .secret-flow { grid-template-columns: 1fr; }
+      .kpi { border-right: 0; border-bottom: 1px solid var(--border); }
+      .kpi:last-child { border-bottom: 0; }
+      .console-line { grid-template-columns: 1fr; gap: 2px; }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after {
+        scroll-behavior: auto !important;
+        animation-duration: 0.01ms !important;
+        animation-delay: 0ms !important;
+        transition-duration: 0.01ms !important;
+      }
+    }
+  </style>
+</head>
+<body>
+  <a class="skip-link" href="#overview">본문으로 이동</a>
+  <div class="page-progress" id="page-progress" aria-hidden="true"></div>
+
+  <div class="wrap">
+    <nav class="toc" id="toc" aria-label="섹션 탐색">
+      <div class="toc-brand">
+        <strong>UMC / INFRA</strong>
+        <span>CONTROL ROOM</span>
+      </div>
+      <div class="toc-title">Navigate</div>
+      <a href="#overview" class="active">00 상태</a>
+      <a href="#architecture">01 전체 구조</a>
+      <a href="#delivery">02 실행 순서</a>
+      <a href="#environments">03 환경</a>
+      <a href="#decisions">04 결정 기록</a>
+      <a href="#gates">05 현재 Gate</a>
+      <a href="#repository">06 저장소 지도</a>
+      <a href="#operations">07 운영 도구</a>
+      <a href="#secrets">08 Secret</a>
+      <a href="#next">09 다음 작업</a>
+      <div class="toc-note">OVERVIEW ONLY<br>YAML · SCRIPT가 최종 기준</div>
+    </nav>
+
+    <main class="main" id="overview">
+      <header class="hero">
+        <div class="eyebrow">Single-node IDC / GitOps</div>
+        <div class="hero-grid">
+          <div>
+            <h1>인프라를 한 화면에서 읽는다.</h1>
+            <p class="hero-lead">
+              <strong>UMC Product</strong>의 서버 준비, GitOps, DNS/TLS, 데이터, Secret,
+              관측과 AWS 경계를 하나로 묶은 운영 지도다. 세부 문서를 순서대로 읽는 대신,
+              여기서 흐름을 잡고 실제 작업 때만 원본 파일을 연다.
+            </p>
+          </div>
+          <section class="status-console" aria-label="현재 인프라 상태">
+            <div class="console-head">
+              <span>STATUS / DECLARED STATE</span>
+              <span class="console-lights" aria-hidden="true"><i></i><i></i><i></i></span>
+            </div>
+            <dl class="console-body">
+              <div class="console-line"><dt>stage</dt><dd><span class="status-chip is-wait">pre-deploy</span></dd></div>
+              <div class="console-line"><dt>domain</dt><dd>university.neordinary.com</dd></div>
+              <div class="console-line"><dt>registry</dt><dd>public GHCR / BE 연결 전</dd></div>
+              <div class="console-line"><dt>git</dt><dd>public 예정 / remote 없음</dd></div>
+              <div class="console-line"><dt>edge</dt><dd>Hosted Zone 확정 / Public IP 대기</dd></div>
+              <div class="console-line"><dt>workload</dt><dd>Deployment · Ingress 닫힘</dd></div>
+            </dl>
+          </section>
+        </div>
+      </header>
+
+      <div class="kpi-row" aria-label="인프라 핵심 수치">
+        <div class="kpi"><strong>1</strong><span>IDC node · K3s control plane과 workload 공유</span></div>
+        <div class="kpi"><strong>3</strong><span>prod · dev · trusted preview 환경</span></div>
+        <div class="kpi"><strong>32</strong><span>raw Kubernetes manifest 파일</span></div>
+        <div class="kpi"><strong>5</strong><span>AWS CloudFormation template</span></div>
+      </div>
+
+      <div class="notice">
+        <strong>읽는 법:</strong> 이 페이지는 현재 Git 선언을 요약한다. 실제 AWS·DNS·클러스터 상태를
+        보증하지 않는다. 충돌하면 링크된 YAML, script와 실행 결과가 기준이다.
+      </div>
+
+      <section class="section-block" id="architecture">
+        <div class="sec-head">
+          <div class="sec-index">01 / MAP</div>
+          <div class="sec-copy">
+            <h2>사람의 준비에서 사용자 요청까지</h2>
+            <p>Host bootstrap과 지속 배포를 분리한다. Git은 원하는 상태를, AWS는 외부 자원과 Secret 원본을 소유한다.</p>
+          </div>
+        </div>
+
+        <figure class="diagram-shell" role="img" aria-label="UMC 인프라 제어 흐름과 런타임 구조">
+          <div class="diagram-titlebar"><span>Control plane handoff</span><span>Git → reconcile → runtime</span></div>
+          <div class="diagram-body">
+            <div class="flow-scroll">
+              <div class="flow-chain">
+                <div class="flow-card flow-card--amber"><strong>관리자 PC</strong><span>최초 SSH · Tailscale · AWS 준비</span></div>
+                <div class="flow-arrow"><span>enrolls</span><b>→</b></div>
+                <div class="flow-card"><strong>Ansible</strong><span>Ubuntu · UFW · K3s · Argo CD</span></div>
+                <div class="flow-arrow"><span>bootstraps</span><b>→</b></div>
+                <div class="flow-card flow-card--accent"><strong>IDC K3s</strong><span>single node · Traefik · local-path</span></div>
+                <div class="flow-arrow"><span>reconciles</span><b>←</b></div>
+                <div class="flow-card flow-card--blue"><strong>Argo CD</strong><span>public infra main · app-of-apps</span></div>
+                <div class="flow-arrow"><span>reads</span><b>←</b></div>
+                <div class="flow-card"><strong>umc-product-infra</strong><span>charts · manifests · Applications</span></div>
+              </div>
+            </div>
+
+            <div class="cluster-box">
+              <div class="cluster-heading"><span>Inside the single node</span><span>public 443 only</span></div>
+              <div class="lane-grid">
+                <section class="lane">
+                  <h3>Platform lane</h3>
+                  <ul>
+                    <li>Argo CD desired-state reconciliation</li>
+                    <li>External Secrets Operator</li>
+                    <li>cert-manager + ExternalDNS</li>
+                    <li>Reloader</li>
+                  </ul>
+                </section>
+                <section class="lane">
+                  <h3>Runtime lane</h3>
+                  <ul>
+                    <li>Traefik :443 → ClusterIP Service</li>
+                    <li>prod / dev / preview Spring Boot</li>
+                    <li>PostgreSQL 18 + PostGIS 3.6</li>
+                    <li>S3 · SES outbound</li>
+                  </ul>
+                </section>
+                <section class="lane">
+                  <h3>Signal lane</h3>
+                  <ul>
+                    <li>OTel Collector receives OTLP</li>
+                    <li>Prometheus metrics · Loki logs</li>
+                    <li>Tempo traces · Discord alerts</li>
+                    <li>Grafana query and dashboard</li>
+                  </ul>
+                </section>
+              </div>
+            </div>
+          </div>
+          <figcaption>
+            핵심 주장 — 초기 host 변경은 Ansible, 반복되는 cluster 변경은 Argo CD가 담당한다.
+            사용자 요청은 Route 53에서 IDC의 Traefik으로 직접 들어오며 별도 CDN·proxy·WAF는 없다.
+          </figcaption>
+        </figure>
+
+        <div class="card-grid" style="margin-top:14px">
+          <article class="ve-card ve-card--half ve-card--accent">
+            <div class="ve-card__label">Runtime request</div>
+            <h3>Client → DNS → IDC :443 → App</h3>
+            <p>Route 53 A record가 고정 Public IPv4를 반환한다. 제공업체 방화벽과 UFW를 지나 Traefik이 환경별 Service로 전달한다.</p>
+          </article>
+          <article class="ve-card ve-card--half ve-card--blue">
+            <div class="ve-card__label">Telemetry</div>
+            <h3>App → OTel → metrics / logs / traces</h3>
+            <p>Collector가 중앙 입구다. Prometheus 14일, Loki 90일, Tempo 7일 보존 후 Grafana가 조회한다.</p>
+          </article>
+        </div>
+
+        <div class="source-links">
+          <a class="source-link" href="architecture/k3s.md">architecture/k3s.md</a>
+          <a class="source-link" href="guides/ansible-bootstrap.md">guides/ansible-bootstrap.md</a>
+          <a class="source-link" href="guides/domains-tls.md">guides/domains-tls.md</a>
+          <a class="source-link" href="../argocd/applications/platform/observability/README.md">observability deployment</a>
+        </div>
+      </section>
+
+      <section class="section-block" id="delivery">
+        <div class="sec-head">
+          <div class="sec-index">02 / RUN</div>
+          <div class="sec-copy">
+            <h2>실행 순서는 네 구간</h2>
+            <p>일회성 체크박스 대신 의존성 순서만 남긴다. 다음 단계의 입력이 준비되지 않으면 gate를 열지 않는다.</p>
+          </div>
+        </div>
+
+        <div class="timeline">
+          <article class="phase">
+            <div class="phase-num">00</div>
+            <div class="phase-body">
+              <span class="status-chip is-ready">now</span>
+              <h3>Repository foundation</h3>
+              <p>infra 검증 → public GitHub 초기 main → Static validation → secret scanning → branch protection.</p>
+              <ul class="clean-list">
+                <li>현재 remote 없음</li>
+                <li>write는 cluster-admin급</li>
+                <li>BE bot도 PR만 허용</li>
+              </ul>
+            </div>
+          </article>
+          <article class="phase">
+            <div class="phase-num">01</div>
+            <div class="phase-body">
+              <span class="status-chip is-wait">external</span>
+              <h3>AWS foundation</h3>
+              <p>Route 53 IAM, ESO IAM, 환경별 app S3, SES, backup S3를 만든 뒤 local worksheet를 Secrets Manager에 올린다.</p>
+              <ul class="clean-list">
+                <li>5 templates · 7 stack 실행</li>
+                <li>access key는 CFN이 만들지 않음</li>
+                <li>live AWS 상태는 별도 확인</li>
+              </ul>
+            </div>
+          </article>
+          <article class="phase">
+            <div class="phase-num">02</div>
+            <div class="phase-body">
+              <span class="status-chip is-wait">idc</span>
+              <h3>Server bootstrap</h3>
+              <p>고정 IP 확보 → 임시 public SSH로 Tailscale 등록 → Tailscale 주소로 전환 → Ansible bootstrap → public 22 제거.</p>
+              <ul class="clean-list">
+                <li>8 vCPU · 32GiB · 512GB 기준</li>
+                <li>K3s + Argo CD + ESO secret-zero</li>
+                <li>public inbound는 443만</li>
+              </ul>
+            </div>
+          </article>
+          <article class="phase">
+            <div class="phase-num">03</div>
+            <div class="phase-body">
+              <span class="status-chip is-later">be later</span>
+              <h3>Image and activation</h3>
+              <p>BE CI가 public GHCR에 SHA image를 게시하고 infra tag·digest PR을 만든다. dev 검증 후 prod, preview는 마지막이다.</p>
+              <ul class="clean-list">
+                <li>prod/dev는 tag + digest</li>
+                <li>production TLS 뒤 Ingress</li>
+                <li>backup은 외부 restore 뒤 활성화</li>
+              </ul>
+            </div>
+          </article>
+        </div>
+
+        <pre class="command" aria-label="인프라 검증과 GitHub 보호 명령"><span class="prompt">$</span> ./scripts/validate.sh
+<span class="comment"># initial main의 Static validation 성공 후</span>
+<span class="prompt">$</span> scripts/configure-github-trust-root.sh --apply</pre>
+      </section>
+
+      <section class="section-block" id="environments">
+        <div class="sec-head">
+          <div class="sec-index">03 / ENV</div>
+          <div class="sec-copy">
+            <h2>세 환경, 한 runtime 계약</h2>
+            <p>공통 Helm chart를 쓰되 namespace, host, DB, 자원과 image 불변성 규칙을 분리한다.</p>
+          </div>
+        </div>
+
+        <div class="table-wrap">
+          <div class="table-scroll">
+            <table class="data-table">
+              <caption>환경별 source, network, database와 현재 상태</caption>
+              <thead>
+                <tr><th>환경</th><th>Git source</th><th>Namespace</th><th>Public host</th><th>Database</th><th>Image 규칙</th><th>상태</th></tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><strong>prod</strong></td><td><code>main</code></td><td><code>app</code> · <code>db</code></td>
+                  <td class="wide">api.university.neordinary.com</td><td><code>umc_product</code></td>
+                  <td>12-char SHA + digest</td><td><span class="status-chip is-closed">off</span></td>
+                </tr>
+                <tr>
+                  <td><strong>dev</strong></td><td><code>develop</code></td><td><code>dev-app</code> · <code>dev-db</code></td>
+                  <td class="wide">api-dev.university.neordinary.com</td><td><code>umc_product_dev</code></td>
+                  <td>12-char SHA + digest</td><td><span class="status-chip is-closed">off</span></td>
+                </tr>
+                <tr>
+                  <td><strong>preview</strong></td><td>trusted PR + label</td><td><code>preview</code></td>
+                  <td class="wide">api-pr-&lt;PR&gt;.university.neordinary.com</td><td><code>umc_product_pr&lt;N&gt;</code></td>
+                  <td>write-once head SHA</td><td><span class="status-chip is-closed">off</span></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="card-grid" style="margin-top:14px">
+          <article class="ve-card ve-card--accent">
+            <div class="ve-card__label">Production</div>
+            <h3>가장 큰 자원과 별도 credential</h3>
+            <p>앱 request 1 CPU / 4Gi, DB PVC 20Gi. prod 전용 SES·S3·DB·backup 경계를 쓴다.</p>
+          </article>
+          <article class="ve-card ve-card--blue">
+            <div class="ve-card__label">Development</div>
+            <h3>prod와 같은 구조, 작은 자원</h3>
+            <p>별도 DB와 S3를 사용한다. email sender만 preview와 nonprod credential을 공유한다.</p>
+          </article>
+          <article class="ve-card ve-card--amber">
+            <div class="ve-card__label">Preview</div>
+            <h3>신뢰된 PR만, 최대 3개</h3>
+            <p>한 namespace와 PostgreSQL Pod를 공유하고 PR별 database를 만든다. fork와 외부 PR은 실행하지 않는다.</p>
+          </article>
+        </div>
+
+        <div class="source-links">
+          <a class="source-link" href="../charts/umc-product-server/values-prod.yaml">values-prod.yaml</a>
+          <a class="source-link" href="../charts/umc-product-server/values-dev.yaml">values-dev.yaml</a>
+          <a class="source-link" href="../charts/umc-product-server/values-preview.yaml">values-preview.yaml</a>
+          <a class="source-link" href="guides/preview-environments.md">preview guide</a>
+        </div>
+      </section>
+
+      <section class="section-block" id="decisions">
+        <div class="sec-head">
+          <div class="sec-index">04 / WHY</div>
+          <div class="sec-copy">
+            <h2>고민한 것과 지금 선택</h2>
+            <p>결과만 보지 않고 무엇을 버렸는지까지 기록한다. 바꾸려면 재검토 조건부터 확인한다.</p>
+          </div>
+        </div>
+
+        <div class="decision-ledger">
+          <article class="decision">
+            <div class="decision-top"><span class="decision-id">DEC / REGISTRY</span><span class="status-chip is-ready">GHCR</span></div>
+            <h3>ECR 대신 public GHCR</h3>
+            <p>IDC K3s에서 anonymous pull. prod/dev는 SHA tag와 digest로 고정한다.</p>
+            <p class="why"><strong>버린 것:</strong> ECR private token 갱신과 imagePullSecret 운영.</p>
+          </article>
+          <article class="decision">
+            <div class="decision-top"><span class="decision-id">DEC / DOMAIN</span><span class="status-chip is-ready">fixed</span></div>
+            <h3>university.neordinary.com</h3>
+            <p>prod, dev, PR preview, Grafana 모두 exact host 계약. 이전 today-sound 식별자는 제거했다.</p>
+            <p class="why"><strong>경계:</strong> Route 53은 DNS만 담당하며 사용자 요청을 proxy하지 않는다.</p>
+          </article>
+          <article class="decision">
+            <div class="decision-top"><span class="decision-id">DEC / GIT</span><span class="status-chip is-ready">public</span></div>
+            <h3>Infra repository 공개 허용</h3>
+            <p>Argo CD read credential 없이 main을 읽는다. Secret 값은 없고 topology 공개는 수용한다.</p>
+            <p class="why"><strong>남는 책임:</strong> public이어도 main write credential과 branch protection은 필수.</p>
+          </article>
+          <article class="decision">
+            <div class="decision-top"><span class="decision-id">DEC / PLATFORM</span><span class="status-chip is-ready">K3s</span></div>
+            <h3>단일 IDC node</h3>
+            <p>운영 규모에 맞는 최소 단위. app, DB, 관측, control plane이 같은 장애 영역을 공유한다.</p>
+            <p class="why"><strong>재검토:</strong> node 장애를 수용할 수 없거나 실제 자원이 부족해질 때.</p>
+          </article>
+          <article class="decision">
+            <div class="decision-top"><span class="decision-id">DEC / IAC</span><span class="status-chip is-ready">CFN</span></div>
+            <h3>Terraform 없음</h3>
+            <p>Kubernetes는 Argo CD, AWS IAM·S3·SES·Route 53 권한만 CloudFormation이 관리한다.</p>
+            <p class="why"><strong>효과:</strong> state 파일 없이 AWS 외부 의존성을 반복 생성.</p>
+          </article>
+          <article class="decision">
+            <div class="decision-top"><span class="decision-id">DEC / DOCS</span><span class="status-chip is-later">simplified</span></div>
+            <h3>한 화면 + 필요한 원본만</h3>
+            <p>일회성 Bootstrap checklist와 DR runbook은 제거했다. backup activation 절차는 남긴다.</p>
+            <p class="why"><strong>새 규칙:</strong> 이 HTML로 탐색하고 실행할 때만 세부 guide를 연다.</p>
+          </article>
+        </div>
+
+        <div class="risk-panel">
+          <div class="risk-title">
+            <div class="mono">BLOCKER / BE IMAGE</div>
+            <h3>로컬 build는 현재 안전하지 않다.</h3>
+          </div>
+          <div class="risk-copy">
+            <p><code>src/main/resources/.env.local</code>이 실제 <code>bootJar</code>의 <code>BOOT-INF/classes/.env.local</code>에 포함된다.</p>
+            <p>GitHub Actions clean checkout에는 해당 미추적 파일이 없어 기존 CI image는 안전할 가능성이 높지만, 실제 GHCR artifact를 pull·scan하기 전에는 단정하지 않는다.</p>
+            <p><strong>GHCR 공개 전:</strong> resource 밖으로 이동 → Gradle exclude → <code>.dockerignore</code> 강화 → image JAR 검사 → 로컬 push 이력이 있으면 credential rotation.</p>
+          </div>
+        </div>
+
+        <div class="source-links">
+          <a class="source-link" href="architecture/k3s.md">architecture decisions</a>
+          <a class="source-link" href="guides/github-trust-root.md">GitHub trust root</a>
+          <a class="source-link" href="../charts/umc-product-server/values.yaml">runtime contract</a>
+        </div>
+      </section>
+
+      <section class="section-block" id="gates">
+        <div class="sec-head">
+          <div class="sec-index">05 / GATE</div>
+          <div class="sec-copy">
+            <h2>체크리스트 대신 현재 상태판</h2>
+            <p>gate는 문서 장식이 아니라 fail-closed 값이다. 조건이 확인된 항목만 별도 PR로 바꾼다.</p>
+          </div>
+        </div>
+
+        <div class="gate-board">
+          <article class="gate-row"><h3>Hosted Zone</h3><span class="status-chip is-ready">ready</span><p>실제 ID가 cert-manager와 ExternalDNS에 반영됨. Public IPv4만 미정.</p></article>
+          <article class="gate-row"><h3>Git remote</h3><span class="status-chip is-wait">waiting</span><p>public repository 생성, 초기 main CI 성공, secret scanning과 branch protection 필요.</p></article>
+          <article class="gate-row"><h3>Public IP</h3><span class="status-chip is-wait">waiting</span><p>앱 target, Grafana target, ExternalDNS <code>/32</code> filter를 같은 값으로 변경.</p></article>
+          <article class="gate-row"><h3>GHCR image</h3><span class="status-chip is-closed">blocked</span><p><code>bootstrap-required</code> tag와 빈 digest. BE pipeline과 image secret scan 선행.</p></article>
+          <article class="gate-row"><h3>Deployment</h3><span class="status-chip is-closed">off</span><p>필수 Secret Ready, DB/runtime 계약, 검증된 tag·digest 뒤 환경별 활성화.</p></article>
+          <article class="gate-row"><h3>TLS / Ingress</h3><span class="status-chip is-closed">staging</span><p>DNS-01 staging 성공 → production Certificate Ready → Deployment health 뒤 Ingress.</p></article>
+          <article class="gate-row"><h3>Grafana</h3><span class="status-chip is-closed">off</span><p>실제 IP, production TLS, anonymous/sign-up 차단, 팀원 Viewer 계정 검증.</p></article>
+          <article class="gate-row"><h3>DB backup</h3><span class="status-chip is-closed">suspended</span><p>수동 dump·checksum·complete marker와 node 밖 restore 성공 뒤 예약 실행.</p></article>
+          <article class="gate-row"><h3>Root prune</h3><span class="status-chip is-closed">false</span><p>첫 운영 안정화와 자식 Application 삭제 복구 절차 확인 뒤 검토.</p></article>
+        </div>
+      </section>
+
+      <section class="section-block" id="repository">
+        <div class="sec-head">
+          <div class="sec-index">06 / FILE</div>
+          <div class="sec-copy">
+            <h2>파일은 역할로 찾는다</h2>
+            <p>폴더를 순서대로 읽지 않는다. 바꾸려는 책임을 먼저 고르고 그 폴더만 연다.</p>
+          </div>
+        </div>
+
+        <div class="dir-layout">
+          <pre class="dir-tree" aria-label="UMC 인프라 디렉터리 구조">umc-infra/
+├── <span class="hl">ansible/</span>         <span class="ann">빈 Ubuntu → K3s · Argo CD</span>
+├── <span class="hl">bootstrap/</span>       <span class="ann">root Application 하나</span>
+├── <span class="hl">argocd/</span>          <span class="ann">AppProject · Application · wave</span>
+├── <span class="hl">charts/</span>          <span class="ann">앱 · ExternalSecret template</span>
+├── <span class="hl">manifests/</span>       <span class="ann">DB · TLS · cluster · 관측 raw YAML</span>
+├── <span class="hl">cloud/aws/</span>       <span class="ann">IAM · S3 · SES · Route 53</span>
+├── <span class="hl">observability/</span>   <span class="ann">사람이 수정하는 dashboard · alert</span>
+├── <span class="hl">docs/</span>            <span class="ann">결정 · 실행 guide · 이 화면</span>
+├── <span class="hl">runbooks/</span>        <span class="ann">backup activation</span>
+└── <span class="hl">scripts/</span>         <span class="ann">bootstrap · generation · validation</span></pre>
+
+          <div class="task-router" aria-label="작업별 문서 바로가기">
+            <a class="task-link" href="../ansible/README.md"><strong>새 서버 설치</strong><span>Ansible quick start와 Tailscale 전환</span></a>
+            <a class="task-link" href="guides/secrets.md"><strong>Secret 작업</strong><span>AWS source 생성, 동기화, 회전 핵심</span></a>
+            <a class="task-link" href="guides/domains-tls.md"><strong>DNS · TLS</strong><span>Route 53, Public IP, Certificate 활성화</span></a>
+            <a class="task-link" href="guides/preview-environments.md"><strong>PR Preview</strong><span>trusted PR 조건과 database lifecycle</span></a>
+            <a class="task-link" href="guides/monitoring-access.md"><strong>관측 접근</strong><span>Grafana 공개와 계정 경계</span></a>
+            <a class="task-link" href="../runbooks/backup-activation.md"><strong>Backup 활성화</strong><span>S3 검증과 외부 restore 뒤 CronJob open</span></a>
+          </div>
+        </div>
+
+        <div class="detail-controls" aria-label="세부 정보 제어">
+          <button type="button" id="expand-all">세부 모두 열기</button>
+          <button type="button" id="collapse-all">세부 모두 닫기</button>
+        </div>
+
+        <details class="collapsible">
+          <summary>Argo CD sync wave</summary>
+          <div class="collapsible__body table-scroll">
+            <table class="data-table">
+              <thead><tr><th>Wave</th><th>적용 대상</th><th>의미</th></tr></thead>
+              <tbody>
+                <tr><td class="num">-100</td><td>전용 AppProject</td><td>source·namespace·cluster 권한 경계 먼저 생성</td></tr>
+                <tr><td class="num">-99</td><td>built-in default 잠금</td><td>source와 destination을 비워 우회 경로 차단</td></tr>
+                <tr><td class="num">-3</td><td>Namespace · PriorityClass · Argo health</td><td>후속 리소스의 대상과 health 규칙 준비</td></tr>
+                <tr><td class="num">-2</td><td>ESO · cert-manager controller</td><td>CRD와 controller 선행</td></tr>
+                <tr><td class="num">-1</td><td>SecretStore · ExternalSecret</td><td>workload보다 Secret 먼저</td></tr>
+                <tr><td class="num">0</td><td>Postgres · ExternalDNS · Reloader · Certificate</td><td>runtime 기반 생성</td></tr>
+                <tr><td class="num">1</td><td>앱 · Preview ApplicationSet · 관측 config</td><td>환경 workload와 설정</td></tr>
+                <tr><td class="num">2</td><td>Prometheus · Loki · Tempo · OTel · Grafana</td><td>공유 관측 workload</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </details>
+
+        <details class="collapsible">
+          <summary>manifests/ — 32 files · 62 resources</summary>
+          <div class="collapsible__body table-scroll">
+            <table class="data-table">
+              <thead><tr><th>영역</th><th class="num">파일</th><th class="num">리소스</th><th>내용</th></tr></thead>
+              <tbody>
+                <tr><td>cert-manager</td><td class="num">2</td><td class="num">3</td><td>staging/prod ClusterIssuer, Preview wildcard Certificate</td></tr>
+                <tr><td>cluster</td><td class="num">4</td><td class="num">16</td><td>Namespace 10, PriorityClass, Preview quota, Argo health</td></tr>
+                <tr><td>observability</td><td class="num">8</td><td class="num">13</td><td>생성된 dashboard/rule ConfigMap, NetworkPolicy</td></tr>
+                <tr><td>Postgres prod</td><td class="num">8</td><td class="num">13</td><td>StatefulSet, Service, roles, policy, backup</td></tr>
+                <tr><td>Postgres dev</td><td class="num">5</td><td class="num">8</td><td>StatefulSet, Service, app role, policy</td></tr>
+                <tr><td>Postgres preview</td><td class="num">5</td><td class="num">9</td><td>공유 DB, Service, app role, policy</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </details>
+
+        <details class="collapsible">
+          <summary>관측 저장 구조와 한계</summary>
+          <div class="collapsible__body">
+            <div class="card-grid">
+              <article class="ve-card"><div class="ve-card__label">Metrics</div><h3>Prometheus</h3><p>14일 · 10Gi PVC. Alertmanager 1Gi와 Discord routing.</p></article>
+              <article class="ve-card"><div class="ve-card__label">Logs</div><h3>Loki</h3><p>90일 · 5Gi PVC. ruler가 log alert를 평가.</p></article>
+              <article class="ve-card"><div class="ve-card__label">Traces</div><h3>Tempo</h3><p>7일 · 50Gi PVC. OTel Collector에서 수신.</p></article>
+            </div>
+            <div class="notice"><strong>한계:</strong> 모두 local-path다. node·disk·전원·회선 전체 장애는 내부 관측만으로 알 수 없으므로 외부 uptime monitor가 필요하다.</div>
+          </div>
+        </details>
+      </section>
+
+      <section class="section-block" id="operations">
+        <div class="sec-head">
+          <div class="sec-index">07 / OPS</div>
+          <div class="sec-copy">
+            <h2>스크립트와 AWS를 한 표로</h2>
+            <p>bootstrap 스크립트는 최초 발급용, validator는 반복 실행용이다. 서로 역할을 바꾸지 않는다.</p>
+          </div>
+        </div>
+
+        <details class="collapsible" open>
+          <summary>scripts/ — 실행 진입점 12개</summary>
+          <div class="collapsible__body table-scroll">
+            <table class="data-table">
+              <thead><tr><th>종류</th><th>파일</th><th class="wide">역할</th></tr></thead>
+              <tbody>
+                <tr><td>Bootstrap</td><td><code>bootstrap_route53_access_keys.py</code></td><td>cert-manager와 ExternalDNS의 서로 다른 최초 IAM key를 안전하게 발급.</td></tr>
+                <tr><td>Bootstrap</td><td><code>bootstrap_aws_access_keys.py</code></td><td>prod app S3, SES, backup writer 최초 key를 <code>.env.prod</code>에 기록.</td></tr>
+                <tr><td>Bootstrap</td><td><code>bootstrap_nonprod_aws_access_keys.py</code></td><td>dev/preview S3와 공유 nonprod SES 최초 key 발급.</td></tr>
+                <tr><td>Bootstrap</td><td><code>bootstrap_aws_secrets.py</code></td><td>local worksheet 검증 후 missing AWS Secrets Manager source만 생성.</td></tr>
+                <tr><td>Bootstrap</td><td><code>bootstrap-external-secrets-aws.sh</code></td><td>live cluster secret-zero 직접 주입. 표준 Ansible 역할과 중복되어 정리 후보.</td></tr>
+                <tr><td>GitHub</td><td><code>configure-github-trust-root.sh</code></td><td>main 보호, 승인, linear/squash, force push 금지를 적용.</td></tr>
+                <tr><td>Generate</td><td><code>gen-configmaps.py</code></td><td><code>observability/</code> 원본을 배포용 ConfigMap으로 결정적 변환.</td></tr>
+                <tr><td>Validate</td><td><code>validate.sh</code></td><td>전체 검증 단일 진입점.</td></tr>
+                <tr><td>Validate</td><td><code>validate_argocd.py</code></td><td>pinned Argo CD chart, checksum, version, RBAC 계약 검사.</td></tr>
+                <tr><td>Validate</td><td><code>validate_observability.py</code></td><td>관측 chart render, image, resource, selector, Ingress 계약 검사.</td></tr>
+                <tr><td>Validate</td><td><code>validate_edge_platform.py</code></td><td>cert-manager, ExternalDNS, Reloader, DNS/IP gate 검사.</td></tr>
+                <tr><td>Validate</td><td><code>validate_contracts.py</code></td><td>UMC 고유 DNS, S3, SES, DB, preview, secret, repo 계약 검사.</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </details>
+
+        <details class="collapsible" open>
+          <summary>cloud/aws/ — 5 templates · 7 stack 실행</summary>
+          <div class="collapsible__body table-scroll">
+            <table class="data-table">
+              <thead><tr><th>Template</th><th>실행</th><th class="wide">소유 범위</th></tr></thead>
+              <tbody>
+                <tr><td><code>route53-dns.yaml</code></td><td>1회</td><td>기존 zone용 cert-manager / ExternalDNS 최소권한 IAM user.</td></tr>
+                <tr><td><code>external-secrets-iam.yaml</code></td><td>1회</td><td>off-AWS bootstrap user와 namespace/session-tag별 AssumeRole.</td></tr>
+                <tr><td><code>app-storage-s3.yaml</code></td><td>3회</td><td>prod/dev/preview private S3와 환경별 최소권한 IAM user.</td></tr>
+                <tr><td><code>ses-email.yaml</code></td><td>1회</td><td>domain identity, DKIM, MAIL FROM, exact sender IAM.</td></tr>
+                <tr><td><code>postgres-backup-s3.yaml</code></td><td>1회</td><td>versioned backup bucket와 put-only writer. read identity는 별도.</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </details>
+
+        <div class="never-grid" style="margin-top:14px">
+          <article class="never-card">
+            <h3>절대 commit 금지</h3>
+            <p><code>.env*</code>, 실제 inventory, vault password, Tailscale auth key, AWS key, API token, PEM, kubeconfig, 임시 Secret JSON.</p>
+          </article>
+          <article class="never-card">
+            <h3>생성물 경계</h3>
+            <p><code>manifests/observability/</code> dashboard/rule은 직접 편집하지 않는다. <code>observability/</code>를 수정하고 generator를 실행한다.</p>
+          </article>
+        </div>
+
+        <div class="source-links">
+          <a class="source-link" href="../scripts/validate.sh">scripts/validate.sh</a>
+          <a class="source-link" href="guides/secrets.md">condensed Secret guide</a>
+          <a class="source-link" href="../cloud/aws/">cloud/aws/</a>
+          <a class="source-link" href="../observability/README.md">observability source</a>
+        </div>
+      </section>
+
+      <section class="section-block" id="secrets">
+        <div class="sec-head">
+          <div class="sec-index">08 / SEC</div>
+          <div class="sec-copy">
+            <h2>Secret은 값이 아니라 공급 경로로 본다</h2>
+            <p>source 개수와 JSON key 나열은 코드에 맡긴다. 사람은 원본 위치, 신뢰 경계와 회전 순서만 기억한다.</p>
+          </div>
+        </div>
+
+        <div class="secret-flow" role="img" aria-label="로컬 worksheet에서 Pod까지의 Secret 공급 흐름">
+          <div class="secret-step"><strong>.env.*</strong><span>local · 0600 · ignored</span></div>
+          <div class="secret-step"><strong>Bootstrap</strong><span>dry-run 후 missing만 생성</span></div>
+          <div class="secret-step"><strong>AWS SM</strong><span>환경별 prefix가 원본</span></div>
+          <div class="secret-step"><strong>ESO</strong><span>namespace별 AssumeRole</span></div>
+          <div class="secret-step"><strong>K8s Secret</strong><span>값 조회·출력 금지</span></div>
+          <div class="secret-step"><strong>Pod</strong><span>envFrom 또는 volume</span></div>
+        </div>
+
+        <div class="card-grid" style="margin-top:14px">
+          <article class="ve-card ve-card--wide ve-card--accent">
+            <div class="ve-card__label">Rotation order</div>
+            <h3>새 값 → ESO Ready → 소비자 반영 → 검증 → 이전 값 폐기</h3>
+            <p>DB password는 두 namespace 동기화와 role Job을 먼저 끝낸 뒤 앱을 재시작한다. JWT는 token 무효화 계획 없이 자동 회전하지 않는다.</p>
+          </article>
+          <article class="ve-card ve-card--amber">
+            <div class="ve-card__label">Secret zero</div>
+            <h3>ESO bootstrap key</h3>
+            <p>Password manager에만 보관하고 Ansible 비표시 입력으로 cluster에 넣는다.</p>
+          </article>
+        </div>
+
+        <div class="source-links">
+          <a class="source-link" href="guides/secrets.md">핵심 Secret 운영 문서</a>
+          <a class="source-link" href="../charts/umc-secrets/values.yaml">실제 source 계약</a>
+          <a class="source-link" href="../cloud/aws/external-secrets-iam.yaml">IAM 경계</a>
+        </div>
+      </section>
+
+      <section class="section-block" id="next">
+        <div class="sec-head">
+          <div class="sec-index">09 / NEXT</div>
+          <div class="sec-copy">
+            <h2>지금 할 일과 나중에 할 일</h2>
+            <p>BE는 지금 건드리지 않는다. 인프라를 먼저 신뢰 가능한 Git root로 만든 뒤 외부 시스템을 연결한다.</p>
+          </div>
+        </div>
+
+        <div class="next-rail">
+          <article class="next-item">
+            <h3>Infra repository 생성과 초기 push</h3>
+            <p><code>UMC-PRODUCT/umc-product-infra</code> public repository를 만들고 remote를 연결한다. CI 성공 후 secret scanning, push protection과 main 보호를 적용한다.</p>
+          </article>
+          <article class="next-item is-pending">
+            <h3>AWS와 OAuth console의 외부 입력 준비</h3>
+            <p>CloudFormation과 Secrets Manager를 준비한다. Google OAuth는 Web Prod, Android Server, Android Release, iOS, 선택적 Android Debug client를 플랫폼 계약에 맞게 등록한다.</p>
+          </article>
+          <article class="next-item is-pending">
+            <h3>IDC server와 고정 Public IPv4 확보</h3>
+            <p>공인 SSH로 Tailscale만 등록하고 이후 관리는 tailnet 경유 OpenSSH로 전환한다. 같은 IPv4를 앱, Grafana, ExternalDNS filter에 반영한다.</p>
+          </article>
+          <article class="next-item is-deferred">
+            <h3>BE image 공급 경로 수정</h3>
+            <p><code>.env.local</code> packaging을 차단하고 실제 image를 scan한다. CI는 public GHCR에 12-char SHA를 게시하고 prod/dev digest를 infra PR에 기록한다.</p>
+          </article>
+          <article class="next-item is-deferred">
+            <h3>dev → prod → preview 순차 활성화</h3>
+            <p>Secret, DB, TLS, DNS와 health evidence를 확인하고 Deployment와 Ingress를 분리해서 연다. Preview lifecycle은 마지막에 연결한다.</p>
+          </article>
+        </div>
+
+        <details class="collapsible" style="margin-top:24px">
+          <summary>Google OAuth client 메모</summary>
+          <div class="collapsible__body table-scroll">
+            <table class="data-table">
+              <thead><tr><th>이름</th><th>유형</th><th>핵심 계약</th></tr></thead>
+              <tbody>
+                <tr><td>UMC Product Web Prod</td><td>웹 애플리케이션</td><td>운영 JavaScript 원본, redirect 비움</td></tr>
+                <tr><td>UMC Product Android Server</td><td>웹 애플리케이션</td><td>원본·redirect 모두 비움</td></tr>
+                <tr><td>UMC Product Android Release</td><td>Android</td><td><code>com.umc.product</code> + 운영 SHA-1</td></tr>
+                <tr><td>UMC Product iOS</td><td>iOS</td><td>Bundle ID <code>com.umc.product</code></td></tr>
+                <tr><td>UMC Product Android Debug</td><td>Android · 선택</td><td>동일 package + 개발자 debug SHA-1</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </details>
+      </section>
+
+      <footer class="footer">
+        <strong>UMC Infra Control Room</strong> — 탐색용 단일 화면. YAML과 script가 source of truth다.
+        상세 문서는 실행 절차가 필요할 때만 연다.
+      </footer>
+    </main>
+  </div>
+
+  <script>
+    (function () {
+      const progress = document.getElementById('page-progress');
+      const updateProgress = () => {
+        const scrollable = document.documentElement.scrollHeight - window.innerHeight;
+        const ratio = scrollable > 0 ? window.scrollY / scrollable : 0;
+        progress.style.width = Math.min(100, Math.max(0, ratio * 100)) + '%';
+      };
+      updateProgress();
+      window.addEventListener('scroll', updateProgress, { passive: true });
+
+      const toc = document.getElementById('toc');
+      const links = Array.from(toc.querySelectorAll('a[href^="#"]'));
+      const sections = links.map((link) => {
+        const id = link.getAttribute('href').slice(1);
+        return { link, element: document.getElementById(id) };
+      }).filter((item) => item.element);
+
+      const observer = new IntersectionObserver((entries) => {
+        entries.forEach((entry) => {
+          if (!entry.isIntersecting) return;
+          links.forEach((link) => link.classList.remove('active'));
+          const match = sections.find((item) => item.element === entry.target);
+          if (!match) return;
+          match.link.classList.add('active');
+          if (window.innerWidth <= 1120) {
+            match.link.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
+          }
+        });
+      }, { rootMargin: '-10% 0px -78% 0px' });
+      sections.forEach((item) => observer.observe(item.element));
+
+      links.forEach((link) => {
+        link.addEventListener('click', (event) => {
+          event.preventDefault();
+          const target = document.getElementById(link.getAttribute('href').slice(1));
+          if (!target) return;
+          target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+          try { history.replaceState(null, '', link.getAttribute('href')); } catch (_) { }
+        });
+      });
+
+      const details = Array.from(document.querySelectorAll('details.collapsible'));
+      document.getElementById('expand-all').addEventListener('click', () => {
+        details.forEach((detail) => { detail.open = true; });
+      });
+      document.getElementById('collapse-all').addEventListener('click', () => {
+        details.forEach((detail) => { detail.open = false; });
+      });
+    })();
+  </script>
+</body>
+</html>

@@ -1,0 +1,145 @@
+# 허용 정책은 default-deny보다 먼저(-2) 적용한다. NetworkPolicy는 additive라
+# 같은 ingress/egress 방향의 여러 정책에서 허용한 경로가 합집합으로 열린다.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: postgres-allow-required-ingress
+  namespace: db
+  labels:
+    app.kubernetes.io/name: postgres
+    environment: prod
+  annotations:
+    argocd.argoproj.io/sync-wave: "-2"
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: postgres
+      app.kubernetes.io/component: database
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        # namespaceSelector+podSelector가 같은 항목이므로 운영 앱만 허용(AND)한다.
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: app
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: umc-product-server
+              app.kubernetes.io/instance: umc-product-server
+            # 첫 rollout 전 component가 없는 기존 앱도 허용하되 DB Job은 제외한다.
+            matchExpressions:
+              - key: app.kubernetes.io/component
+                operator: NotIn
+                values: [database-bootstrap, database-cleanup]
+        # DB namespace의 명시된 bootstrap/backup Job만 허용한다.
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: postgres-app-role
+              app.kubernetes.io/component: database-bootstrap
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: postgres-readonly-role
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: pg-backup
+              app.kubernetes.io/component: backup
+      ports:
+        - { protocol: TCP, port: 5432 }
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: db-allow-dns-egress
+  namespace: db
+  labels:
+    environment: prod
+  annotations:
+    argocd.argoproj.io/sync-wave: "-2"
+spec:
+  podSelector: {}
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - { protocol: UDP, port: 53 }
+        - { protocol: TCP, port: 53 }
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: postgres-bootstrap-allow-db-egress
+  namespace: db
+  labels:
+    environment: prod
+  annotations:
+    argocd.argoproj.io/sync-wave: "-2"
+spec:
+  podSelector:
+    matchExpressions:
+      - key: app.kubernetes.io/name
+        operator: In
+        values: [postgres-app-role, postgres-readonly-role]
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: postgres
+              app.kubernetes.io/component: database
+      ports:
+        - { protocol: TCP, port: 5432 }
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: pg-backup-allow-required-egress
+  namespace: db
+  labels:
+    environment: prod
+  annotations:
+    argocd.argoproj.io/sync-wave: "-2"
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: pg-backup
+      app.kubernetes.io/component: backup
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: postgres
+              app.kubernetes.io/component: database
+      ports:
+        - { protocol: TCP, port: 5432 }
+    # S3는 표준 NetworkPolicy에서 FQDN으로 제한할 수 없어 public IPv4 HTTPS를 허용한다.
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 0.0.0.0/8
+              - 10.0.0.0/8
+              - 100.64.0.0/10
+              - 127.0.0.0/8
+              - 169.254.0.0/16
+              - 172.16.0.0/12
+              - 192.0.0.0/24
+              - 192.0.2.0/24
+              - 192.31.196.0/24
+              - 192.52.193.0/24
+              - 192.88.99.0/24
+              - 192.168.0.0/16
+              - 192.175.48.0/24
+              - 198.18.0.0/15
+              - 198.51.100.0/24
+              - 203.0.113.0/24
+              - 224.0.0.0/4
+              - 240.0.0.0/4
+      ports:
+        - { protocol: TCP, port: 443 }

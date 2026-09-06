@@ -1,0 +1,166 @@
+# preview namespace의 allow baseline은 상시 존재하는 preview-postgres Application이
+# 한 번만 소유한다. PR별 Application이 삭제된 뒤 실행되는 dropdb PostDelete Job도
+# 이 정책을 사용하므로, PR lifecycle과 함께 사라지지 않는다.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: preview-allow-dns-egress
+  namespace: preview
+  labels:
+    environment: preview
+  annotations:
+    argocd.argoproj.io/sync-wave: "-2"
+spec:
+  podSelector: {}
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - { protocol: UDP, port: 53 }
+        - { protocol: TCP, port: 53 }
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: preview-app-allow-required
+  namespace: preview
+  labels:
+    environment: preview
+  annotations:
+    argocd.argoproj.io/sync-wave: "-2"
+spec:
+  # 모든 PR release의 Deployment만 선택한다. createdb/dropdb Job은 component가 다르다.
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: umc-product-server
+    # 첫 rollout 전 component가 없는 기존 PR 앱도 허용하고 DB Job만 제외한다.
+    matchExpressions:
+      - key: app.kubernetes.io/component
+        operator: NotIn
+        values: [database-bootstrap, database-cleanup]
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: traefik
+              app.kubernetes.io/instance: traefik-kube-system
+      ports:
+        - { protocol: TCP, port: 8080 }
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: postgres-preview
+              app.kubernetes.io/component: database
+      ports:
+        - { protocol: TCP, port: 5432 }
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: opentelemetry-collector
+              app.kubernetes.io/instance: otel-collector
+              component: standalone-collector
+      ports:
+        - { protocol: TCP, port: 4317 }
+        - { protocol: TCP, port: 4318 }
+    # 외부 API/S3용 public IPv4 HTTPS. private·special 대역은 lateral movement를
+    # 막기 위해 제외하며, 표준 NetworkPolicy의 한계상 목적지 FQDN은 제한하지 못한다.
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 0.0.0.0/8
+              - 10.0.0.0/8
+              - 100.64.0.0/10
+              - 127.0.0.0/8
+              - 169.254.0.0/16
+              - 172.16.0.0/12
+              - 192.0.0.0/24
+              - 192.0.2.0/24
+              - 192.31.196.0/24
+              - 192.52.193.0/24
+              - 192.88.99.0/24
+              - 192.168.0.0/16
+              - 192.175.48.0/24
+              - 198.18.0.0/15
+              - 198.51.100.0/24
+              - 203.0.113.0/24
+              - 224.0.0.0/4
+              - 240.0.0.0/4
+      ports:
+        - { protocol: TCP, port: 443 }
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: postgres-preview-allow-required-ingress
+  namespace: preview
+  labels:
+    environment: preview
+  annotations:
+    argocd.argoproj.io/sync-wave: "-2"
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: postgres-preview
+      app.kubernetes.io/component: database
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: umc-product-server
+            matchExpressions:
+              - key: app.kubernetes.io/component
+                operator: NotIn
+                values: [database-bootstrap, database-cleanup]
+        # 공유 role bootstrap과 PR별 createdb Job.
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: database-bootstrap
+        # PR Application 삭제 뒤 실행되는 PostDelete dropdb Job.
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: database-cleanup
+      ports:
+        - { protocol: TCP, port: 5432 }
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: preview-db-jobs-allow-postgres-egress
+  namespace: preview
+  labels:
+    environment: preview
+  annotations:
+    argocd.argoproj.io/sync-wave: "-2"
+spec:
+  podSelector:
+    matchExpressions:
+      - key: app.kubernetes.io/component
+        operator: In
+        values: [database-bootstrap, database-cleanup]
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: postgres-preview
+              app.kubernetes.io/component: database
+      ports:
+        - { protocol: TCP, port: 5432 }

@@ -1,0 +1,17 @@
+---
+
+- name: Apply Kubernetes kernel parameters
+  ansible.builtin.command: sysctl --system
+  changed_when: true
+
+# 같은 listen 그룹에서 `sshd -t`가 실패하면 뒤의 reload는 실행되지 않는다.
+- name: Validate the OpenSSH configuration
+  ansible.builtin.command: sshd -t
+  changed_when: false
+  listen: Validate and reload SSH
+
+- name: Reload OpenSSH
+  ansible.builtin.service:
+    name: ssh
+    state: reloaded
+  listen: Validate and reload SSH

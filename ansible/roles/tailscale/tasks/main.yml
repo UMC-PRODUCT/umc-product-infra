@@ -1,0 +1,330 @@
+---
+
+- name: Require the supported Tailscale host contract
+  ansible.builtin.assert:
+    that:
+      - ansible_facts.os_family == 'Debian'
+      - ansible_facts.distribution == 'Ubuntu'
+      - ansible_facts.distribution_release in ['jammy', 'noble']
+      - ansible_facts.architecture in ['x86_64', 'amd64']
+      - tailscale_hostname is match('^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$')
+      - tailscale_required_tag == 'tag:umc-idc'
+      - tailscale_interface == 'tailscale0'
+    fail_msg: >-
+      Tailscale supports only the reviewed x86_64 Ubuntu 22.04/24.04,
+      hostname, interface, and tag contract.
+
+- name: Ensure the APT keyring directory exists
+  ansible.builtin.file:
+    path: "{{ tailscale_apt_keyring_path | dirname }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Install the pinned Tailscale repository signing key
+  ansible.builtin.get_url:
+    url: "{{ tailscale_apt_key_url }}"
+    dest: "{{ tailscale_apt_keyring_path }}"
+    owner: root
+    group: root
+    mode: '0644'
+    checksum: "{{ tailscale_apt_key_checksum }}"
+
+- name: Configure the official stable Tailscale APT repository
+  ansible.builtin.copy:
+    content: >-
+      deb [signed-by={{ tailscale_apt_keyring_path }}]
+      https://pkgs.tailscale.com/stable/ubuntu
+      {{ ansible_facts.distribution_release }} main
+    dest: "{{ tailscale_apt_source_path }}"
+    owner: root
+    group: root
+    mode: '0644'
+
+- name: Pin the reviewed Tailscale package version
+  ansible.builtin.copy:
+    content: |
+      Package: tailscale
+      Pin: version {{ tailscale_version }}
+      Pin-Priority: 1001
+    dest: "{{ tailscale_apt_preferences_path }}"
+    owner: root
+    group: root
+    mode: '0644'
+
+- name: Install the pinned Tailscale package
+  ansible.builtin.apt:
+    name: "tailscale={{ tailscale_version }}"
+    state: present
+    allow_downgrade: true
+    update_cache: true
+
+- name: Ensure tailscaled starts at boot
+  ansible.builtin.systemd_service:
+    name: tailscaled
+    enabled: true
+    state: started
+
+# status 전체를 fact로 남기지 않고 이후 검증에 필요한 필드만 정규화한다.
+- name: Read the current Tailscale node state
+  ansible.builtin.command:
+    argv:
+      - python3
+      - -c
+      - |
+        import json
+        import subprocess
+
+        result = subprocess.run(
+            ["/usr/bin/tailscale", "status", "--json"],
+            capture_output=True,
+            check=False,
+            text=True,
+        )
+        try:
+            status = json.loads(result.stdout)
+        except (json.JSONDecodeError, TypeError):
+            status = {}
+        node = status.get("Self") or {}
+        print(json.dumps({
+            "backend_state": status.get("BackendState", ""),
+            "hostname": node.get("HostName", ""),
+            "ips": node.get("TailscaleIPs") or [],
+            "online": bool(node.get("Online", False)),
+            "status_rc": result.returncode,
+            "tags": sorted(node.get("Tags") or []),
+        }, sort_keys=True))
+  register: tailscale_status_before
+  changed_when: false
+  check_mode: false
+
+- name: Record whether this node needs first enrollment
+  ansible.builtin.set_fact:
+    tailscale_needs_enrollment: >-
+      {{ (tailscale_status_before.stdout | from_json).backend_state != 'Running'
+         or not (tailscale_status_before.stdout | from_json).online }}
+
+- name: Refuse implicit enrollment during the standard bootstrap
+  ansible.builtin.assert:
+    that:
+      - tailscale_enrollment_enabled | bool or not tailscale_needs_enrollment
+    fail_msg: >-
+      This node is not online in Tailscale. Run playbooks/tailscale-enroll.yml
+      through the temporary public SSH path before the standard bootstrap.
+
+- name: Read a Tailscale auth key from the controller environment
+  ansible.builtin.set_fact:
+    tailscale_resolved_auth_key: >-
+      {{ lookup('ansible.builtin.env', 'TAILSCALE_AUTH_KEY') | trim }}
+  when: tailscale_needs_enrollment
+  no_log: true
+
+- name: Prompt privately for the one-off tagged Tailscale auth key
+  ansible.builtin.pause:
+    prompt: >-
+      Tailscale one-off, non-ephemeral auth key for tag:umc-idc
+    echo: false
+  register: tailscale_auth_key_prompt
+  when:
+    - tailscale_needs_enrollment
+    - tailscale_resolved_auth_key | length == 0
+  delegate_to: localhost
+  become: false
+  no_log: true
+
+- name: Select the privately entered Tailscale auth key
+  ansible.builtin.set_fact:
+    tailscale_resolved_auth_key: "{{ tailscale_auth_key_prompt.user_input | trim }}"
+  when:
+    - tailscale_needs_enrollment
+    - tailscale_resolved_auth_key | length == 0
+  no_log: true
+
+- name: Require a non-empty Tailscale auth key for first enrollment
+  ansible.builtin.assert:
+    that:
+      - tailscale_resolved_auth_key | length > 0
+    fail_msg: A Tailscale auth key is required for first enrollment.
+  when: tailscale_needs_enrollment
+  no_log: true
+
+# auth key는 process argument가 아니라 임시 0600 파일로 전달하고 항상 삭제한다.
+- name: Enroll the server in the tailnet
+  when: tailscale_needs_enrollment
+  no_log: true
+  block:
+    - name: Create a temporary auth key file
+      ansible.builtin.tempfile:
+        state: file
+        path: /run
+        prefix: umc-tailscale-auth-
+      register: tailscale_auth_key_file
+
+    - name: Write the auth key with root-only permissions
+      ansible.builtin.copy:
+        content: "{{ tailscale_resolved_auth_key }}\n"
+        dest: "{{ tailscale_auth_key_file.path }}"
+        owner: root
+        group: root
+        mode: '0600'
+
+    - name: Join with the fixed server identity and safe network settings
+      ansible.builtin.command:
+        argv:
+          - /usr/bin/tailscale
+          - up
+          - "--auth-key=file:{{ tailscale_auth_key_file.path }}"
+          - "--hostname={{ tailscale_hostname }}"
+          - "--advertise-tags={{ tailscale_required_tag }}"
+          - --advertise-exit-node=false
+          - --advertise-routes=
+          - --accept-dns=true
+          - --accept-routes=false
+          - --exit-node=
+          - --shields-up=false
+          - --ssh=false
+          - --netfilter-mode=on
+          - "--timeout={{ tailscale_up_timeout_seconds }}s"
+      changed_when: true
+
+    - name: Disable unpinned Tailscale client auto-updates
+      ansible.builtin.command:
+        argv:
+          - /usr/bin/tailscale
+          - set
+          - --auto-update=false
+          - --webclient=false
+      changed_when: true
+  always:
+    - name: Remove the temporary Tailscale auth key file
+      ansible.builtin.file:
+        path: >-
+          {{ tailscale_auth_key_file.path
+             | default('/run/umc-tailscale-auth-not-created') }}
+        state: absent
+      when: tailscale_auth_key_file.path is defined
+
+- name: Read the effective Tailscale node state
+  ansible.builtin.command:
+    argv:
+      - python3
+      - -c
+      - |
+        import json
+        import subprocess
+
+        result = subprocess.run(
+            ["/usr/bin/tailscale", "status", "--json"],
+            capture_output=True,
+            check=False,
+            text=True,
+        )
+        try:
+            status = json.loads(result.stdout)
+        except (json.JSONDecodeError, TypeError):
+            status = {}
+        node = status.get("Self") or {}
+        print(json.dumps({
+            "backend_state": status.get("BackendState", ""),
+            "hostname": node.get("HostName", ""),
+            "ips": node.get("TailscaleIPs") or [],
+            "online": bool(node.get("Online", False)),
+            "status_rc": result.returncode,
+            "tags": sorted(node.get("Tags") or []),
+        }, sort_keys=True))
+  register: tailscale_status_after
+  changed_when: false
+  check_mode: false
+
+- name: Record the effective Tailscale state
+  ansible.builtin.set_fact:
+    tailscale_status_after_data: "{{ tailscale_status_after.stdout | from_json }}"
+    tailscale_primary_ipv4: >-
+      {{ (tailscale_status_after.stdout | from_json).ips
+         | select('match', '^100\\.') | first | default('') }}
+
+- name: Read the security-sensitive Tailscale preferences
+  ansible.builtin.command:
+    argv:
+      - python3
+      - -c
+      - |
+        import json
+        import subprocess
+
+        preferences = {}
+        for name in (
+            "accept-dns",
+            "accept-routes",
+            "advertise-exit-node",
+            "advertise-routes",
+            "auto-update",
+            "exit-node",
+            "netfilter-mode",
+            "shields-up",
+            "ssh",
+            "webclient",
+        ):
+            result = subprocess.run(
+                ["/usr/bin/tailscale", "get", "--json", name],
+                capture_output=True,
+                check=True,
+                text=True,
+            )
+            preferences[name] = json.loads(result.stdout)[name]
+        print(json.dumps(preferences, sort_keys=True))
+  register: tailscale_managed_preferences
+  changed_when: false
+  check_mode: false
+
+- name: Record the security-sensitive Tailscale preferences
+  ansible.builtin.set_fact:
+    tailscale_managed_preferences_data: >-
+      {{ tailscale_managed_preferences.stdout | from_json }}
+
+- name: Verify the server tailnet identity
+  ansible.builtin.assert:
+    that:
+      - tailscale_status_after_data.status_rc == 0
+      - tailscale_status_after_data.backend_state == 'Running'
+      - tailscale_status_after_data.online
+      - tailscale_status_after_data.hostname == tailscale_hostname
+      - tailscale_status_after_data.tags | sort == [tailscale_required_tag]
+      - tailscale_primary_ipv4 | length > 0
+      - tailscale_managed_preferences_data['accept-dns']
+      - not tailscale_managed_preferences_data['accept-routes']
+      - not tailscale_managed_preferences_data['advertise-exit-node']
+      - tailscale_managed_preferences_data['advertise-routes'] == ''
+      - not tailscale_managed_preferences_data['auto-update']
+      - tailscale_managed_preferences_data['exit-node'] == ''
+      - tailscale_managed_preferences_data['netfilter-mode'] == 'on'
+      - not tailscale_managed_preferences_data['shields-up']
+      - not tailscale_managed_preferences_data.ssh
+      - not tailscale_managed_preferences_data.webclient
+    fail_msg: >-
+      Tailscale must be online with the reviewed hostname, the single
+      tag:umc-idc identity, a 100.64.0.0/10 address, Tailscale SSH and
+      automatic updates and web UI disabled, no accepted or advertised routes,
+      and netfilter on.
+
+- name: Read the installed Tailscale version
+  ansible.builtin.command: /usr/bin/tailscale version
+  register: tailscale_installed_version
+  changed_when: false
+
+- name: Verify the installed Tailscale version
+  ansible.builtin.assert:
+    that:
+      - tailscale_installed_version.stdout_lines | first == tailscale_version
+    fail_msg: The effective Tailscale CLI version differs from the pinned package.
+
+- name: Clear the auth key from in-memory host facts
+  ansible.builtin.set_fact:
+    tailscale_resolved_auth_key: ''
+    tailscale_auth_key_prompt: {}
+  no_log: true
+
+- name: Report the enrolled Tailscale address
+  ansible.builtin.debug:
+    msg: "Tailscale node is ready at {{ tailscale_primary_ipv4 }}."

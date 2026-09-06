@@ -1,0 +1,39 @@
+# dev 앱 — prod와 같은 차트, values-dev.yaml만 덮어씀
+# CI: dev 브랜치 merge → 이 파일이 아니라 values-dev.yaml의 image.tag와 image.digest가 함께 바뀐다.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: dev-umc-product-server
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: dev
+  source:
+    repoURL: https://github.com/UMC-PRODUCT/umc-product-infra.git
+    targetRevision: main
+    path: charts/umc-product-server
+    helm:
+      # 뒤 파일이 앞을 덮어쓴다 — 공통값은 values.yaml, 차이만 values-dev.yaml
+      valueFiles:
+        - values.yaml
+        - values-dev.yaml
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: dev-app
+  # Reloader가 재시작 시 쓰는 runtime annotation만 Git diff에서 제외한다.
+  ignoreDifferences:
+    - group: apps
+      kind: Deployment
+      name: umc-product-server
+      namespace: dev-app
+      jsonPointers:
+        - /spec/template/metadata/annotations/reloader.stakater.com~1last-reloaded-from
+  syncPolicy:
+    automated:
+      selfHeal: true
+      prune: true
+    syncOptions:
+      - RespectIgnoreDifferences=true

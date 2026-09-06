@@ -1,0 +1,124 @@
+# PR 프리뷰용 PostgreSQL — 공유 1대
+#
+# PR 마다 postgres 를 띄우지 않는다. PR마다 DB까지 띄우면 단일 노드의 프리뷰 예산이 빠르게 바닥난다.
+# 대신 이 한 대를 공유하고 PR 마다 database 를 따로 만든다(createdb Job).
+# database 를 나누지 않으면 여러 PR 의 Flyway 가 같은 스키마를 동시에 고쳐 서로를 깬다.
+#
+# prod·dev 와 다른 점
+#   - 백업 없음. 프리뷰 데이터는 언제든 버려도 되는 것이다
+#   - 튜닝값 축소 (shared_buffers 256MB)
+#   - preview-lowest 우선순위 — 메모리 압박 시 가장 먼저 축출
+#   - max_connections 60 — PR 3개 × Hikari 10과 bootstrap/운영 여유
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: postgres-preview
+  labels:
+    app.kubernetes.io/name: postgres-preview
+    app.kubernetes.io/component: database
+    environment: preview
+spec:
+  serviceName: postgres-preview-headless
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: postgres-preview
+      app.kubernetes.io/component: database
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: postgres-preview
+        app.kubernetes.io/component: database
+    spec:
+      priorityClassName: preview-lowest
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 30
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999
+        runAsGroup: 999
+        fsGroup: 999
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: postgres
+          image: postgis/postgis:18-3.6@sha256:60f6ad1d21ea86a67d47780b9a0d1e1d200500f62b19293fa834d0dea80b8677 # prod·dev 와 같은 이미지
+          args:
+            - -c
+            - shared_buffers=256MB
+            - -c
+            - effective_cache_size=768MB
+            - -c
+            - work_mem=8MB
+            - -c
+            # PR 3개 × Hikari 풀 10 + createdb/dropdb/운영 여유
+            - max_connections=60
+          ports:
+            - name: postgres
+              containerPort: 5432
+              protocol: TCP
+          env:
+            # 프리뷰 전용 계정. prod·dev 자격증명과 분리한다
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef: { name: postgres-preview-secrets, key: POSTGRES_USER }
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: postgres-preview-secrets, key: POSTGRES_PASSWORD }
+            # 이 DB 는 부트스트랩용이고, PR 별 database 는 createdb Job 이 만든다
+            - name: POSTGRES_DB
+              value: preview_bootstrap
+          resources:
+            requests:
+              cpu: 200m
+              memory: 1Gi
+            limits:
+              cpu: 1000m
+              memory: 1Gi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          startupProbe:
+            exec:
+              command: ["sh", "-ec", "exec pg_isready -U \"$POSTGRES_USER\" -d \"$POSTGRES_DB\""]
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 60
+          readinessProbe:
+            exec:
+              command: ["sh", "-ec", "exec pg_isready -U \"$POSTGRES_USER\" -d \"$POSTGRES_DB\""]
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          livenessProbe:
+            exec:
+              command: ["sh", "-ec", "exec pg_isready -U \"$POSTGRES_USER\" -d \"$POSTGRES_DB\""]
+            periodSeconds: 30
+            timeoutSeconds: 3
+            failureThreshold: 3
+          volumeMounts:
+            # PostgreSQL 18의 version-specific PGDATA를 포함하는 이미지 VOLUME 경로.
+            - name: data
+              mountPath: /var/lib/postgresql
+            - name: tmp
+              mountPath: /tmp
+            - name: run
+              mountPath: /var/run/postgresql
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: 256Mi
+        - name: run
+          emptyDir:
+            sizeLimit: 64Mi
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        storageClassName: local-path
+        resources:
+          requests:
+            storage: 5Gi

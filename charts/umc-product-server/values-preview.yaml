@@ -1,0 +1,68 @@
+# PR preview override. ApplicationSet이 PR 번호·head SHA·database 이름을 주입한다.
+
+environment: preview
+
+deployment:
+  enabled: false
+
+image:
+  tag: bootstrap-required
+  digest: ""
+
+# 여러 PR release가 같은 namespace baseline을 서로 소유하지 않는다.
+networkPolicy:
+  enabled: false
+
+priorityClassName: preview-lowest
+
+resources:
+  requests:
+    cpu: 200m
+    memory: 1Gi
+  limits:
+    cpu: 1500m
+    memory: 2Gi
+
+createDatabase:
+  enabled: true
+  owner: umc_product_preview_app
+
+deleteDatabase:
+  enabled: true
+
+probes:
+  startup:
+    failureThreshold: 60
+
+env:
+  SPRING_PROFILES_ACTIVE: dev
+  SPRING_APPLICATION_NAME: preview-umc-product-bootstrap-required
+  APP_ENVIRONMENT: preview-bootstrap-required
+  S3_BUCKET_NAME: umc-product-preview-app-storage-351284652562-ap-northeast-2
+  S3_REGION: ap-northeast-2
+  SES_REGION: ap-northeast-2
+  EMAIL_NO_REPLY_ADDRESS: no-reply-nonprod@university.neordinary.com
+  APP_SEED_ENABLED: "false"
+  DATABASE_URL: ""
+  DATABASE_USERNAME: umc_product_preview_app
+  MEDIA_STORAGE_PURGE_ENABLED: "false"
+  PRIVACY_RETENTION_ENABLED: "false"
+
+ingress:
+  enabled: false
+  className: traefik
+  host: preview.example.invalid
+  tls:
+    - hosts: [preview.example.invalid]
+      # preview namespace에 한 번만 발급하는 *.university.neordinary.com 인증서다.
+      secretName: preview-wildcard-tls
+
+# PR마다 Certificate를 만들지 않는다. 모든 Preview Ingress가 위 공용 Secret을 참조한다.
+certificate:
+  enabled: false
+
+reloader:
+  secretNames:
+    - app-oauth
+    - app-storage
+    - app-email

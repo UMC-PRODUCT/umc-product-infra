@@ -1,0 +1,118 @@
+# dev 전용 PostgreSQL — prod(manifests/postgres/prod/statefulset.yaml)의 축소판.
+#
+# ⚠️ prod와 반드시 같이 고쳐야 하는 값: PostGIS image digest와 PG 메이저 버전.
+#    버전이 어긋나면 dev에서 통과한 마이그레이션이 prod에서 깨진다.
+#
+# prod와 의도적으로 다른 점: 리소스 1/5, 우선순위 최하(dev-low), 백업 없음, 튜닝 기본값.
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: postgres
+  labels:
+    app.kubernetes.io/name: postgres
+    app.kubernetes.io/component: database
+    environment: dev
+spec:
+  serviceName: postgres-headless
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: postgres
+      app.kubernetes.io/component: database
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: postgres
+        app.kubernetes.io/component: database
+    spec:
+      priorityClassName: dev-low # 메모리 압박 시 prod보다 먼저 축출
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 60
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999
+        runAsGroup: 999
+        fsGroup: 999
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: postgres
+          image: postgis/postgis:18-3.6@sha256:60f6ad1d21ea86a67d47780b9a0d1e1d200500f62b19293fa834d0dea80b8677 # ← prod와 동일하게 유지할 것
+          args:
+            - -c
+            - shared_buffers=512MB # limits.memory 2Gi의 25%
+            - -c
+            - max_connections=30
+          ports:
+            - name: postgres
+              containerPort: 5432
+              protocol: TCP
+          env:
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef: { name: postgres-secrets, key: POSTGRES_USER }
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: postgres-secrets, key: POSTGRES_PASSWORD }
+            - name: POSTGRES_DB
+              value: umc_product_dev
+          resources:
+            requests:
+              cpu: 250m
+              memory: 2Gi
+            limits:
+              cpu: 1000m
+              memory: 2Gi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          startupProbe:
+            exec:
+              command: ["sh", "-ec", "exec pg_isready -U \"$POSTGRES_USER\" -d \"$POSTGRES_DB\""]
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 60
+          readinessProbe:
+            exec:
+              command: ["sh", "-ec", "exec pg_isready -U \"$POSTGRES_USER\" -d \"$POSTGRES_DB\""]
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          livenessProbe:
+            exec:
+              command: ["sh", "-ec", "exec pg_isready -U \"$POSTGRES_USER\" -d \"$POSTGRES_DB\""]
+            periodSeconds: 30
+            timeoutSeconds: 3
+            failureThreshold: 3
+          volumeMounts:
+            # PostgreSQL 18의 기본 PGDATA(/var/lib/postgresql/18/docker)를 포함하는
+            # 이미지 VOLUME 경로에 PVC를 마운트한다.
+            - name: data
+              mountPath: /var/lib/postgresql
+            - name: tmp
+              mountPath: /tmp
+            - name: run
+              mountPath: /var/run/postgresql
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: 256Mi
+        - name: run
+          emptyDir:
+            sizeLimit: 64Mi
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      # environment 라벨을 여기 넣으면 안 된다. spec.volumeClaimTemplates 는 불변 필드라
+      # 기존 StatefulSet 갱신이 admission 단계에서 거부된다(서버 dry-run 으로 확인).
+      #   Forbidden: updates to statefulset spec for fields other than 'replicas',
+      #   'ordinals', 'template', 'updateStrategy', ... are forbidden
+      # 그래서 이 PVC 는 다이어그램의 환경 박스 밖에 남는다 — 그림의 한계로 받아들인다.
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        storageClassName: local-path
+        resources:
+          requests:
+            storage: 5Gi

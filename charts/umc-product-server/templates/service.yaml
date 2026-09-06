@@ -1,0 +1,28 @@
+{{- if .Values.deployment.enabled }}
+{{- if ne .Values.service.type "ClusterIP" -}}
+{{- fail "umc-product-server Service는 ClusterIP만 허용한다" -}}
+{{- end -}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "umc-product-server.fullname" . }}
+  labels:
+    {{- include "umc-product-server.labels" . | nindent 4 }}
+    app.kubernetes.io/component: server
+{{ if eq .Values.environment "preview" }}
+  annotations:
+    # 네 번째 PR은 이 Service quota에서 createdb Job(-1)보다 먼저 fail-closed된다.
+    argocd.argoproj.io/sync-wave: "-2"
+{{ end }}
+spec:
+  type: {{ .Values.service.type }}
+  selector:
+    {{- include "umc-product-server.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: server
+  ports:
+    - name: http
+      port: {{ .Values.service.port }}
+      targetPort: http
+      protocol: TCP
+    # management(9090)는 kubelet health probe 전용이며 Service로 노출하지 않는다.
+{{- end }}

@@ -1,0 +1,25 @@
+# 클러스터 기반 리소스 — 네임스페이스 + PriorityClass + Argo CD health customization
+# wave -3: 모든 것보다 먼저. 시크릿이 각 네임스페이스에 뿌려지기 전에 존재해야 한다
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: cluster
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "-3"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: platform
+  source:
+    repoURL: https://github.com/UMC-PRODUCT/umc-product-infra.git
+    targetRevision: main
+    path: manifests/cluster
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: default
+  syncPolicy:
+    automated:
+      selfHeal: true
+      # prune 끔 — 네임스페이스 자동 삭제는 그 안의 모든 것을 지운다. 삭제는 수동으로
+      prune: false

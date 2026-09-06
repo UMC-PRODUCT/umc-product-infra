@@ -1,0 +1,8 @@
+---
+external_secrets_bootstrap_namespace: external-secrets
+external_secrets_bootstrap_secret_name: aws-bootstrap
+
+# 자격증명 우선순위는 역할 변수 -> 제어 노드 환경변수 -> 비표시 입력이다.
+# 기본값은 의도적으로 비워 저장소에 운영 자격증명이 남지 않게 한다.
+external_secrets_bootstrap_aws_access_key_id: ''
+external_secrets_bootstrap_aws_secret_access_key: ''

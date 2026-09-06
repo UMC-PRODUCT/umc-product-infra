@@ -1,0 +1,176 @@
+---
+# 민감값의 조회, 입력, 비교, 적용은 no_log 계약을 유지한다.
+- name: Require the repository External Secrets bootstrap identity contract
+  ansible.builtin.assert:
+    that:
+      - external_secrets_bootstrap_namespace == 'external-secrets'
+      - external_secrets_bootstrap_secret_name == 'aws-bootstrap'
+    fail_msg: >-
+      This repository's External Secrets manifests require namespace
+      external-secrets and Secret aws-bootstrap. Update every consumer together
+      instead of overriding these role defaults.
+
+- name: Resolve the AWS bootstrap access key from variables or the controller environment
+  ansible.builtin.set_fact:
+    external_secrets_bootstrap_effective_access_key_id: >-
+      {{ external_secrets_bootstrap_aws_access_key_id
+         if external_secrets_bootstrap_aws_access_key_id | length > 0
+         else lookup('ansible.builtin.env', 'ESO_AWS_ACCESS_KEY_ID') }}
+    external_secrets_bootstrap_effective_secret_access_key: >-
+      {{ external_secrets_bootstrap_aws_secret_access_key
+         if external_secrets_bootstrap_aws_secret_access_key | length > 0
+         else lookup('ansible.builtin.env', 'ESO_AWS_SECRET_ACCESS_KEY') }}
+  no_log: true
+
+- name: Prompt for the AWS bootstrap access key ID when absent
+  ansible.builtin.pause:
+    prompt: ESO AWS access key ID
+    echo: false
+  register: external_secrets_bootstrap_access_key_prompt
+  when: external_secrets_bootstrap_effective_access_key_id | length == 0
+  no_log: true
+  become: false
+
+- name: Prompt for the AWS bootstrap secret access key when absent
+  ansible.builtin.pause:
+    prompt: ESO AWS secret access key
+    echo: false
+  register: external_secrets_bootstrap_secret_key_prompt
+  when: external_secrets_bootstrap_effective_secret_access_key | length == 0
+  no_log: true
+  become: false
+
+- name: Merge any prompted AWS bootstrap values
+  ansible.builtin.set_fact:
+    external_secrets_bootstrap_effective_access_key_id: >-
+      {{ external_secrets_bootstrap_effective_access_key_id
+         if external_secrets_bootstrap_effective_access_key_id | length > 0
+         else external_secrets_bootstrap_access_key_prompt.user_input }}
+    external_secrets_bootstrap_effective_secret_access_key: >-
+      {{ external_secrets_bootstrap_effective_secret_access_key
+         if external_secrets_bootstrap_effective_secret_access_key | length > 0
+         else external_secrets_bootstrap_secret_key_prompt.user_input }}
+  no_log: true
+
+- name: Reject empty AWS bootstrap credentials
+  ansible.builtin.assert:
+    that:
+      - external_secrets_bootstrap_effective_access_key_id | length > 0
+      - external_secrets_bootstrap_effective_secret_access_key | length > 0
+    fail_msg: AWS bootstrap credentials cannot be empty.
+  no_log: true
+
+- name: Compare the External Secrets namespace bootstrap state
+  ansible.builtin.command:
+    argv:
+      - /usr/local/bin/k3s
+      - kubectl
+      - diff
+      - --server-side=true
+      - --field-manager=umc-bootstrap
+      - -f
+      - '-'
+    stdin: >-
+      {{ {'apiVersion': 'v1', 'kind': 'Namespace',
+          'metadata': {'name': external_secrets_bootstrap_namespace}} | to_json }}
+  register: external_secrets_bootstrap_namespace_diff
+  changed_when: false
+  failed_when: external_secrets_bootstrap_namespace_diff.rc not in [0, 1]
+
+# 최소 Namespace manifest를 server-side apply해 GitOps가 소유하는 environment·PSA label을 보존한다.
+- name: Reconcile the External Secrets namespace bootstrap state
+  ansible.builtin.command:
+    argv:
+      - /usr/local/bin/k3s
+      - kubectl
+      - apply
+      - --server-side=true
+      - --field-manager=umc-bootstrap
+      - -f
+      - '-'
+    stdin: >-
+      {{ {'apiVersion': 'v1', 'kind': 'Namespace',
+          'metadata': {'name': external_secrets_bootstrap_namespace}} | to_json }}
+  when: external_secrets_bootstrap_namespace_diff.rc == 1
+  changed_when: true
+
+# Secret manifest는 프로세스 인자나 임시 파일이 아닌 stdin으로 전달한다.
+# no_log로 명령 결과까지 숨기며 diff rc=0/1 외의 값만 오류로 처리한다.
+- name: Compare the AWS bootstrap Secret without exposing its data
+  ansible.builtin.command:
+    argv:
+      - /usr/local/bin/k3s
+      - kubectl
+      - diff
+      - --server-side=true
+      - --force-conflicts
+      - --field-manager=umc-bootstrap
+      - -n
+      - "{{ external_secrets_bootstrap_namespace }}"
+      - -f
+      - '-'
+    stdin: "{{ external_secrets_bootstrap_definition | to_json }}"
+  vars:
+    external_secrets_bootstrap_definition:
+      apiVersion: v1
+      kind: Secret
+      metadata:
+        name: "{{ external_secrets_bootstrap_secret_name }}"
+        namespace: "{{ external_secrets_bootstrap_namespace }}"
+        labels:
+          app.kubernetes.io/managed-by: operator-bootstrap
+          infra.university.neordinary.com/secret-purpose: external-secrets-aws-auth
+      type: Opaque
+      data:
+        access-key-id: >-
+          {{ external_secrets_bootstrap_effective_access_key_id | b64encode }}
+        secret-access-key: >-
+          {{ external_secrets_bootstrap_effective_secret_access_key | b64encode }}
+  register: external_secrets_bootstrap_diff
+  changed_when: false
+  failed_when: external_secrets_bootstrap_diff.rc not in [0, 1]
+  no_log: true
+
+- name: Reconcile the AWS bootstrap Secret when it differs
+  ansible.builtin.command:
+    argv:
+      - /usr/local/bin/k3s
+      - kubectl
+      - apply
+      - --server-side=true
+      - --force-conflicts
+      - --field-manager=umc-bootstrap
+      - -n
+      - "{{ external_secrets_bootstrap_namespace }}"
+      - -f
+      - '-'
+    stdin: "{{ external_secrets_bootstrap_definition | to_json }}"
+  vars:
+    external_secrets_bootstrap_definition:
+      apiVersion: v1
+      kind: Secret
+      metadata:
+        name: "{{ external_secrets_bootstrap_secret_name }}"
+        namespace: "{{ external_secrets_bootstrap_namespace }}"
+        labels:
+          app.kubernetes.io/managed-by: operator-bootstrap
+          infra.university.neordinary.com/secret-purpose: external-secrets-aws-auth
+      type: Opaque
+      data:
+        access-key-id: >-
+          {{ external_secrets_bootstrap_effective_access_key_id | b64encode }}
+        secret-access-key: >-
+          {{ external_secrets_bootstrap_effective_secret_access_key | b64encode }}
+  when: external_secrets_bootstrap_diff.rc == 1
+  changed_when: true
+  no_log: true
+  notify: Restart External Secrets after AWS credential rotation
+
+# fact를 비우는 것은 후속 오사용을 줄일 뿐 메모리의 안전한 삭제를 보장하지 않는다.
+- name: Remove AWS bootstrap values from in-memory host variables
+  ansible.builtin.set_fact:
+    external_secrets_bootstrap_effective_access_key_id: ''
+    external_secrets_bootstrap_effective_secret_access_key: ''
+    external_secrets_bootstrap_access_key_prompt: {}
+    external_secrets_bootstrap_secret_key_prompt: {}
+  no_log: true

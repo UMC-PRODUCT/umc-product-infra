@@ -1,0 +1,97 @@
+{{- if .Values.networkPolicy.enabled }}
+{{- $databaseNamespace := required "networkPolicy.database.namespace는 필수" .Values.networkPolicy.database.namespace -}}
+{{- $databasePodName := required "networkPolicy.database.podName은 필수" .Values.networkPolicy.database.podName -}}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "umc-product-server.fullname" . }}-allow-required
+  labels:
+    {{- include "umc-product-server.labels" . | nindent 4 }}
+    app.kubernetes.io/component: network-policy
+  annotations:
+    # 기존 workload에 default-deny를 적용하기 전에 허용 경로를 먼저 만든다.
+    argocd.argoproj.io/sync-wave: "-2"
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "umc-product-server.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: server
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # k3s 내장 Traefik만 앱 container port로 접근한다.
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: traefik
+              app.kubernetes.io/instance: traefik-kube-system
+      ports:
+        - protocol: TCP
+          port: {{ .Values.ports.http }}
+  egress:
+    # k3s CoreDNS. namespaceSelector와 podSelector는 같은 항목이므로 AND 조건이다.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - { protocol: UDP, port: 53 }
+        - { protocol: TCP, port: 53 }
+    # 자기 환경 PostgreSQL만 허용한다.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ $databaseNamespace | quote }}
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: {{ $databasePodName | quote }}
+              app.kubernetes.io/component: database
+      ports:
+        - { protocol: TCP, port: 5432 }
+    # 메트릭·로그·trace OTLP push 경로.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: opentelemetry-collector
+              app.kubernetes.io/instance: otel-collector
+              component: standalone-collector
+      ports:
+        - { protocol: TCP, port: 4318 }
+    # 표준 NetworkPolicy에는 FQDN selector가 없다. 외부 API/S3용 public IPv4 HTTPS를
+    # 열되 private, loopback, link-local(metadata 포함), CGNAT, 문서/benchmark,
+    # multicast/reserved 대역은 제외한다. 목적지 도메인 제한은 Phase 1 범위 밖이다.
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 0.0.0.0/8
+              - 10.0.0.0/8
+              - 100.64.0.0/10
+              - 127.0.0.0/8
+              - 169.254.0.0/16
+              - 172.16.0.0/12
+              - 192.0.0.0/24
+              - 192.0.2.0/24
+              - 192.31.196.0/24
+              - 192.52.193.0/24
+              - 192.88.99.0/24
+              - 192.168.0.0/16
+              - 192.175.48.0/24
+              - 198.18.0.0/15
+              - 198.51.100.0/24
+              - 203.0.113.0/24
+              - 224.0.0.0/4
+              - 240.0.0.0/4
+      ports:
+        - { protocol: TCP, port: 443 }
+{{- end }}

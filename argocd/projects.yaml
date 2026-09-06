@@ -1,0 +1,303 @@
+# Bootstrap applies this file before root. Root then owns the same definitions from Git.
+# Rollback: restore Application assignments and default access before removing projects.
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: bootstrap
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "-100"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  description: Root app-of-apps and project definitions
+  sourceRepos:
+    - https://github.com/UMC-PRODUCT/umc-product-infra.git
+  destinations:
+    - server: https://kubernetes.default.svc
+      namespace: argocd
+  clusterResourceWhitelist: []
+  namespaceResourceWhitelist:
+    - group: argoproj.io
+      kind: Application
+    - group: argoproj.io
+      kind: ApplicationSet
+    - group: argoproj.io
+      kind: AppProject
+---
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: platform
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "-100"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  description: Cluster namespaces, policy, and secret contracts from trusted Git
+  sourceRepos:
+    - https://github.com/UMC-PRODUCT/umc-product-infra.git
+  destinations:
+    - server: https://kubernetes.default.svc
+      namespace: app
+    - server: https://kubernetes.default.svc
+      namespace: argocd
+    - server: https://kubernetes.default.svc
+      namespace: db
+    - server: https://kubernetes.default.svc
+      namespace: default
+    - server: https://kubernetes.default.svc
+      namespace: dev-app
+    - server: https://kubernetes.default.svc
+      namespace: dev-db
+    - server: https://kubernetes.default.svc
+      namespace: external-secrets
+    - server: https://kubernetes.default.svc
+      namespace: cert-manager
+    - server: https://kubernetes.default.svc
+      namespace: external-dns
+    - server: https://kubernetes.default.svc
+      namespace: monitoring
+    - server: https://kubernetes.default.svc
+      namespace: preview
+  clusterResourceWhitelist:
+    - group: ""
+      kind: Namespace
+    - group: scheduling.k8s.io
+      kind: PriorityClass
+---
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: cert-manager
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "-100"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  description: cert-manager controller, CRDs, webhooks, and ACME issuers
+  sourceRepos:
+    - https://charts.jetstack.io
+    - https://github.com/UMC-PRODUCT/umc-product-infra.git
+  destinations:
+    - server: https://kubernetes.default.svc
+      namespace: cert-manager
+    # 공용 Preview 와일드카드 Certificate만 이 namespace에 둔다.
+    - server: https://kubernetes.default.svc
+      namespace: preview
+  clusterResourceWhitelist:
+    - group: admissionregistration.k8s.io
+      kind: MutatingWebhookConfiguration
+    - group: admissionregistration.k8s.io
+      kind: ValidatingWebhookConfiguration
+    - group: apiextensions.k8s.io
+      kind: CustomResourceDefinition
+    - group: cert-manager.io
+      kind: ClusterIssuer
+    - group: rbac.authorization.k8s.io
+      kind: ClusterRole
+    - group: rbac.authorization.k8s.io
+      kind: ClusterRoleBinding
+  namespaceResourceWhitelist:
+    - group: ""
+      kind: Service
+    - group: ""
+      kind: ServiceAccount
+    - group: apps
+      kind: Deployment
+    - group: batch
+      kind: Job
+    - group: rbac.authorization.k8s.io
+      kind: Role
+    - group: rbac.authorization.k8s.io
+      kind: RoleBinding
+    - group: cert-manager.io
+      kind: Certificate
+---
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: external-dns
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "-100"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  description: Exact Route 53 DNS records derived from opted-in Ingress resources
+  sourceRepos:
+    - https://kubernetes-sigs.github.io/external-dns/
+  destinations:
+    - server: https://kubernetes.default.svc
+      namespace: external-dns
+  clusterResourceWhitelist:
+    - group: rbac.authorization.k8s.io
+      kind: ClusterRole
+    - group: rbac.authorization.k8s.io
+      kind: ClusterRoleBinding
+  namespaceResourceWhitelist:
+    - group: ""
+      kind: Service
+    - group: ""
+      kind: ServiceAccount
+    - group: apps
+      kind: Deployment
+---
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: external-secrets
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "-100"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  description: External Secrets Operator only
+  sourceRepos:
+    - https://charts.external-secrets.io
+  destinations:
+    - server: https://kubernetes.default.svc
+      namespace: external-secrets
+  clusterResourceWhitelist:
+    - group: admissionregistration.k8s.io
+      kind: ValidatingWebhookConfiguration
+    - group: apiextensions.k8s.io
+      kind: CustomResourceDefinition
+    - group: rbac.authorization.k8s.io
+      kind: ClusterRole
+    - group: rbac.authorization.k8s.io
+      kind: ClusterRoleBinding
+---
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: reloader
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "-100"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  description: Named-Secret application restarts with namespace-scoped RBAC
+  sourceRepos:
+    - https://stakater.github.io/stakater-charts
+  destinations:
+    - server: https://kubernetes.default.svc
+      namespace: reloader
+    - server: https://kubernetes.default.svc
+      namespace: app
+    - server: https://kubernetes.default.svc
+      namespace: dev-app
+    - server: https://kubernetes.default.svc
+      namespace: preview
+  clusterResourceWhitelist: []
+  namespaceResourceWhitelist:
+    - group: ""
+      kind: ServiceAccount
+    - group: apps
+      kind: Deployment
+    - group: networking.k8s.io
+      kind: NetworkPolicy
+    - group: rbac.authorization.k8s.io
+      kind: Role
+    - group: rbac.authorization.k8s.io
+      kind: RoleBinding
+---
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: monitoring
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "-100"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  description: Observability workloads confined to monitoring
+  sourceRepos:
+    - https://github.com/UMC-PRODUCT/umc-product-infra.git
+    - https://grafana-community.github.io/helm-charts
+    - https://grafana.github.io/helm-charts
+    - https://open-telemetry.github.io/opentelemetry-helm-charts
+    - https://prometheus-community.github.io/helm-charts
+  destinations:
+    - server: https://kubernetes.default.svc
+      namespace: monitoring
+  clusterResourceWhitelist: []
+---
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: prod
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "-100"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  description: Production application and database
+  sourceRepos:
+    - https://github.com/UMC-PRODUCT/umc-product-infra.git
+  destinations:
+    - server: https://kubernetes.default.svc
+      namespace: app
+    - server: https://kubernetes.default.svc
+      namespace: db
+  clusterResourceWhitelist: []
+---
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: dev
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "-100"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  description: Development application and database
+  sourceRepos:
+    - https://github.com/UMC-PRODUCT/umc-product-infra.git
+  destinations:
+    - server: https://kubernetes.default.svc
+      namespace: dev-app
+    - server: https://kubernetes.default.svc
+      namespace: dev-db
+  clusterResourceWhitelist: []
+---
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: preview
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "-100"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  description: Pull-request previews and their shared database
+  sourceRepos:
+    - https://github.com/UMC-PRODUCT/umc-product-infra.git
+  destinations:
+    - server: https://kubernetes.default.svc
+      namespace: preview
+  clusterResourceWhitelist: []
+---
+# Dedicated projects use wave -100. Lock the built-in project one wave later.
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: default
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "-99"
+spec:
+  sourceRepos: []
+  sourceNamespaces: []
+  destinations: []
+  namespaceResourceBlacklist:
+    - group: "*"
+      kind: "*"

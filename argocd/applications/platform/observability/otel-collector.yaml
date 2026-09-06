@@ -1,0 +1,100 @@
+# OTel Collector — UMC 애플리케이션용 중앙 OTLP 게이트웨이
+# 앱은 OTEL_URL=http://otel-collector.monitoring.svc.cluster.local:4318 만 보면 됨
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: otel-collector
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: monitoring
+  source:
+    repoURL: https://open-telemetry.github.io/opentelemetry-helm-charts
+    chart: opentelemetry-collector
+    # upgrade는 이 version과 CI render contract을 같은 PR에서 바꾼다.
+    targetRevision: 0.156.2
+    helm:
+      valuesObject:
+        fullnameOverride: otel-collector
+        mode: deployment
+        replicaCount: 1
+        serviceAccount:
+          automountServiceAccountToken: false
+        image:
+          # compose와 같은 contrib 배포판. k3s에서는 sampling processor를 두지 않는다.
+          repository: otel/opentelemetry-collector-contrib
+          tag: 0.152.0 # compose와 동일
+          digest: sha256:f41d7995565df3733b7568702073a9c490792f9c6ac60684fe6a4da21a313f8d
+        resources:
+          # trace 100% 수집의 초기 예산. 실제 accepted/refused/export 지표로 재조정한다.
+          requests: { cpu: 250m, memory: 512Mi }
+          limits: { memory: 1Gi }
+        # 사용하지 않는 receiver port는 Service에서도 닫고, Collector 자체 metrics만
+        # Prometheus가 scrape할 수 있게 연다.
+        ports:
+          jaeger-compact: { enabled: false }
+          jaeger-thrift: { enabled: false }
+          jaeger-grpc: { enabled: false }
+          zipkin: { enabled: false }
+          metrics: { enabled: true }
+        config:
+          receivers:
+            # 로컬 스택의 bearer token 인증은 제거 — 클러스터 내부 ClusterIP 통신만 존재
+            otlp:
+              protocols:
+                grpc:
+                  endpoint: 0.0.0.0:4317
+                http:
+                  endpoint: 0.0.0.0:4318
+            # 차트 기본 config에 포함된 미사용 리시버 비활성화
+            jaeger: null
+            zipkin: null
+            prometheus: null
+          processors:
+            # chart 권장 percentage 설정으로 1Gi container limit의 80%(약 819Mi)를
+            # hard limit, 25%(256Mi)를 spike 여유로 둔다. 각 pipeline의 첫
+            # processor여야 backpressure가 먼저 걸린다.
+            memory_limiter:
+              check_interval: 5s
+              limit_percentage: 80
+              spike_limit_percentage: 25
+            batch:
+              send_batch_size: 1024
+              timeout: 5s
+          exporters:
+            # chart 기본 debug exporter는 어느 pipeline에서도 쓰지 않으며 제거한다.
+            debug: null
+            otlphttp/prometheus:
+              endpoint: http://prometheus-server.monitoring.svc.cluster.local:80/api/v1/otlp
+              tls: { insecure: true }
+            otlphttp/tempo:
+              endpoint: http://tempo.monitoring.svc.cluster.local:4318
+              tls: { insecure: true }
+            otlphttp/loki:
+              endpoint: http://loki.monitoring.svc.cluster.local:3100/otlp
+              tls: { insecure: true }
+          service:
+            pipelines:
+              metrics:
+                receivers: [otlp]
+                processors: [memory_limiter, batch]
+                exporters: [otlphttp/prometheus]
+              traces:
+                receivers: [otlp]
+                # 앱도 TRACE_SAMPLING_PROBABILITY=1.0으로 고정한다. 여기서 다시 버리지 않는다.
+                processors: [memory_limiter, batch]
+                exporters: [otlphttp/tempo]
+              logs:
+                receivers: [otlp]
+                processors: [memory_limiter, batch]
+                exporters: [otlphttp/loki]
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: monitoring
+  syncPolicy:
+    automated:
+      selfHeal: true
+      prune: true

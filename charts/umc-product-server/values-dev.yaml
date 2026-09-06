@@ -1,0 +1,62 @@
+# 공유 개발 환경 override. bootstrap gate는 필수 이미지와 시크릿 검증 후에만 연다.
+
+environment: dev
+
+deployment:
+  enabled: false
+
+image:
+  tag: bootstrap-required
+  digest: ""
+
+priorityClassName: dev-low
+
+networkPolicy:
+  enabled: true
+  database:
+    namespace: dev-db
+
+ingress:
+  enabled: false
+  host: api-dev.university.neordinary.com
+  tls:
+    - hosts: [api-dev.university.neordinary.com]
+      secretName: api-dev-university-neordinary-com-tls
+
+certificate:
+  enabled: true
+
+resources:
+  requests:
+    cpu: 250m
+    memory: 2Gi
+  limits:
+    cpu: 1500m
+    memory: 3Gi
+
+env:
+  SPRING_PROFILES_ACTIVE: dev
+  SPRING_APPLICATION_NAME: dev-umc-product
+  APP_ENVIRONMENT: dev
+  SSO_ISSUER: https://api-dev.university.neordinary.com
+  CERTIFICATE_VERIFICATION_URL_TEMPLATE: https://api-dev.university.neordinary.com/api/v1/certificates/verify/{serialNumber}
+  S3_BUCKET_NAME: umc-product-dev-app-storage-351284652562-ap-northeast-2
+  S3_REGION: ap-northeast-2
+  SES_REGION: ap-northeast-2
+  EMAIL_NO_REPLY_ADDRESS: no-reply-nonprod@university.neordinary.com
+  GOOGLE_CLIENT_ID_LIST: "882297658822-ag179p23eqhc5lti8ue5cgbf5phekbfh.apps.googleusercontent.com,882297658822-qaf493b6fu6a9f33artnu435jimkoome.apps.googleusercontent.com,882297658822-gsl0u8uo78qtt5h0ggkm421sml9c02pd.apps.googleusercontent.com,882297658822-d47kcffbv3eoms278pak6rcv21lhcei8.apps.googleusercontent.com"
+  APP_SEED_ENABLED: "false"
+  DATABASE_URL: jdbc:postgresql://postgres.dev-db.svc.cluster.local:5432/umc_product_dev
+  DATABASE_USERNAME: umc_product_dev_app
+  MEDIA_STORAGE_PURGE_ENABLED: "false"
+  PRIVACY_RETENTION_ENABLED: "false"
+
+probes:
+  startup:
+    failureThreshold: 60
+
+reloader:
+  secretNames:
+    - app-oauth
+    - app-storage
+    - app-email

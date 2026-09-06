@@ -1,0 +1,15 @@
+# allow 정책(-2)이 먼저 준비된 뒤 공유 preview namespace 전체를 격리한다.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny
+  namespace: preview
+  labels:
+    environment: preview
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress

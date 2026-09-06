@@ -1,0 +1,201 @@
+# pg_dump → 노드 밖 전용 AWS S3 버킷 (계획 D14, Phase 9)
+# 컷오버 후 매일 03:00 KST. controller/host 시간대와 무관하게 CronJob 자체에 고정한다.
+# cloud/aws/postgres-backup-s3.yaml과 backup-s3 Secret을 실제 구성하고 수동 restore
+# 리허설을 통과하기 전에는 suspend한다.
+# 첫 restore 리허설 전에는 운영자가 일회성 Job으로 수동 실행해 업로드부터 복구까지 검증한다.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: pg-backup
+  labels:
+    app.kubernetes.io/name: pg-backup
+    app.kubernetes.io/component: backup
+    environment: prod
+spec:
+  schedule: "0 3 * * *"
+  timeZone: Asia/Seoul
+  # controller가 한 시간 넘게 멈춘 실행은 건너뛴다. 장기 suspend 해제 시 과거 실행을
+  # 한꺼번에 따라잡거나 오래 늦은 백업이 업무 시간에 시작되는 것을 막는다.
+  startingDeadlineSeconds: 3600
+  # 정식 운영 DB가 홈서버에 있는 동안 대기 k3s 환경의 예약 백업은 실행하지 않는다.
+  suspend: true
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    metadata:
+      labels:
+        app.kubernetes.io/name: pg-backup
+        app.kubernetes.io/component: backup
+        environment: prod
+    spec:
+      backoffLimit: 2
+      # 초기 상한은 2시간. 활성화 전 실측한 dump+upload p95의 2배로 다시 맞춘다.
+      activeDeadlineSeconds: 7200
+      ttlSecondsAfterFinished: 86400
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: pg-backup
+            app.kubernetes.io/component: backup
+            environment: prod
+        spec:
+          restartPolicy: Never
+          automountServiceAccountToken: false
+          securityContext:
+            runAsNonRoot: true
+            # dump(999)와 upload(1000)가 공통 group 2000으로 emptyDir를 공유한다.
+            fsGroup: 2000
+            fsGroupChangePolicy: OnRootMismatch
+            seccompProfile:
+              type: RuntimeDefault
+          initContainers:
+            # 1단계: 덤프 생성
+            - name: dump
+              image: postgis/postgis:18-3.6@sha256:60f6ad1d21ea86a67d47780b9a0d1e1d200500f62b19293fa834d0dea80b8677 # StatefulSet 이미지와 동일 버전 유지
+              command: ["sh", "-c"]
+              args:
+                # 대기 루프 이유는 readonly-role-job.yaml 참고 — NetworkPolicy 가 새 파드 IP 를
+                # 허용 목록에 넣기까지 몇 초 걸린다. 지금까지는 이미지 풀 시간이 그 창을 가려줬을 뿐이다.
+                - |
+                  set -eu
+                  umask 027
+                  database_ready=false
+                  for i in $(seq 1 40); do
+                    if pg_isready -q; then
+                      database_ready=true
+                      break
+                    fi
+                    sleep 3
+                  done
+                  test "$database_ready" = true
+                  backup_name="umc-product-$(date -u +%Y%m%dT%H%M%SZ)-${BACKUP_RUN_ID}.dump"
+                  backup_file="/backup/${backup_name}"
+                  pg_dump -Fc -f "$backup_file"
+                  test -s "$backup_file"
+                  pg_restore --list "$backup_file" >/dev/null
+                  (
+                    cd /backup
+                    sha256sum "$backup_name" >"${backup_name}.sha256"
+                    sha256sum -c "${backup_name}.sha256"
+                    printf '%s\n' "$backup_name" > BACKUP_NAME
+                  )
+                  ls -lh /backup
+              env:
+                - name: PGHOST
+                  value: postgres.db.svc.cluster.local
+                - name: PGUSER
+                  valueFrom:
+                    secretKeyRef: { name: postgres-secrets, key: POSTGRES_USER }
+                - name: PGPASSWORD
+                  valueFrom:
+                    secretKeyRef: { name: postgres-secrets, key: POSTGRES_PASSWORD }
+                - name: PGDATABASE
+                  value: umc_product
+                - name: BACKUP_RUN_ID
+                  valueFrom:
+                    fieldRef:
+                      fieldPath: metadata.uid
+              securityContext:
+                runAsUser: 999
+                runAsGroup: 2000
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities: { drop: ["ALL"] }
+              resources:
+                # local-path PVC의 20Gi는 quota가 아니므로 backup 작업 자체가 쓸 수 있는
+                # 최대치에 가깝게 예약해 nodefs 부족을 스케줄 단계에서 드러낸다.
+                requests: { cpu: 100m, memory: 256Mi, ephemeral-storage: 25Gi }
+                limits: { cpu: 500m, memory: 512Mi, ephemeral-storage: 26Gi }
+              volumeMounts:
+                - name: backup
+                  mountPath: /backup
+          containers:
+            # 2단계: 노드와 다른 장애 영역의 전용 AWS S3 버킷으로 업로드
+            - name: upload
+              image: public.ecr.aws/aws-cli/aws-cli:2.36.34@sha256:cf1f5e5741c33f3fee383296ba8045b96b9eb93c3de017be6688fb00356352d7
+              command: ["sh", "-c"]
+              args:
+                # dump와 checksum이 모두 올라간 뒤 .complete marker를 마지막에 쓴다.
+                # restore는 marker가 있는 실행만 완성된 백업으로 취급한다.
+                - |
+                  set -eu
+                  umask 027
+                  secret_dir=/var/run/secrets/backup-s3
+                  for key in AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_REGION S3_BUCKET S3_EXPECTED_BUCKET_OWNER; do
+                    test -s "${secret_dir}/${key}"
+                  done
+                  export AWS_ACCESS_KEY_ID="$(cat "${secret_dir}/AWS_ACCESS_KEY_ID")"
+                  export AWS_SECRET_ACCESS_KEY="$(cat "${secret_dir}/AWS_SECRET_ACCESS_KEY")"
+                  aws_region="$(cat "${secret_dir}/AWS_REGION")"
+                  s3_bucket="$(cat "${secret_dir}/S3_BUCKET")"
+                  expected_owner="$(cat "${secret_dir}/S3_EXPECTED_BUCKET_OWNER")"
+                  case "$expected_owner" in
+                    [0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]) ;;
+                    *) exit 1 ;;
+                  esac
+                  actual_region="$(aws s3api get-bucket-location --bucket "$s3_bucket" \
+                    --expected-bucket-owner "$expected_owner" --region "$aws_region" \
+                    --query LocationConstraint --output text)"
+                  # S3 API의 두 legacy 표기만 CloudFormation region 이름으로 정규화한다.
+                  case "$actual_region" in
+                    None) actual_region=us-east-1 ;;
+                    EU) actual_region=eu-west-1 ;;
+                  esac
+                  test "$actual_region" = "$aws_region"
+                  backup_name="$(cat /backup/BACKUP_NAME)"
+                  case "$backup_name" in
+                    umc-product-????????T??????Z-????????-????-????-????-????????????.dump) ;;
+                    *) exit 1 ;;
+                  esac
+                  backup_file="/backup/${backup_name}"
+                  checksum_file="${backup_file}.sha256"
+                  test -s "$backup_file"
+                  test -s "$checksum_file"
+                  destination="s3://${s3_bucket}/postgres/prod"
+                  aws s3 cp "$backup_file" "${destination}/${backup_name}" \
+                    --region "$aws_region" --sse AES256 --checksum-algorithm SHA256 --only-show-errors
+                  aws s3 cp "$checksum_file" "${destination}/${backup_name}.sha256" \
+                    --region "$aws_region" --sse AES256 --checksum-algorithm SHA256 --only-show-errors
+                  printf '%s\n' "$backup_name" >/tmp/complete
+                  aws s3 cp /tmp/complete "${destination}/${backup_name}.complete" \
+                    --region "$aws_region" --sse AES256 --checksum-algorithm SHA256 --only-show-errors
+              env:
+                - name: AWS_EC2_METADATA_DISABLED
+                  value: "true"
+                - name: AWS_PAGER
+                  value: ""
+              securityContext:
+                runAsUser: 1000
+                runAsGroup: 2000
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities: { drop: ["ALL"] }
+              resources:
+                requests: { cpu: 100m, memory: 128Mi, ephemeral-storage: 64Mi }
+                limits: { cpu: 500m, memory: 256Mi, ephemeral-storage: 256Mi }
+              volumeMounts:
+                - name: backup
+                  mountPath: /backup
+                  readOnly: true
+                - name: tmp
+                  mountPath: /tmp
+                - name: backup-s3
+                  mountPath: /var/run/secrets/backup-s3
+                  readOnly: true
+          volumes:
+            - name: backup
+              emptyDir:
+                # 현재 prod PVC 요청(20Gi)보다 크게 둔다. local-path PVC request도 실제
+                # quota는 아니므로 DB 크기·dump 실측과 함께 이 상한을 관리한다.
+                sizeLimit: 25Gi
+            - name: tmp
+              emptyDir:
+                sizeLimit: 64Mi
+            - name: backup-s3
+              secret:
+                # Secrets Manager /umc-product/prod/backup-s3 JSON → ExternalSecret/backup-s3
+                # AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY / AWS_REGION / S3_BUCKET /
+                # S3_EXPECTED_BUCKET_OWNER
+                secretName: backup-s3
+                defaultMode: 0440

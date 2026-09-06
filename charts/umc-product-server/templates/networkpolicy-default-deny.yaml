@@ -1,0 +1,17 @@
+{{- if .Values.networkPolicy.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "umc-product-server.fullname" . }}-default-deny
+  labels:
+    {{- include "umc-product-server.labels" . | nindent 4 }}
+    app.kubernetes.io/component: network-policy
+  annotations:
+    # allow(-2)가 먼저 반영된 다음 namespace를 격리한다.
+    argocd.argoproj.io/sync-wave: "-1"
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+{{- end }}

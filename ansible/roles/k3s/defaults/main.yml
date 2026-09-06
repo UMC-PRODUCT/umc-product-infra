@@ -1,0 +1,27 @@
+---
+k3s_version: v1.36.3+k3s1
+# mutable get.k3s.io 대신 위 release tag에 포함된 installer와 checksum을 함께 고정한다.
+k3s_install_script_url: >-
+  https://raw.githubusercontent.com/k3s-io/k3s/v1.36.3%2Bk3s1/install.sh
+k3s_install_script_checksum: >-
+  sha256:46177d4c99440b4c0311b67233823a8e8a2fc09693f6c89af1a7161e152fbfad
+
+k3s_kubeconfig_path: /etc/rancher/k3s/k3s.yaml
+# Pod/Service CIDR은 호스트·IDC·VPN 네트워크와 겹치지 않아야 한다.
+k3s_cluster_cidr: 10.42.0.0/16
+k3s_service_cidr: 10.43.0.0/16
+
+k3s_system_reserved_cpu: 1000m
+k3s_system_reserved_memory: 2Gi
+# eviction-hard를 일부만 지정하면 나머지 kubelet 기본값이 0이 된다.
+# memory·disk·inode 기준은 아래 다섯 값을 항상 한 묶음으로 유지한다.
+k3s_eviction_memory_available: 1Gi
+k3s_eviction_nodefs_available: 10%
+k3s_eviction_imagefs_available: 15%
+k3s_eviction_nodefs_inodes_free: 5%
+k3s_eviction_imagefs_inodes_free: 5%
+
+k3s_ready_timeout: 300s
+
+k3s_traefik_manifest_directory: /var/lib/rancher/k3s/server/manifests
+k3s_traefik_config_path: /var/lib/rancher/k3s/server/manifests/traefik-config.yaml

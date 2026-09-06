@@ -1,0 +1,108 @@
+# Loki — UMC 로그 백엔드 (단일 바이너리, local-path)
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: loki
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: monitoring
+  source:
+    repoURL: https://grafana.github.io/helm-charts
+    chart: loki
+    # upgrade는 이 version과 CI render contract을 같은 PR에서 바꾼다.
+    targetRevision: 6.24.0
+    helm:
+      valuesObject:
+        fullnameOverride: loki
+        deploymentMode: SingleBinary
+        loki:
+          image:
+            tag: 3.7.2 # compose와 동일
+            digest: sha256:191d4fdfb7264f16989f0a57f320872620a5a7c2ceeec6229212c4190ec49b86
+          auth_enabled: false
+          commonConfig:
+            replication_factor: 1
+          storage:
+            type: filesystem
+          schemaConfig:
+            configs:
+              - from: "2024-01-01"
+                store: tsdb
+                object_store: filesystem
+                schema: v13
+                index:
+                  prefix: index_
+                  period: 24h
+          limits_config:
+            # 운영 로그 보유기간은 90일로 제한한다. local-path PVC 요청량은
+            # 용량 상한이 아니므로 노드 디스크 사용량도 별도로 감시한다.
+            retention_period: 2160h
+            reject_old_samples: true
+            reject_old_samples_max_age: 168h
+            # OTLP logs의 resource attribute를 structured metadata로 받기 위해 필수
+            allow_structured_metadata: true
+          compactor:
+            retention_enabled: true
+            delete_request_store: filesystem
+          # 로그 알림 규칙 → prometheus 차트의 alertmanager로 발화 (로컬 스택과 동일 경로)
+          rulerConfig:
+            storage:
+              type: local
+              local:
+                directory: /rules
+            rule_path: /tmp/loki-rules
+            alertmanager_url: http://prometheus-alertmanager.monitoring.svc.cluster.local:9093
+            enable_api: true
+        singleBinary:
+          replicas: 1
+          resources:
+            requests: { cpu: 100m, memory: 512Mi }
+            limits: { memory: 768Mi }
+          persistence:
+            storageClass: local-path
+            size: 5Gi
+          # 알림 규칙 ConfigMap(manifests/observability/loki-alert-rules.yaml)을
+          # /rules/fake/ (auth 비활성 시 테넌트명 fake)로 마운트
+          extraVolumes:
+            - name: loki-rules
+              configMap:
+                name: loki-alert-rules
+          extraVolumeMounts:
+            - name: loki-rules
+              mountPath: /rules/fake
+              readOnly: true
+        # 단일 노드에 분산 모드 컴포넌트·캐시 파드는 과함 — 전부 끔
+        read: { replicas: 0 }
+        write: { replicas: 0 }
+        backend: { replicas: 0 }
+        chunksCache: { enabled: false }
+        resultsCache: { enabled: false }
+        gateway: { enabled: false }
+        lokiCanary: { enabled: false }
+        test: { enabled: false }
+        # 규칙 ConfigMap은 위에서 직접 마운트하므로 cluster-wide Secret/ConfigMap
+        # 조회 권한을 요구하는 k8s-sidecar watcher는 사용하지 않는다.
+        serviceAccount:
+          automountServiceAccountToken: false
+        # 차트가 빈 RBAC 객체를 항상 만들기 때문에 scope라도 monitoring으로 제한한다.
+        rbac:
+          namespaced: true
+        sidecar:
+          rules:
+            enabled: false
+        monitoring:
+          selfMonitoring:
+            enabled: false
+            grafanaAgent:
+              installOperator: false
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: monitoring
+  syncPolicy:
+    automated:
+      selfHeal: true
+      prune: true

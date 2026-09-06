@@ -1,0 +1,39 @@
+# headless: StatefulSet 파드 고정 DNS용 (필수)
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres-preview-headless
+  labels:
+    app.kubernetes.io/name: postgres-preview
+    app.kubernetes.io/component: database
+    environment: preview
+spec:
+  clusterIP: None
+  selector:
+    app.kubernetes.io/name: postgres-preview
+    app.kubernetes.io/component: database
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: 5432
+      protocol: TCP
+---
+# 프리뷰 앱 접속용 — postgres-preview.preview.svc.cluster.local (외부 노출 금지)
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres-preview
+  labels:
+    app.kubernetes.io/name: postgres-preview
+    app.kubernetes.io/component: database
+    environment: preview
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: postgres-preview
+    app.kubernetes.io/component: database
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: 5432
+      protocol: TCP

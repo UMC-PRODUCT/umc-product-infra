@@ -1,0 +1,6 @@
+apiVersion: v2
+name: umc-secrets
+description: AWS Secrets Manager contracts for UMC Product Kubernetes Secrets
+type: application
+version: 0.3.4
+appVersion: "3"

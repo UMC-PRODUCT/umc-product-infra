@@ -1,0 +1,205 @@
+# Grafana — observability/dashboards의 허용 목록을 ConfigMap sidecar로 로드
+# datasource uid(prometheus/loki/tempo)는 대시보드 JSON과의 계약이므로 고정한다.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: grafana
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: monitoring
+  source:
+    repoURL: https://grafana-community.github.io/helm-charts
+    chart: grafana
+    # Greenfield라 chart v13의 distroless/read-only root filesystem 기본값을 적용한다.
+    # appVersion 13.2.0은 13.0.x 이후 공개된 인증 전 DoS·XSS·정보 노출 수정을 포함한다.
+    targetRevision: 13.0.1
+    helm:
+      valuesObject:
+        fullnameOverride: grafana
+        image:
+          tag: 13.2.0-distroless
+          sha: 08e6ab6d67a5e21e6540724d3673a572840a43b1ba02d03922d0a21a7dbb38f9
+        # Secrets Manager /umc-product/platform/monitoring/grafana-admin → ExternalSecret/grafana-admin
+        admin:
+          existingSecret: grafana-admin
+          userKey: admin-user
+          passwordKey: admin-password
+        persistence:
+          enabled: true
+          storageClassName: local-path
+          size: 1Gi
+        # 단일 replica가 SQLite PVC를 공유하므로 upgrade 중 두 프로세스를 동시에 띄우지 않는다.
+        deploymentStrategy:
+          type: Recreate
+        resources:
+          requests: { cpu: 100m, memory: 384Mi }
+          limits: { memory: 1Gi }
+        # PVC ownership을 한 번 조정하는 chart 생성 init container의 자원 경계.
+        initChownData:
+          image:
+            tag: "1.38.0"
+            sha: dc2d74b28e4cf8984fa52af1f39bc7c3d9c73760b41a74d629f5d11b1ab28616
+          resources:
+            requests: { cpu: 10m, memory: 16Mi }
+            limits: { memory: 32Mi }
+        testFramework:
+          enabled: false
+        # manifests/observability/dashboards/의 ConfigMap(label: grafana_dashboard=1)을 자동 로드
+        sidecar:
+          image:
+            tag: 2.10.3
+            sha: e8fb0c4fa3c5a22d9d0eabd9c13cf5df9ce65cba6a062272f2a762f7a78284d6
+          resources:
+            requests: { cpu: 50m, memory: 64Mi }
+            limits: { cpu: 100m, memory: 128Mi }
+          dashboards:
+            enabled: true
+            label: grafana_dashboard
+            labelValue: "1"
+            searchNamespace: monitoring
+            resource: configmap
+            # Admin API reload 대신 Grafana provider의 30초 file polling을 쓰면
+            # sidecar에 admin Secret을 주입할 필요가 없다.
+            skipReload: true
+            provider:
+              folder: UMC Product
+        # chart 기본값은 sidecar에 모든 namespace의 Secret 조회권한까지 준다. 대시보드
+        # ConfigMap만 읽는 namespace Role을 chart와 같은 release에서 만들고 여기에만 bind한다.
+        rbac:
+          namespaced: true
+          useExistingRole: grafana-dashboard-reader
+        extraObjects:
+          - apiVersion: rbac.authorization.k8s.io/v1
+            kind: Role
+            metadata:
+              name: grafana-dashboard-reader
+              namespace: monitoring
+            rules:
+              - apiGroups: [""]
+                resources: ["configmaps"]
+                verbs: ["get", "list", "watch"]
+          - apiVersion: cert-manager.io/v1
+            kind: Certificate
+            metadata:
+              name: grafana
+              namespace: monitoring
+              annotations:
+                argocd.argoproj.io/sync-wave: "-2"
+            spec:
+              secretName: grafana-university-neordinary-com-tls
+              dnsNames: [grafana.university.neordinary.com]
+              issuerRef:
+                group: cert-manager.io
+                kind: ClusterIssuer
+                # 첫 DNS-01 검증 뒤 letsencrypt-production으로 승격한다.
+                name: letsencrypt-staging
+              privateKey:
+                algorithm: ECDSA
+                size: 256
+                rotationPolicy: Always
+        datasources:
+          datasources.yaml:
+            apiVersion: 1
+            # 초기 허용 대시보드가 사용하는 내부 datasource만 선언한다.
+            datasources:
+              - name: Alertmanager
+                type: alertmanager
+                uid: alertmanager
+                access: proxy
+                url: http://prometheus-alertmanager.monitoring.svc.cluster.local:9093
+                jsonData:
+                  implementation: prometheus
+              - name: Prometheus
+                type: prometheus
+                uid: prometheus
+                access: proxy
+                url: http://prometheus-server.monitoring.svc.cluster.local:80
+                isDefault: true
+                jsonData:
+                  timeInterval: 30s
+              - name: Loki
+                type: loki
+                uid: loki
+                access: proxy
+                url: http://loki.monitoring.svc.cluster.local:3100
+                jsonData:
+                  derivedFields:
+                    - datasourceUid: tempo
+                      matcherRegex: '"traceId":"(\w+)"'
+                      name: traceId
+                      url: '$${__value.raw}'
+              - name: Tempo
+                type: tempo
+                uid: tempo
+                access: proxy
+                # grafana/tempo 차트의 http_listen_port 기본값 3100 (로컬 3200과 다름)
+                url: http://tempo.monitoring.svc.cluster.local:3100
+                jsonData:
+                  tracesToLogsV2:
+                    datasourceUid: loki
+                    filterByTraceID: true
+                  tracesToMetrics:
+                    datasourceUid: prometheus
+                  serviceMap:
+                    datasourceUid: prometheus
+                  nodeGraph:
+                    enabled: true
+        # 팀원은 public HTTPS 주소에서 Grafana 로컬 계정으로 로그인한다.
+        # 현재는 실제 IDC public IPv4와 production 인증서가 없으므로 gate를 닫아 둔다.
+        ingress:
+          enabled: false
+          ingressClassName: traefik
+          annotations:
+            argocd.argoproj.io/sync-wave: "1"
+            external-dns.kubernetes.io/managed-by: umc-infra
+            # TEST-NET placeholder이며 ExternalDNS target filter에도 거부된다.
+            external-dns.kubernetes.io/target: "192.0.2.1"
+            traefik.ingress.kubernetes.io/router.entrypoints: websecure
+          hosts: [grafana.university.neordinary.com]
+          path: /
+          pathType: Prefix
+          tls:
+            - secretName: grafana-university-neordinary-com-tls
+              hosts: [grafana.university.neordinary.com]
+
+        grafana.ini:
+          auth:
+            # 로컬 계정 로그인 화면은 팀원 접근 경계이므로 유지한다.
+            disable_login_form: false
+          server:
+            # TLS는 Traefik에서 종료되므로 Grafana listener는 HTTP를 유지한다.
+            protocol: http
+            domain: grafana.university.neordinary.com
+            root_url: https://grafana.university.neordinary.com
+            enforce_domain: true
+          auth.basic:
+            enabled: true
+            password_policy: true
+          auth.anonymous:
+            enabled: false
+          security:
+            # 외부 공개 시 로그인 무작위 대입 방어와 HTTPS 고정을 명시적으로 유지한다.
+            disable_brute_force_login_protection: false
+            brute_force_login_protection_max_attempts: 5
+            cookie_secure: true
+            cookie_samesite: strict
+            strict_transport_security: true
+          plugins:
+            # distroless/read-only image에서 bundled plugin을 쓰기 갱신하지 않는다.
+            # plugin update는 검증한 Grafana image/chart upgrade와 함께 한다.
+            preinstall_auto_update: false
+          users:
+            # OAuth 이메일 자동 연결은 보안상 쓰지 않는다. 운영자가 로컬 계정을 직접 만든다.
+            allow_sign_up: false
+            auto_assign_org_role: Viewer
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: monitoring
+  syncPolicy:
+    automated:
+      selfHeal: true
+      prune: true

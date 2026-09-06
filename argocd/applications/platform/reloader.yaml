@@ -1,0 +1,74 @@
+# Reloader — 승인한 application Secret 변경 시 단일 Pod도 즉시 재시작한다.
+# DB/JWT처럼 순서나 호환성 검토가 필요한 Secret은 workload annotation에서 제외한다.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: reloader
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: reloader
+  source:
+    repoURL: https://stakater.github.io/stakater-charts
+    chart: reloader
+    targetRevision: 2.2.16
+    helm:
+      releaseName: umc-reloader
+      valuesObject:
+        fullnameOverride: reloader
+        image:
+          tag: v1.4.21
+          digest: sha256:b253579350a835082cdad8d8736671cedaa0f8309437c894bd1bf1c2f0e0d45e
+          pullPolicy: IfNotPresent
+        reloader:
+          autoReloadAll: false
+          ignoreSecrets: false
+          ignoreConfigMaps: true
+          ignoreJobs: true
+          ignoreCronJobs: true
+          reloadOnCreate: false
+          reloadOnDelete: false
+          syncAfterRestart: false
+          reloadStrategy: annotations
+          watchGlobally: false
+          namespaces:
+            - app
+            - dev-app
+            - preview
+          enableHA: false
+          readOnlyRootFileSystem: true
+          deployment:
+            replicas: 1
+            revisionHistoryLimit: 2
+            resources:
+              requests: { cpu: 50m, memory: 64Mi }
+              limits: { cpu: 200m, memory: 128Mi }
+            securityContext:
+              runAsNonRoot: true
+              runAsUser: 65534
+              seccompProfile:
+                type: RuntimeDefault
+            containerSecurityContext:
+              allowPrivilegeEscalation: false
+              readOnlyRootFilesystem: true
+              capabilities:
+                drop: ["ALL"]
+          netpol:
+            enabled: true
+            from:
+              - namespaceSelector:
+                  matchLabels:
+                    kubernetes.io/metadata.name: monitoring
+            to: []
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: reloader
+  syncPolicy:
+    automated:
+      selfHeal: true
+      prune: true
+    syncOptions:
+      - FailOnSharedResource=true

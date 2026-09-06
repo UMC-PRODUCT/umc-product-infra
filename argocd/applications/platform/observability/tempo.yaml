@@ -1,0 +1,81 @@
+# Tempo — UMC trace 저장소 (단일 노드 local-path)
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: tempo
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: monitoring
+  source:
+    repoURL: https://grafana.github.io/helm-charts
+    chart: tempo
+    # upgrade는 이 version과 CI render contract을 같은 PR에서 바꾼다.
+    targetRevision: 1.18.0
+    helm:
+      valuesObject:
+        # Chart 기본 receivers는 values deep-merge 때문에 Jaeger가 남는다. 전체 설정을
+        # 명시해 실제 listener를 OTLP gRPC/HTTP로만 제한한다. Service의 legacy port는
+        # chart 1.18.0에 고정돼 있어 NetworkPolicy가 3100/4318 외 접근을 차단한다.
+        config: |
+          memberlist:
+            cluster_label: "tempo.monitoring"
+          multitenancy_enabled: false
+          usage_report:
+            reporting_enabled: false
+          compactor:
+            compaction:
+              block_retention: 168h
+          distributor:
+            receivers:
+              otlp:
+                protocols:
+                  grpc:
+                    endpoint: 0.0.0.0:4317
+                  http:
+                    endpoint: 0.0.0.0:4318
+          ingester:
+            trace_idle_period: 10s
+            max_block_duration: 5m
+          server:
+            http_listen_port: 3100
+          storage:
+            trace:
+              backend: local
+              local:
+                path: /var/tempo/traces
+              wal:
+                path: /var/tempo/wal
+          querier: {}
+          query_frontend: {}
+          overrides:
+            per_tenant_override_config: /conf/overrides.yaml
+
+        fullnameOverride: tempo
+        serviceAccount:
+          automountServiceAccountToken: false
+        tempo:
+          repository: grafana/tempo
+          tag: 2.10.5@sha256:ee21727732c7a7199cb71c3eee9153bbf23f9b0b87619f0555a0cf21a67f1a33 # compose와 동일
+          # 100% trace의 초기 메모리 예산에서도 ballast는 256Mi만 고정하고 나머지를
+          # heap/cache에 남긴다. 실제 ingest와 RSS를 본 뒤 조정한다.
+          memBallastSizeMbs: 256
+          resources:
+            requests: { cpu: 250m, memory: 1Gi }
+            limits: { memory: 2Gi }
+        persistence:
+          enabled: true
+          storageClassName: local-path
+          # 기존 10%/5Gi 모델을 100%/7일에 맞춘 초기값. local-path의 요청 크기는
+          # 실제 quota가 아니므로 node disk 알림과 일별 증가량을 함께 본다.
+          size: 50Gi
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: monitoring
+  syncPolicy:
+    automated:
+      selfHeal: true
+      prune: true

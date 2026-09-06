@@ -1,0 +1,54 @@
+{{- if and .Values.deployment.enabled .Values.ingress.enabled }}
+{{- $host := required "ingress.enabled=true이면 ingress.host가 필수" .Values.ingress.host }}
+{{- $className := required "ingress.enabled=true이면 ingress.className이 필수" .Values.ingress.className }}
+{{- $dnsTarget := required "ingress.enabled=true이면 externalDNS.target이 필수" .Values.externalDNS.target }}
+{{- if or (eq $dnsTarget "bootstrap-required") (not (regexMatch "^[0-9]{1,3}(\\.[0-9]{1,3}){3}$" $dnsTarget)) }}
+{{- fail "ingress.enabled=true이면 externalDNS.target에 실제 IDC public IPv4가 필요함" }}
+{{- end }}
+{{- if ne $className "traefik" }}
+{{- fail "ingress.enabled=true이면 ingress.className은 traefik이어야 함" }}
+{{- end }}
+{{- if or (eq (lower $host) "invalid") (hasSuffix ".invalid" (lower $host)) }}
+{{- fail "ingress.enabled=true이면 .invalid가 아닌 실제 ingress.host가 필요함" }}
+{{- end }}
+{{- if eq (len .Values.ingress.tls) 0 }}
+{{- fail "ingress.enabled=true이면 하나 이상의 ingress.tls 항목이 필요함" }}
+{{- end }}
+{{- range $tls := .Values.ingress.tls }}
+{{- if not $tls.secretName }}
+{{- fail "모든 ingress.tls 항목에는 secretName이 필요함" }}
+{{- end }}
+{{- if not (and $tls.hosts (has $host $tls.hosts)) }}
+{{- fail "ingress.tls.hosts에는 ingress.host가 포함되어야 함" }}
+{{- end }}
+{{- if and (eq $.Values.environment "preview") (ne $tls.secretName "preview-wildcard-tls") }}
+{{- fail "preview ingress는 공용 preview-wildcard-tls Secret을 사용해야 함" }}
+{{- end }}
+{{- end }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "umc-product-server.fullname" . }}
+  labels:
+    {{- include "umc-product-server.labels" . | nindent 4 }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+    external-dns.kubernetes.io/managed-by: umc-infra
+    external-dns.kubernetes.io/target: {{ $dnsTarget | quote }}
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+spec:
+  ingressClassName: {{ $className | quote }}
+  rules:
+    - host: {{ $host | quote }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "umc-product-server.fullname" . }}
+                port:
+                  name: http
+  tls:
+    {{- toYaml .Values.ingress.tls | nindent 4 }}
+{{- end }}

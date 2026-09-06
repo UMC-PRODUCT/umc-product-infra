@@ -1,0 +1,98 @@
+# 모든 PR database의 owner로 사용할 제한된 공용 role. database 자체는 PR별로 분리한다.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: postgres-app-role
+  namespace: preview
+  labels:
+    app.kubernetes.io/name: postgres-app-role
+    app.kubernetes.io/component: database-bootstrap
+    environment: preview
+  annotations:
+    argocd.argoproj.io/sync-options: Force=true,Replace=true
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  activeDeadlineSeconds: 300
+  backoffLimit: 3
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: postgres-app-role
+        app.kubernetes.io/component: database-bootstrap
+        environment: preview
+    spec:
+      restartPolicy: Never
+      priorityClassName: preview-lowest
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999
+        runAsGroup: 999
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: psql
+          image: postgis/postgis:18-3.6@sha256:60f6ad1d21ea86a67d47780b9a0d1e1d200500f62b19293fa834d0dea80b8677
+          command: ["sh", "-ec"]
+          args:
+            - |
+              database_ready=false
+              for i in $(seq 1 40); do
+                if pg_isready -q; then
+                  database_ready=true
+                  break
+                fi
+                sleep 3
+              done
+              test "$database_ready" = true
+
+              psql -v ON_ERROR_STOP=1 --set=app_pw="$APP_PASSWORD" <<'SQL'
+              SELECT format('CREATE ROLE umc_product_preview_app LOGIN PASSWORD %L', :'app_pw')
+                WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'umc_product_preview_app') \gexec
+              SELECT format('ALTER ROLE umc_product_preview_app LOGIN PASSWORD %L', :'app_pw') \gexec
+              ALTER ROLE umc_product_preview_app NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLICATION NOBYPASSRLS;
+
+              DO $$
+              BEGIN
+                IF EXISTS (
+                  SELECT 1 FROM pg_auth_members
+                  WHERE member = (SELECT oid FROM pg_roles WHERE rolname = 'umc_product_preview_app')
+                ) THEN
+                  RAISE EXCEPTION 'umc_product_preview_app must not inherit another role';
+                END IF;
+              END
+              $$;
+              SQL
+          env:
+            - name: PGHOST
+              value: postgres-preview.preview.svc.cluster.local
+            - name: PGUSER
+              valueFrom:
+                secretKeyRef: { name: postgres-preview-secrets, key: POSTGRES_USER }
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef: { name: postgres-preview-secrets, key: POSTGRES_PASSWORD }
+            - name: PGDATABASE
+              value: preview_bootstrap
+            - name: PGCONNECT_TIMEOUT
+              value: "5"
+            - name: PGOPTIONS
+              value: "-c statement_timeout=30s -c lock_timeout=10s"
+            - name: APP_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: app-db, key: DATABASE_PASSWORD }
+          resources:
+            requests: { cpu: 50m, memory: 64Mi }
+            limits: { memory: 128Mi }
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: 64Mi

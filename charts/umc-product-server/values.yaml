@@ -1,0 +1,162 @@
+# UMC Product Server 공통값.
+# 환경별 필수값은 values-prod.yaml / values-dev.yaml / values-preview.yaml에서 정의한다.
+# bootstrap 시점에는 Deployment와 DB 생성·삭제 Job을 실행하지 않는다.
+
+environment: bootstrap
+fullnameOverride: ""
+
+deployment:
+  # image tag/digest와 환경별 시크릿을 준비한 뒤 명시적으로 true로 전환한다.
+  enabled: false
+
+# WebSocket broker, 로컬 Caffeine cache, scheduler가 프로세스 로컬 상태를 사용하므로 1개로 고정한다.
+replicaCount: 1
+priorityClassName: ""
+
+image:
+  repository: ghcr.io/umc-product/umc-product-server
+  # 존재하지 않는 의도적 placeholder. 실제 배포는 12자리 commit SHA와 digest를 모두 요구한다.
+  tag: bootstrap-required
+  digest: ""
+  pullPolicy: IfNotPresent
+
+ports:
+  http: 8080
+  management: 9090
+
+service:
+  type: ClusterIP
+  port: 80
+
+# namespace default-deny와 앱의 최소 허용 경로를 함께 적용한다.
+# preview는 공유 namespace 정책을 플랫폼 manifest가 한 번만 소유하므로 비활성화한다.
+networkPolicy:
+  enabled: false
+  database:
+    namespace: ""
+    podName: postgres
+
+ingress:
+  enabled: false
+  className: traefik
+  host: api.example.invalid
+  tls: []
+
+# prod/dev cert-manager Certificate는 Deployment와 독립적으로 먼저 발급한다. Preview는
+# namespace 공용 와일드카드 Secret을 사용하므로 환경 overlay에서 비활성화한다.
+certificate:
+  enabled: false
+  issuerRef:
+    # 첫 DNS-01 검증 뒤 letsencrypt-production으로 승격한다.
+    name: letsencrypt-staging
+    kind: ClusterIssuer
+
+# 한 개의 고정 IDC public IPv4. 실제 IP로 바꾸기 전에는 Ingress 렌더를 거부한다.
+# ExternalDNS의 --target-net-filter 값과 반드시 같은 IP여야 한다.
+externalDNS:
+  target: bootstrap-required
+
+# 환경 overlay가 모두 덮어쓴다. base만 렌더링해도 과도한 자원을 예약하지 않는 안전한 값이다.
+resources:
+  requests:
+    cpu: 250m
+    memory: 512Mi
+  limits:
+    cpu: 1000m
+    memory: 1Gi
+
+# 모든 환경에 공통인 비밀이 아닌 런타임 설정.
+env:
+  APP_SEED_ENABLED: "false"
+  FCM_ENABLED: "false"
+  MANAGEMENT_ENDPOINT_HEALTH_PROBES_ENABLED: "true"
+  MANAGEMENT_SERVER_PORT: "9090"
+  OTEL_URL: http://otel-collector.monitoring.svc.cluster.local:4318
+  OTEL_AUTH_HEADER: ""
+  TRACE_SAMPLING_PROBABILITY: "1.0"
+  # 비밀값이 아니지만 실제 UMC 값이 아직 정해지지 않았다. gate를 열기 전에 덮어쓴다.
+  SSO_ISSUER: https://bootstrap-required.example.invalid
+  CERTIFICATE_VERIFICATION_URL_TEMPLATE: https://bootstrap-required.example.invalid/api/v1/certificates/verify/{serialNumber}
+  DEMODAY_QR_BASE_URL: https://bootstrap-required.example.invalid
+  S3_BUCKET_NAME: bootstrap-required
+  EMAIL_NO_REPLY_ADDRESS: bootstrap-required@example.invalid
+  MEDIA_STORAGE_PURGE_ENABLED: "false"
+  PRIVACY_RETENTION_ENABLED: "false"
+
+# External Secrets가 각 namespace에 생성하는 필수 Secret.
+# Deployment는 배열 순서대로 envFrom을 구성하며 app-db가 DATABASE_PASSWORD를 제공한다.
+requiredSecrets:
+  - app-db
+  - app-jwt
+  - app-oauth
+  - app-storage
+  - app-email
+
+# 변경 즉시 Pod를 재시작해도 안전한 Secret만 환경별 overlay가 명시한다.
+# app-db는 DB role 적용 순서, app-jwt는 token cutover가 필요해 자동 대상에서 제외한다.
+reloader:
+  secretNames: []
+
+# PR preview는 PostgreSQL 인스턴스 하나에서 PR별 database를 사용한다.
+# deployment.enabled=false이면 생성·삭제 Job도 렌더링하지 않는다.
+createDatabase:
+  enabled: false
+  name: ""
+  owner: ""
+  host: postgres-preview.preview.svc.cluster.local
+  bootstrapDatabase: preview_bootstrap
+  existingSecret: postgres-preview-secrets
+  activeDeadlineSeconds: 300
+  backoffLimit: 5
+  connectTimeoutSeconds: "5"
+  statementTimeout: 30s
+
+deleteDatabase:
+  enabled: false
+  activeDeadlineSeconds: 120
+  backoffLimit: 1
+  connectTimeoutSeconds: "10"
+  statementTimeout: 30s
+  lockTimeout: 5s
+  resources:
+    requests: { cpu: 50m, memory: 64Mi }
+    limits: { memory: 128Mi }
+
+# StatefulSet과 같은 PG18/PostGIS 3.6 OCI index digest를 고정한다.
+postgresClient:
+  image: postgis/postgis:18-3.6@sha256:60f6ad1d21ea86a67d47780b9a0d1e1d200500f62b19293fa834d0dea80b8677
+
+probes:
+  startup:
+    path: /actuator/health/liveness
+    failureThreshold: 30
+    periodSeconds: 5
+    timeoutSeconds: 3
+  liveness:
+    path: /actuator/health/liveness
+    failureThreshold: 3
+    periodSeconds: 15
+    timeoutSeconds: 3
+  readiness:
+    path: /actuator/health/readiness
+    failureThreshold: 2
+    periodSeconds: 5
+    timeoutSeconds: 3
+
+# Backend Docker image의 spring 사용자(uid 100 / gid 101)에 맞춘 restricted 기본값.
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 100
+  runAsGroup: 101
+  fsGroup: 101
+  seccompProfile:
+    type: RuntimeDefault
+
+containerSecurityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop: ["ALL"]
+
+# 애플리케이션은 OTLP push를 사용하므로 Prometheus scrape annotation을 두지 않는다.
+podAnnotations: {}

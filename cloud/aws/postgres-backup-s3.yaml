@@ -1,0 +1,124 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Dedicated encrypted S3 bucket and write-only IAM user for UMC Product PostgreSQL backups
+
+Parameters:
+  BackupBucketName:
+    Type: String
+    Description: Globally unique bucket name for production PostgreSQL backups
+    MinLength: 3
+    MaxLength: 63
+    AllowedPattern: "^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$"
+
+Rules:
+  SeoulRegionOnly:
+    Assertions:
+      - Assert: !Equals [!Ref AWS::Region, ap-northeast-2]
+        AssertDescription: Deploy this stack only in Seoul (ap-northeast-2)
+
+Resources:
+  BackupBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BucketName: !Ref BackupBucketName
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      LifecycleConfiguration:
+        Rules:
+          - Id: expire-production-postgres-backups
+            Status: Enabled
+            Prefix: postgres/prod/
+            ExpirationInDays: 35
+            NoncurrentVersionExpiration:
+              NoncurrentDays: 35
+            AbortIncompleteMultipartUpload:
+              DaysAfterInitiation: 1
+      OwnershipControls:
+        Rules:
+          - ObjectOwnership: BucketOwnerEnforced
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      VersioningConfiguration:
+        Status: Enabled
+      Tags:
+        - Key: managed-by
+          Value: cloudformation
+        - Key: purpose
+          Value: postgres-backup
+
+  BackupBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      Bucket: !Ref BackupBucket
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: DenyInsecureTransport
+            Effect: Deny
+            Principal: "*"
+            Action: s3:*
+            Resource:
+              - !GetAtt BackupBucket.Arn
+              - !Sub "${BackupBucket.Arn}/*"
+            Condition:
+              Bool:
+                aws:SecureTransport: "false"
+          - Sid: DenyMissingServerSideEncryption
+            Effect: Deny
+            Principal: "*"
+            Action: s3:PutObject
+            Resource: !Sub "${BackupBucket.Arn}/postgres/prod/*"
+            Condition:
+              "Null":
+                s3:x-amz-server-side-encryption: "true"
+          - Sid: DenyWrongServerSideEncryption
+            Effect: Deny
+            Principal: "*"
+            Action: s3:PutObject
+            Resource: !Sub "${BackupBucket.Arn}/postgres/prod/*"
+            Condition:
+              StringNotEquals:
+                s3:x-amz-server-side-encryption: AES256
+
+  BackupWriter:
+    Type: AWS::IAM::User
+    Properties:
+      UserName: umc-product-postgres-backup-writer
+      Policies:
+        - PolicyName: write-production-postgres-backups
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: ReadBucketLocation
+                Effect: Allow
+                Action: s3:GetBucketLocation
+                Resource: !GetAtt BackupBucket.Arn
+              - Sid: UploadBackupObjects
+                Effect: Allow
+                Action:
+                  - s3:PutObject
+                  - s3:AbortMultipartUpload
+                Resource: !Sub "${BackupBucket.Arn}/postgres/prod/*"
+      Tags:
+        - Key: managed-by
+          Value: cloudformation
+        - Key: purpose
+          Value: postgres-backup-writer
+
+Outputs:
+  BackupBucketName:
+    Value: !Ref BackupBucket
+  BackupBucketRegion:
+    Value: !Ref AWS::Region
+  BackupBucketOwnerAccountId:
+    Value: !Ref AWS::AccountId
+  BackupWriterUserName:
+    Value: !Ref BackupWriter

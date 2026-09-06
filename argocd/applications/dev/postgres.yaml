@@ -1,0 +1,23 @@
+# dev PostgreSQL — 빈 DB로 시작, 앱 기동 시 Flyway가 스키마 생성
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: dev-postgres
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: dev
+  source:
+    repoURL: https://github.com/UMC-PRODUCT/umc-product-infra.git
+    targetRevision: main
+    path: manifests/postgres/dev
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: dev-db
+  syncPolicy:
+    automated:
+      selfHeal: true
+      prune: true

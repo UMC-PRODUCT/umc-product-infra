@@ -1,0 +1,43 @@
+{{- if .Values.certificate.enabled }}
+{{- $host := required "certificate.enabled=true이면 ingress.host가 필수" .Values.ingress.host }}
+{{- $issuerName := required "certificate.enabled=true이면 certificate.issuerRef.name이 필수" .Values.certificate.issuerRef.name }}
+{{- $issuerKind := required "certificate.enabled=true이면 certificate.issuerRef.kind가 필수" .Values.certificate.issuerRef.kind }}
+{{- if or (eq (lower $host) "invalid") (hasSuffix ".invalid" (lower $host)) }}
+{{- fail "certificate.enabled=true이면 .invalid가 아닌 실제 ingress.host가 필요함" }}
+{{- end }}
+{{- if ne $issuerKind "ClusterIssuer" }}
+{{- fail "certificate.issuerRef.kind는 ClusterIssuer여야 함" }}
+{{- end }}
+{{- if not (has $issuerName (list "letsencrypt-staging" "letsencrypt-production")) }}
+{{- fail "certificate.issuerRef.name은 letsencrypt-staging 또는 letsencrypt-production이어야 함" }}
+{{- end }}
+{{- if ne (len .Values.ingress.tls) 1 }}
+{{- fail "certificate.enabled=true이면 ingress.tls 항목은 정확히 하나여야 함" }}
+{{- end }}
+{{- $tls := index .Values.ingress.tls 0 }}
+{{- $secretName := required "certificate.enabled=true이면 ingress.tls[0].secretName이 필수" $tls.secretName }}
+{{- if not (and $tls.hosts (has $host $tls.hosts)) }}
+{{- fail "ingress.tls[0].hosts에는 ingress.host가 포함되어야 함" }}
+{{- end }}
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: {{ include "umc-product-server.fullname" . }}
+  labels:
+    {{- include "umc-product-server.labels" . | nindent 4 }}
+  annotations:
+    # Ingress보다 먼저 인증서를 준비한다. Preview는 별도 공용 Certificate를 사용한다.
+    argocd.argoproj.io/sync-wave: "-2"
+spec:
+  secretName: {{ $secretName | quote }}
+  dnsNames:
+    - {{ $host | quote }}
+  issuerRef:
+    group: cert-manager.io
+    kind: {{ $issuerKind | quote }}
+    name: {{ $issuerName | quote }}
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+    rotationPolicy: Always
+{{- end }}

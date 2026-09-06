@@ -1,0 +1,57 @@
+.DS_Store
+**/.DS_Store
+__pycache__/
+*.py[cod]
+.mypy_cache/
+.ruff_cache/
+
+# Ansible controller-local inventory and secret material
+ansible/.venv/
+ansible/collections/ansible_collections/
+ansible/inventories/*/hosts.yml
+ansible/.vault-password
+ansible/**/*.retry
+
+# Local secret collection files
+.env
+.env.*
+
+# 내려받은 Firebase / Google 자격증명
+google-services*.json
+GoogleService-Info*.plist
+client_secret_*.json
+service-account*.json
+service_account*.json
+*firebase-adminsdk*.json
+
+# 개인 키 및 앱 서명 파일
+*.pem
+*.key
+*.p8
+*.p12
+*.pfx
+*.jks
+*.keystore
+
+# 로컬 Kubernetes 접속 정보
+.kube/
+kubeconfig
+kubeconfig.*
+*.kubeconfig
+k3s.yaml
+
+# Terraform 로컬 상태와 입력값 (소스 *.tf와 lock 파일은 커밋)
+**/.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+*.tfvars.json
+*.tfplan
+crash.log
+crash.*.log
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+.terraformrc
+terraform.rc

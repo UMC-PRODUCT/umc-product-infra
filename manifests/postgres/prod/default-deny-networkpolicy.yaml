@@ -1,0 +1,15 @@
+# allow 정책(-2)이 먼저 준비된 뒤 namespace 전체 ingress·egress를 차단한다.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny
+  namespace: db
+  labels:
+    environment: prod
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress

@@ -1,0 +1,202 @@
+# Prometheus + Alertmanager + node-exporter — UMC 단일 k3s 관측성 스택
+# 버전·retention·알림 라우팅은 이 Application이 소유한다.
+# 수신 2경로 유지: ① 앱 metrics는 OTel의 OTLP push ② 플랫폼 metrics는 명시적 scrape
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: prometheus
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: monitoring
+  source:
+    repoURL: https://prometheus-community.github.io/helm-charts
+    chart: prometheus
+    # upgrade는 chart version과 아래 image 설정, CI render contract을 같은 PR에서 바꾼다.
+    targetRevision: 27.3.0
+    helm:
+      valuesObject:
+        # 모든 scrape target을 아래 static_configs로 명시한다. Prometheus server가
+        # Kubernetes API를 조회할 이유가 없으므로 cluster-wide RBAC와 토큰을 끈다.
+        rbac:
+          create: false
+        serviceAccounts:
+          server:
+            automountServiceAccountToken: false
+        configmapReload:
+          prometheus:
+            image:
+              digest: sha256:193280a33bc1acad9bc1956c5d986e3da6950882bda89311bac317998dcebf30
+            resources:
+              requests: { cpu: 10m, memory: 32Mi }
+              limits: { memory: 64Mi }
+        server:
+          automountServiceAccountToken: false
+          image:
+            tag: v3.11.3 # compose와 동일
+            digest: sha256:c0b857aead0d5793aa566adb8f49a9983d6f6031652098759d521a330cfa050f
+          retention: 14d # compose --storage.tsdb.retention.time=14d
+          extraFlags:
+            - web.enable-lifecycle
+            - web.enable-otlp-receiver # otel-collector의 메트릭 push 경로
+          global:
+            scrape_interval: 30s
+            evaluation_interval: 30s
+          # ServiceAccount token과 Kubernetes API 권한을 쓰지 않으므로 Alertmanager도
+          # pod discovery 대신 고정된 cluster-local Service로 전달한다.
+          alertmanagers:
+            - static_configs:
+                - targets:
+                    - prometheus-alertmanager.monitoring.svc.cluster.local:9093
+          persistentVolume:
+            enabled: true
+            storageClass: local-path
+            size: 10Gi
+          resources:
+            requests: { cpu: 100m, memory: 768Mi }
+            limits: { memory: 1Gi }
+          # 알림 규칙은 ConfigMap(manifests/observability/prometheus-alert-rules.yaml)로 마운트
+          extraConfigmapMounts:
+            - name: alert-rules
+              configMap: prometheus-alert-rules
+              mountPath: /etc/config/rules-extra
+              readOnly: true
+        serverFiles:
+          prometheus.yml:
+            rule_files:
+              - /etc/config/rules-extra/default-alerts.yml
+            # chart 기본 Kubernetes service discovery를 완전히 덮어쓴다. 아래 target만
+            # 수집하므로 Prometheus에 cluster-wide API token/RBAC가 필요하지 않다.
+            # 앱 metrics는 scrape가 아니라 OTel Collector가 OTLP receiver로 push한다.
+            scrape_configs:
+              - job_name: prometheus
+                static_configs:
+                  - targets: [localhost:9090]
+              - job_name: node-exporter
+                static_configs:
+                  - targets: [node-exporter.monitoring.svc.cluster.local:9100]
+                    labels:
+                      os: linux # node-exporter-host 대시보드의 OS 드롭다운이 참조
+              - job_name: loki
+                static_configs:
+                  - targets: [loki.monitoring.svc.cluster.local:3100]
+              - job_name: tempo
+                static_configs:
+                  # tempo chart 1.18.0의 tempo-prom-metrics Service port
+                  - targets: [tempo.monitoring.svc.cluster.local:3100]
+              - job_name: otel-collector
+                static_configs:
+                  - targets: [otel-collector.monitoring.svc.cluster.local:8888]
+              - job_name: kube-state-metrics
+                static_configs:
+                  - targets: [prometheus-kube-state-metrics.monitoring.svc.cluster.local:8080]
+              - job_name: grafana
+                static_configs:
+                  - targets: [grafana.monitoring.svc.cluster.local:80]
+              - job_name: alertmanager
+                static_configs:
+                  - targets: [prometheus-alertmanager.monitoring.svc.cluster.local:9093]
+              - job_name: cert-manager
+                static_configs:
+                  - targets: [cert-manager.cert-manager.svc.cluster.local:9402]
+              - job_name: cert-manager-webhook
+                static_configs:
+                  - targets: [cert-manager-webhook.cert-manager.svc.cluster.local:9402]
+              - job_name: cert-manager-cainjector
+                static_configs:
+                  - targets: [cert-manager-cainjector.cert-manager.svc.cluster.local:9402]
+              - job_name: external-dns
+                static_configs:
+                  - targets: [external-dns.external-dns.svc.cluster.local:7979]
+        alertmanager:
+          enabled: true
+          automountServiceAccountToken: false
+          image:
+            repository: quay.io/prometheus/alertmanager
+            tag: v0.32.1@sha256:51a825c2a40acc3e338fdd00d622e01ec090f72be2b3ea46be0839cd47a4d286 # compose와 동일
+          persistence:
+            enabled: true
+            storageClass: local-path
+            size: 1Gi
+          resources:
+            requests: { cpu: 20m, memory: 64Mi }
+            limits: { memory: 128Mi }
+          # Discord webhook URL은 Secrets Manager에서 동기화한 Secret(alertmanager-discord)에서 마운트
+          extraSecretMounts:
+            - name: discord-webhook
+              secretName: alertmanager-discord
+              mountPath: /etc/alertmanager/secrets
+              readOnly: true
+          # UMC 공용 Discord 라우팅. webhook 값은 Secret에서만 읽는다.
+          config:
+            global:
+              resolve_timeout: 5m
+            route:
+              receiver: discord
+              group_by: [alertname, severity, service_name, application, job, instance]
+              group_wait: 30s
+              group_interval: 5m
+              repeat_interval: 4h
+              routes:
+                - receiver: drop-local
+                  matchers:
+                    - environment="local"
+                  continue: false
+            receivers:
+              - name: drop-local
+              - name: discord
+                discord_configs:
+                  - send_resolved: true
+                    webhook_url_file: /etc/alertmanager/secrets/discord-webhook
+                    title: '{{ $scope := or (index .CommonLabels "environment") (index .CommonLabels "deployment_environment") (index .CommonLabels "service_name") (index .CommonLabels "application") (index .CommonLabels "job") (index .CommonLabels "instance") "unknown" }}[{{ .Status | toUpper }}{{ if eq .Status "firing" }}:{{ .Alerts.Firing | len }}{{ end }}][{{ $scope }}] {{ .CommonLabels.alertname }}'
+                    message: |
+                      {{ range .Alerts }}
+                      {{ $scope := or (index .Labels "environment") (index .Labels "deployment_environment") (index .Labels "service_name") (index .Labels "application") (index .Labels "job") "unknown" }}
+                      {{ $target := or (index .Labels "instance") (index .Labels "pod") (index .Labels "name") "-" }}
+                      • {{ .Annotations.summary }}
+                        환경: {{ $scope }}
+                        severity: {{ .Labels.severity }}
+                        대상: {{ $target }}{{ if index .Labels "pool" }}
+                        pool: {{ index .Labels "pool" }}{{ end }}{{ if index .Labels "uri" }}
+                        route: {{ index .Labels "method" }} {{ index .Labels "uri" }}{{ end }}{{ if .Annotations.description }}
+                        설명: {{ .Annotations.description }}{{ end }}
+                      {{ end }}
+            inhibit_rules:
+              - source_matchers: ['severity="critical"']
+                target_matchers: ['severity="warning"']
+                equal: [alertname, service_name, application, job, instance]
+        prometheus-node-exporter:
+          enabled: true
+          fullnameOverride: node-exporter # extraScrapeConfigs의 타깃 이름과 일치
+          image:
+            tag: v1.11.1 # compose와 동일
+            digest: sha256:0f422f62c15f154af8d8572b23d623aebfb10cec73a5c654d18f911f3f9df241
+          resources:
+            requests: { cpu: 20m, memory: 32Mi }
+            limits: { memory: 64Mi }
+        kube-state-metrics:
+          # pg-backup 실패와 마지막 성공 시각을 클러스터 밖으로 알리기 위한 최소 상태 지표.
+          enabled: true
+          image:
+            sha: sha256:37d841299325c23b56e5951176ce8ef317d537447c0f1b2d2437dddbb1f51165
+          rbac:
+            # db Role/RoleBinding은 trusted Git source인 manifests/postgres에 둔다.
+            # 외부 monitoring chart에 db destination을 열지 않는다.
+            create: false
+          collectors: [cronjobs, jobs]
+          namespaces: [db]
+          resources:
+            requests: { cpu: 20m, memory: 64Mi }
+            limits: { memory: 128Mi }
+        prometheus-pushgateway:
+          enabled: false
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: monitoring
+  syncPolicy:
+    automated:
+      selfHeal: true
+      prune: true

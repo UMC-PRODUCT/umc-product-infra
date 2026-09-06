@@ -1,0 +1,157 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Dedicated private S3 bucket and least-privilege IAM user for one UMC Product environment
+
+Parameters:
+  Environment:
+    Type: String
+    AllowedValues:
+      - prod
+      - dev
+      - preview
+    Description: UMC Product application environment that owns this bucket and IAM user
+
+Mappings:
+  EnvironmentConfig:
+    prod:
+      BucketPrefix: umc-product-prod-app-storage
+      UserName: umc-product-prod-app-storage
+      PolicyName: access-production-app-storage
+    dev:
+      BucketPrefix: umc-product-dev-app-storage
+      UserName: umc-product-dev-app-storage
+      PolicyName: access-development-app-storage
+    preview:
+      BucketPrefix: umc-product-preview-app-storage
+      UserName: umc-product-preview-app-storage
+      PolicyName: access-preview-app-storage
+
+Rules:
+  SeoulRegionOnly:
+    Assertions:
+      - Assert: !Equals [!Ref "AWS::Region", ap-northeast-2]
+        AssertDescription: This stack must be deployed in ap-northeast-2
+
+Conditions:
+  IsProduction: !Equals [!Ref Environment, prod]
+
+Resources:
+  AppStorageBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BucketName: !Sub
+        - "${BucketPrefix}-${AWS::AccountId}-${AWS::Region}"
+        - BucketPrefix: !FindInMap [EnvironmentConfig, !Ref Environment, BucketPrefix]
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      CorsConfiguration:
+        CorsRules:
+          - AllowedHeaders:
+              - "*"
+            AllowedMethods:
+              - GET
+              - PUT
+              - POST
+            AllowedOrigins: !If
+              - IsProduction
+              - - https://university.neordinary.com
+                - https://admin.university.neordinary.com
+                - https://tech.university.neordinary.com
+              - - https://university.neordinary.com
+                - https://admin.university.neordinary.com
+                - https://tech.university.neordinary.com
+                - http://localhost:5173
+            ExposedHeaders:
+              - ETag
+              - x-amz-server-side-encryption
+              - x-amz-request-id
+              - x-amz-id-2
+            MaxAge: 3600
+      LifecycleConfiguration:
+        Rules:
+          - Id: abort-incomplete-multipart-uploads
+            Status: Enabled
+            AbortIncompleteMultipartUpload:
+              DaysAfterInitiation: 1
+      OwnershipControls:
+        Rules:
+          - ObjectOwnership: BucketOwnerEnforced
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      Tags:
+        - Key: managed-by
+          Value: cloudformation
+        - Key: environment
+          Value: !Ref Environment
+        - Key: purpose
+          Value: app-storage
+
+  AppStorageBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      Bucket: !Ref AppStorageBucket
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: DenyInsecureTransport
+            Effect: Deny
+            Principal: "*"
+            Action: s3:*
+            Resource:
+              - !GetAtt AppStorageBucket.Arn
+              - !Sub "${AppStorageBucket.Arn}/*"
+            Condition:
+              Bool:
+                aws:SecureTransport: "false"
+
+  AppStorageUser:
+    Type: AWS::IAM::User
+    Properties:
+      UserName: !FindInMap [EnvironmentConfig, !Ref Environment, UserName]
+      Policies:
+        - PolicyName: !FindInMap [EnvironmentConfig, !Ref Environment, PolicyName]
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: ListApplicationStorage
+                Effect: Allow
+                Action: s3:ListBucket
+                Resource: !GetAtt AppStorageBucket.Arn
+              - Sid: ReadWriteApplicationObjects
+                Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                  - s3:DeleteObject
+                Resource:
+                  - !Sub "${AppStorageBucket.Arn}/public/*"
+                  - !Sub "${AppStorageBucket.Arn}/private/*"
+      Tags:
+        - Key: managed-by
+          Value: cloudformation
+        - Key: environment
+          Value: !Ref Environment
+        - Key: purpose
+          Value: app-storage
+
+Outputs:
+  AppStorageEnvironment:
+    Value: !Ref Environment
+  AppStorageBucketName:
+    Value: !Ref AppStorageBucket
+  AppStorageBucketRegion:
+    Value: !Ref AWS::Region
+  AppStorageBucketOwnerAccountId:
+    Value: !Ref AWS::AccountId
+  AppStorageUserName:
+    Value: !Ref AppStorageUser
+  AppStorageUserArn:
+    Value: !GetAtt AppStorageUser.Arn

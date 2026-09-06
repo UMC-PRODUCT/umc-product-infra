@@ -1,0 +1,232 @@
+{{- if .Values.deployment.enabled }}
+{{- $environment := required "deployment.enabled=true이면 environment가 필수" .Values.environment -}}
+{{- if not (has $environment (list "prod" "dev" "preview")) -}}
+{{- fail "environment는 prod, dev, preview 중 하나여야 한다" -}}
+{{- end -}}
+{{- if ne (int .Values.replicaCount) 1 -}}
+{{- fail "umc-product-server는 현재 replicaCount=1만 지원한다" -}}
+{{- end -}}
+{{- $imageTag := required "deployment.enabled=true이면 image.tag가 필수" .Values.image.tag -}}
+{{- if or (eq $imageTag "bootstrap-required") (not (regexMatch "^[a-f0-9]{12}$" $imageTag)) -}}
+{{- fail "image.tag는 bootstrap-required가 아닌 12자리 lowercase commit SHA여야 한다" -}}
+{{- end -}}
+{{- $imageDigest := .Values.image.digest -}}
+{{- if and (ne $environment "preview") (not $imageDigest) -}}
+{{- fail "prod/dev에서 deployment.enabled=true이면 image.digest가 필수" -}}
+{{- end -}}
+{{- if and $imageDigest (not (regexMatch "^sha256:[a-f0-9]{64}$" $imageDigest)) -}}
+{{- fail "image.digest는 비어 있거나 sha256:<64 lowercase hex> 형식이어야 한다" -}}
+{{- end -}}
+{{- if ne .Values.image.repository "ghcr.io/umc-product/umc-product-server" -}}
+{{- fail "image.repository는 ghcr.io/umc-product/umc-product-server 이어야 한다" -}}
+{{- end -}}
+{{- $profile := required "env.SPRING_PROFILES_ACTIVE가 필수" (get .Values.env "SPRING_PROFILES_ACTIVE") -}}
+{{- if not (has $profile (list "prod" "dev")) -}}
+{{- fail "SPRING_PROFILES_ACTIVE는 prod 또는 dev 하나만 사용할 수 있다" -}}
+{{- end -}}
+{{- if and (eq $environment "prod") (ne $profile "prod") -}}
+{{- fail "prod 환경은 SPRING_PROFILES_ACTIVE=prod여야 한다" -}}
+{{- end -}}
+{{- if and (ne $environment "prod") (ne $profile "dev") -}}
+{{- fail "dev/preview 환경은 SPRING_PROFILES_ACTIVE=dev여야 한다" -}}
+{{- end -}}
+{{- $applicationName := required "env.SPRING_APPLICATION_NAME이 필수" (get .Values.env "SPRING_APPLICATION_NAME") -}}
+{{- $appEnvironment := required "env.APP_ENVIRONMENT가 필수" (get .Values.env "APP_ENVIRONMENT") -}}
+{{- $databaseURL := required "env.DATABASE_URL이 필수" (get .Values.env "DATABASE_URL") -}}
+{{- $databaseUsername := required "env.DATABASE_USERNAME이 필수" (get .Values.env "DATABASE_USERNAME") -}}
+{{- if eq $environment "prod" -}}
+{{- if or (ne $applicationName "prod-umc-product") (ne $appEnvironment "prod") (ne $databaseURL "jdbc:postgresql://postgres.db.svc.cluster.local:5432/umc_product") (ne $databaseUsername "umc_product_app") -}}
+{{- fail "prod의 application/environment/database 계약이 일치하지 않는다" -}}
+{{- end -}}
+{{- else if eq $environment "dev" -}}
+{{- if or (ne $applicationName "dev-umc-product") (ne $appEnvironment "dev") (ne $databaseURL "jdbc:postgresql://postgres.dev-db.svc.cluster.local:5432/umc_product_dev") (ne $databaseUsername "umc_product_dev_app") -}}
+{{- fail "dev의 application/environment/database 계약이 일치하지 않는다" -}}
+{{- end -}}
+{{- else -}}
+{{- $previewDatabase := required "preview에서는 createDatabase.name이 필수" .Values.createDatabase.name -}}
+{{- if or (not (regexMatch "^preview-umc-product-pr[0-9]+$" $applicationName)) (not (regexMatch "^preview-pr-[0-9]+$" $appEnvironment)) (ne $databaseUsername "umc_product_preview_app") (ne $databaseURL (printf "jdbc:postgresql://postgres-preview.preview.svc.cluster.local:5432/%s" $previewDatabase)) -}}
+{{- fail "preview의 application/environment/database 계약이 일치하지 않는다" -}}
+{{- end -}}
+{{- end -}}
+{{- if ne (lower (get .Values.env "APP_SEED_ENABLED")) "false" -}}
+{{- fail "공유 환경에서는 APP_SEED_ENABLED=false여야 한다" -}}
+{{- end -}}
+{{- if ne (get .Values.env "MANAGEMENT_SERVER_PORT") "9090" -}}
+{{- fail "MANAGEMENT_SERVER_PORT는 9090이어야 한다" -}}
+{{- end -}}
+{{- if ne (get .Values.env "OTEL_URL") "http://otel-collector.monitoring.svc.cluster.local:4318" -}}
+{{- fail "OTEL_URL은 클러스터 내부 collector의 OTLP/HTTP endpoint여야 한다" -}}
+{{- end -}}
+{{- if ne (get .Values.env "MANAGEMENT_ENDPOINT_HEALTH_PROBES_ENABLED") "true" -}}
+{{- fail "MANAGEMENT_ENDPOINT_HEALTH_PROBES_ENABLED=true가 필요하다" -}}
+{{- end -}}
+{{- if ne (get .Values.env "TRACE_SAMPLING_PROBABILITY") "1.0" -}}
+{{- fail "초기 TRACE_SAMPLING_PROBABILITY는 1.0이어야 한다" -}}
+{{- end -}}
+{{- $bucketName := required "env.S3_BUCKET_NAME이 필수" (get .Values.env "S3_BUCKET_NAME") -}}
+{{- $expectedBucketNames := dict "prod" "umc-product-prod-app-storage-351284652562-ap-northeast-2" "dev" "umc-product-dev-app-storage-351284652562-ap-northeast-2" "preview" "umc-product-preview-app-storage-351284652562-ap-northeast-2" -}}
+{{- if ne $bucketName (get $expectedBucketNames $environment) -}}
+{{- fail "S3_BUCKET_NAME은 환경 전용 application storage bucket이어야 한다" -}}
+{{- end -}}
+{{- $s3Region := required "env.S3_REGION이 필수" (get .Values.env "S3_REGION") -}}
+{{- if ne $s3Region "ap-northeast-2" -}}
+{{- fail "S3_REGION은 ap-northeast-2여야 한다" -}}
+{{- end -}}
+{{- $noReplyAddress := required "env.EMAIL_NO_REPLY_ADDRESS가 필수" (get .Values.env "EMAIL_NO_REPLY_ADDRESS") -}}
+{{- if or (contains "bootstrap-required" $noReplyAddress) (hasSuffix ".invalid" (lower $noReplyAddress)) (not (contains "@" $noReplyAddress)) -}}
+{{- fail "deployment.enabled=true이면 실제 EMAIL_NO_REPLY_ADDRESS가 필요하다" -}}
+{{- end -}}
+{{- $sesRegion := required "env.SES_REGION이 필수" (get .Values.env "SES_REGION") -}}
+{{- if ne $sesRegion "ap-northeast-2" -}}
+{{- fail "SES_REGION은 ap-northeast-2여야 한다" -}}
+{{- end -}}
+{{- if and (eq $environment "prod") (ne $noReplyAddress "no-reply@university.neordinary.com") -}}
+{{- fail "prod는 no-reply@university.neordinary.com 발신 주소를 사용해야 한다" -}}
+{{- end -}}
+{{- if and (ne $environment "prod") (ne $noReplyAddress "no-reply-nonprod@university.neordinary.com") -}}
+{{- fail "dev/preview는 공용 no-reply-nonprod@university.neordinary.com 발신 주소를 사용해야 한다" -}}
+{{- end -}}
+{{- $issuer := required "env.SSO_ISSUER가 필수" (get .Values.env "SSO_ISSUER") -}}
+{{- $expectedIssuer := printf "https://%s" .Values.ingress.host -}}
+{{- if ne $issuer $expectedIssuer -}}
+{{- fail "SSO_ISSUER는 환경의 HTTPS API origin과 일치해야 한다" -}}
+{{- end -}}
+{{- $certificateVerificationURL := required "env.CERTIFICATE_VERIFICATION_URL_TEMPLATE이 필수" (get .Values.env "CERTIFICATE_VERIFICATION_URL_TEMPLATE") -}}
+{{- if ne $certificateVerificationURL (printf "%s/api/v1/certificates/verify/{serialNumber}" $issuer) -}}
+{{- fail "CERTIFICATE_VERIFICATION_URL_TEMPLATE은 환경 API의 absolute URL이어야 한다" -}}
+{{- end -}}
+{{- $demodayQRBaseURL := required "env.DEMODAY_QR_BASE_URL이 필수" (get .Values.env "DEMODAY_QR_BASE_URL") -}}
+{{- if or (contains "bootstrap-required" $demodayQRBaseURL) (hasSuffix ".invalid" (lower $demodayQRBaseURL)) (not (regexMatch "^https://[A-Za-z0-9.-]+(:[0-9]+)?$" $demodayQRBaseURL)) -}}
+{{- fail "DEMODAY_QR_BASE_URL은 path가 없는 실제 HTTPS frontend origin이어야 한다" -}}
+{{- end -}}
+{{- range $requiredSecret := list "app-db" "app-jwt" "app-oauth" "app-storage" "app-email" -}}
+{{- if not (has $requiredSecret $.Values.requiredSecrets) -}}
+{{- fail (printf "requiredSecrets에 %s가 필요하다" $requiredSecret) -}}
+{{- end -}}
+{{- end -}}
+{{- $fcmEnabled := lower (toString (required "env.FCM_ENABLED가 필수" (get .Values.env "FCM_ENABLED"))) -}}
+{{- if not (has $fcmEnabled (list "true" "false")) -}}
+{{- fail "FCM_ENABLED는 true 또는 false여야 한다" -}}
+{{- end -}}
+{{- if and (eq $environment "prod") (ne $fcmEnabled "true") -}}
+{{- fail "prod 환경은 FCM_ENABLED=true여야 한다" -}}
+{{- end -}}
+{{- if and (ne $environment "prod") (ne $fcmEnabled "false") -}}
+{{- fail "dev/preview 환경은 FCM_ENABLED=false여야 한다" -}}
+{{- end -}}
+{{- if and (eq $fcmEnabled "true") (not (has "app-fcm" .Values.requiredSecrets)) -}}
+{{- fail "FCM_ENABLED=true이면 requiredSecrets에 app-fcm이 필요하다" -}}
+{{- end -}}
+{{- if and (ne $environment "prod") (has "app-fcm" .Values.requiredSecrets) -}}
+{{- fail "app-fcm은 prod 환경에서만 사용할 수 있다" -}}
+{{- end -}}
+{{- $expectedReloadSecrets := ternary (list "app-oauth" "app-storage" "app-email" "app-fcm") (list "app-oauth" "app-storage" "app-email") (eq $environment "prod") -}}
+{{- if ne (toJson .Values.reloader.secretNames) (toJson $expectedReloadSecrets) -}}
+{{- fail "reloader.secretNames는 환경별 승인된 Secret 목록과 정확히 일치해야 한다" -}}
+{{- end -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "umc-product-server.fullname" . }}
+  annotations:
+    secret.reloader.stakater.com/reload: {{ join "," .Values.reloader.secretNames | quote }}
+  labels:
+    {{- include "umc-product-server.labels" . | nindent 4 }}
+    app.kubernetes.io/component: server
+spec:
+  replicas: 1
+  revisionHistoryLimit: 5
+  minReadySeconds: 10
+  # 단일 replica에서 중복 scheduler와 in-memory broker 분할을 피한다.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "umc-product-server.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "umc-product-server.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: server
+      annotations:
+        infra.university.neordinary.com/image-tag: {{ $imageTag | quote }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      {{- with .Values.priorityClassName }}
+      priorityClassName: {{ . | quote }}
+      {{- end }}
+      automountServiceAccountToken: false
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      terminationGracePeriodSeconds: 60
+      containers:
+        - name: {{ .Chart.Name }}
+          {{- if $imageDigest }}
+          image: "{{ .Values.image.repository }}@{{ $imageDigest }}"
+          {{- else }}
+          # Preview는 trusted publish CI가 한 번만 쓰는 PR head SHA tag를 사용한다.
+          image: "{{ .Values.image.repository }}:{{ $imageTag }}"
+          {{- end }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.ports.http }}
+              protocol: TCP
+            - name: management
+              containerPort: {{ .Values.ports.management }}
+              protocol: TCP
+          env:
+            {{- range $key, $value := .Values.env }}
+            - name: {{ $key }}
+              value: {{ $value | quote }}
+            {{- end }}
+          envFrom:
+            {{- range $secretName := .Values.requiredSecrets }}
+            - secretRef:
+                name: {{ $secretName | quote }}
+                optional: false
+            {{- end }}
+          startupProbe:
+            httpGet:
+              path: {{ .Values.probes.startup.path }}
+              port: management
+            failureThreshold: {{ .Values.probes.startup.failureThreshold }}
+            periodSeconds: {{ .Values.probes.startup.periodSeconds }}
+            timeoutSeconds: {{ .Values.probes.startup.timeoutSeconds }}
+          livenessProbe:
+            httpGet:
+              path: {{ .Values.probes.liveness.path }}
+              port: management
+            failureThreshold: {{ .Values.probes.liveness.failureThreshold }}
+            periodSeconds: {{ .Values.probes.liveness.periodSeconds }}
+            timeoutSeconds: {{ .Values.probes.liveness.timeoutSeconds }}
+          readinessProbe:
+            httpGet:
+              path: {{ .Values.probes.readiness.path }}
+              port: management
+            failureThreshold: {{ .Values.probes.readiness.failureThreshold }}
+            periodSeconds: {{ .Values.probes.readiness.periodSeconds }}
+            timeoutSeconds: {{ .Values.probes.readiness.timeoutSeconds }}
+          lifecycle:
+            preStop:
+              exec:
+                command: ["sh", "-c", "sleep 5"]
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          securityContext:
+            {{- toYaml .Values.containerSecurityContext | nindent 12 }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            - name: logs
+              mountPath: /app/logs
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: 1Gi
+        - name: logs
+          emptyDir:
+            sizeLimit: 512Mi
+{{- end }}

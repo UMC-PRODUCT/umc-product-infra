@@ -1,0 +1,53 @@
+# ACME 계정 연락처 email은 운영 수신 주소가 정해지면 두 Issuer에 함께 추가한다.
+# Route 53 자격증명은 cert-manager namespace의 ExternalSecret이 공급한다.
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: letsencrypt-staging
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+spec:
+  acme:
+    server: https://acme-staging-v02.api.letsencrypt.org/directory
+    privateKeySecretRef:
+      name: letsencrypt-staging-account-key
+    solvers:
+      - selector:
+          dnsZones: [university.neordinary.com]
+        dns01:
+          route53:
+            region: ap-northeast-2
+            # university.neordinary.com의 기존 Route 53 Hosted Zone ID(비밀값 아님).
+            hostedZoneID: Z02258617BWIPPUVEV88
+            accessKeyIDSecretRef:
+              name: route53-credentials
+              key: access-key-id
+            secretAccessKeySecretRef:
+              name: route53-credentials
+              key: secret-access-key
+---
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: letsencrypt-production
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+spec:
+  acme:
+    server: https://acme-v02.api.letsencrypt.org/directory
+    privateKeySecretRef:
+      name: letsencrypt-production-account-key
+    solvers:
+      - selector:
+          dnsZones: [university.neordinary.com]
+        dns01:
+          route53:
+            region: ap-northeast-2
+            # staging과 같은 Hosted Zone만 수정한다.
+            hostedZoneID: Z02258617BWIPPUVEV88
+            accessKeyIDSecretRef:
+              name: route53-credentials
+              key: access-key-id
+            secretAccessKeySecretRef:
+              name: route53-credentials
+              key: secret-access-key

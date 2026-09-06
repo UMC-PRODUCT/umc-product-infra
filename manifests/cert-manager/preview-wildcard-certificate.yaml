@@ -1,0 +1,22 @@
+# 모든 PR Preview가 공유하는 인증서다. PR Application과 수명을 분리해 PR 삭제 시 유지한다.
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: preview-wildcard
+  namespace: preview
+  annotations:
+    # 같은 Application의 ClusterIssuer가 먼저 생성된 뒤 발급을 시작한다.
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  secretName: preview-wildcard-tls
+  dnsNames:
+    - "*.university.neordinary.com"
+  issuerRef:
+    group: cert-manager.io
+    kind: ClusterIssuer
+    # 첫 DNS-01 검증 뒤 letsencrypt-production으로 승격한다.
+    name: letsencrypt-staging
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+    rotationPolicy: Always

@@ -1,0 +1,35 @@
+# 메모리 압박 시 축출 순서 결정 (계획 §4-3)
+# 낮은 값부터 죽는다: dev(-100) → 모니터링·기본(0) → prod 앱(1000) → prod DB(1000000)
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata:
+  name: db-critical
+value: 1000000
+globalDefault: false
+description: "prod PostgreSQL 전용 최고 우선순위 — eviction 최후"
+---
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata:
+  name: app-important
+value: 1000
+globalDefault: false
+description: "prod 앱 — 모니터링보다 우선, DB보다 후순위"
+---
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata:
+  name: dev-low
+value: -100
+globalDefault: false
+description: "dev 환경 전용 — 메모리 압박 시 가장 먼저 축출 (prod 보호)"
+---
+# 프리뷰는 dev 보다도 먼저 죽어야 한다. 메모리 압박 시 축출 순서:
+#   preview-lowest(-1000) → dev-low(-100) → 기본(0) → app-important(1000) → db-critical(1000000)
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata:
+  name: preview-lowest
+value: -1000
+globalDefault: false
+description: "PR 프리뷰 — 메모리 압박 시 가장 먼저 축출된다"

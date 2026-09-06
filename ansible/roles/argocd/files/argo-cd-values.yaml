@@ -1,0 +1,105 @@
+---
+# 단일 노드 bootstrap용 Argo CD core 값이다. 외부 앱과 platform controller는
+# root Application 이후에도 계속 Argo CD가 관리한다.
+global:
+  # Argo CD ingress는 만들지 않는다. 공개 전까지 예약된 비해결 도메인을 쓴다.
+  domain: argocd.invalid
+  image:
+    tag: v3.5.0
+
+crds:
+  install: true
+  keep: true
+
+configs:
+  # 공개 URL은 ingress, TLS와 접근 정책을 함께 설계할 때만 설정한다.
+  cm:
+    url: ""
+
+controller:
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: "1"
+      memory: 1Gi
+
+applicationSet:
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 500m
+      memory: 256Mi
+
+dex:
+  initImage:
+    resources:
+      requests:
+        cpu: 10m
+        memory: 16Mi
+      limits:
+        cpu: 100m
+        memory: 64Mi
+  resources:
+    requests:
+      cpu: 10m
+      memory: 32Mi
+    limits:
+      cpu: 200m
+      memory: 128Mi
+
+notifications:
+  # 현재 알림 구독이 없다. 기본 ClusterRole의 전 namespace Secret 조회도 막는다.
+  enabled: false
+
+redis:
+  # 비밀번호 생성은 별도 hook Job이 하므로 Redis Pod는 Kubernetes API가 필요 없다.
+  automountServiceAccountToken: false
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 500m
+      memory: 256Mi
+
+redisSecretInit:
+  resources:
+    requests:
+      cpu: 10m
+      memory: 16Mi
+    limits:
+      cpu: 100m
+      memory: 64Mi
+
+repoServer:
+  automountServiceAccountToken: false
+  serviceAccount:
+    automountServiceAccountToken: false
+  copyutil:
+    resources:
+      requests:
+        cpu: 10m
+        memory: 16Mi
+      limits:
+        cpu: 100m
+        memory: 64Mi
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: "1"
+      memory: 512Mi
+
+server:
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 500m
+      memory: 256Mi

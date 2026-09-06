@@ -1,0 +1,314 @@
+---
+- name: Require the repository Argo CD identity contract
+  ansible.builtin.assert:
+    that:
+      - argocd_namespace == 'argocd'
+      - argocd_helm_release_name == 'argocd'
+    fail_msg: >-
+      This repository's manifests and rollout checks require the argocd
+      namespace and Helm release name. Update every consumer together instead
+      of overriding these role defaults.
+
+- name: Compare the Argo CD namespace bootstrap labels
+  ansible.builtin.command:
+    argv:
+      - /usr/local/bin/k3s
+      - kubectl
+      - diff
+      - --server-side=true
+      - --field-manager=umc-ansible-bootstrap
+      - -f
+      - '-'
+    stdin: >-
+      {{ {'apiVersion': 'v1', 'kind': 'Namespace',
+          'metadata': {'name': argocd_namespace,
+                       'labels': {
+                         'pod-security.kubernetes.io/audit': 'restricted',
+                         'pod-security.kubernetes.io/audit-version': 'v1.36',
+                         'pod-security.kubernetes.io/warn': 'restricted',
+                         'pod-security.kubernetes.io/warn-version': 'v1.36'
+                       }}} | to_json }}
+  register: argocd_namespace_diff
+  changed_when: false
+  failed_when: argocd_namespace_diff.rc not in [0, 1]
+
+# server-side apply로 이 bootstrap이 선언한 PSA label만 소유한다.
+# 이후 다른 관리자가 추가한 Namespace label은 재실행 때 삭제하지 않는다.
+- name: Reconcile the Argo CD namespace bootstrap labels
+  ansible.builtin.command:
+    argv:
+      - /usr/local/bin/k3s
+      - kubectl
+      - apply
+      - --server-side=true
+      - --field-manager=umc-ansible-bootstrap
+      - -f
+      - '-'
+    stdin: >-
+      {{ {'apiVersion': 'v1', 'kind': 'Namespace',
+          'metadata': {'name': argocd_namespace,
+                       'labels': {
+                         'pod-security.kubernetes.io/audit': 'restricted',
+                         'pod-security.kubernetes.io/audit-version': 'v1.36',
+                         'pod-security.kubernetes.io/warn': 'restricted',
+                         'pod-security.kubernetes.io/warn-version': 'v1.36'
+                       }}} | to_json }}
+  when: argocd_namespace_diff.rc == 1
+  changed_when: true
+
+- name: Ensure the bootstrap artifact directory exists
+  ansible.builtin.file:
+    path: /var/lib/umc-product/bootstrap
+    state: directory
+    owner: root
+    group: root
+    mode: '0700'
+
+- name: Ensure the pinned Helm extraction directory exists
+  ansible.builtin.file:
+    path: "{{ argocd_helm_install_directory }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0700'
+
+- name: Download the pinned Helm archive
+  ansible.builtin.get_url:
+    url: "{{ argocd_helm_archive_url }}"
+    dest: "{{ argocd_helm_archive_path }}"
+    owner: root
+    group: root
+    mode: '0600'
+    checksum: "{{ argocd_helm_archive_checksum }}"
+
+- name: Inspect the extracted Helm binary
+  ansible.builtin.stat:
+    path: "{{ argocd_helm_install_directory }}/helm"
+    checksum_algorithm: sha256
+  register: argocd_extracted_helm_before
+
+- name: Extract the pinned Helm binary when its cache differs
+  ansible.builtin.unarchive:
+    src: "{{ argocd_helm_archive_path }}"
+    dest: "{{ argocd_helm_install_directory }}"
+    remote_src: true
+    extra_opts:
+      - --strip-components=1
+  when: >-
+    not argocd_extracted_helm_before.stat.exists
+    or (argocd_extracted_helm_before.stat.checksum | default(''))
+       != argocd_helm_binary_checksum
+
+- name: Verify the extracted Helm binary
+  ansible.builtin.stat:
+    path: "{{ argocd_helm_install_directory }}/helm"
+    checksum_algorithm: sha256
+  register: argocd_extracted_helm_after
+  failed_when: >-
+    not argocd_extracted_helm_after.stat.exists
+    or (argocd_extracted_helm_after.stat.checksum | default(''))
+       != argocd_helm_binary_checksum
+
+- name: Install the pinned Helm binary
+  ansible.builtin.copy:
+    src: "{{ argocd_helm_install_directory }}/helm"
+    dest: "{{ argocd_helm_binary_path }}"
+    owner: root
+    group: root
+    mode: '0755'
+    remote_src: true
+
+- name: Read the installed Helm version
+  ansible.builtin.command:
+    argv:
+      - "{{ argocd_helm_binary_path }}"
+      - version
+      - --short
+  register: argocd_installed_helm_version
+  changed_when: false
+
+- name: Require the pinned Helm version
+  ansible.builtin.assert:
+    that:
+      - >-
+        argocd_installed_helm_version.stdout == argocd_helm_version
+        or argocd_installed_helm_version.stdout.startswith(
+          argocd_helm_version + '+'
+        )
+    fail_msg: >-
+      Expected Helm {{ argocd_helm_version }}, got
+      {{ argocd_installed_helm_version.stdout | default('no version') }}.
+
+- name: Download the pinned Argo CD chart
+  ansible.builtin.get_url:
+    url: "{{ argocd_helm_chart_url }}"
+    dest: "{{ argocd_helm_chart_path }}"
+    owner: root
+    group: root
+    mode: '0600'
+    checksum: "{{ argocd_helm_chart_checksum }}"
+
+- name: Copy the reviewed Argo CD values
+  ansible.builtin.copy:
+    src: argo-cd-values.yaml
+    dest: "{{ argocd_helm_values_path }}"
+    owner: root
+    group: root
+    mode: '0600'
+
+- name: Read the pinned Argo CD chart metadata
+  ansible.builtin.command:
+    argv:
+      - "{{ argocd_helm_binary_path }}"
+      - show
+      - chart
+      - "{{ argocd_helm_chart_path }}"
+  register: argocd_helm_chart_metadata
+  changed_when: false
+
+- name: Require the reviewed chart and application versions
+  ansible.builtin.assert:
+    that:
+      - >-
+        (argocd_helm_chart_metadata.stdout | from_yaml).version
+        == argocd_helm_chart_version
+      - >-
+        (argocd_helm_chart_metadata.stdout | from_yaml).appVersion
+        == argocd_version
+    fail_msg: >-
+      The downloaded chart metadata does not match argo-cd
+      {{ argocd_helm_chart_version }} / Argo CD {{ argocd_version }}.
+
+# 로컬 chart archive와 values를 사용해 repo index 변경이 설치 결과를 바꾸지 않게 한다.
+- name: Reconcile the pinned Argo CD Helm release
+  kubernetes.core.helm:
+    release_name: "{{ argocd_helm_release_name }}"
+    chart_ref: "{{ argocd_helm_chart_path }}"
+    release_namespace: "{{ argocd_namespace }}"
+    create_namespace: false
+    kubeconfig: "{{ k3s_kubeconfig_path }}"
+    binary_path: "{{ argocd_helm_binary_path }}"
+    values_files:
+      - "{{ argocd_helm_values_path }}"
+    release_state: present
+    reset_values: true
+    server_side: "true"
+    atomic: true
+    wait: true
+    timeout: "{{ argocd_helm_release_timeout }}"
+    history_max: "{{ argocd_helm_history_max }}"
+
+- name: Wait for the AppProject CRD
+  ansible.builtin.command:
+    argv:
+      - /usr/local/bin/k3s
+      - kubectl
+      - wait
+      - --for=condition=Established
+      - crd/appprojects.argoproj.io
+      - --timeout=120s
+  changed_when: false
+
+# AppProject CRD와 Project는 root Application보다 먼저 준비되어야 한다.
+# 이 순서는 root와 하위 Application이 아직 없는 Project를 참조하지 않게 한다.
+- name: Compare the AppProjects with Git
+  ansible.builtin.command:
+    argv:
+      - /usr/local/bin/k3s
+      - kubectl
+      - diff
+      - --server-side=true
+      - --force-conflicts
+      - --field-manager=umc-ansible-argocd-projects
+      - -n
+      - "{{ argocd_namespace }}"
+      - -f
+      - '-'
+    stdin: "{{ lookup('ansible.builtin.file', argocd_projects_manifest_path) }}"
+  register: argocd_projects_manifest_diff
+  changed_when: false
+  failed_when: argocd_projects_manifest_diff.rc not in [0, 1]
+
+- name: Reconcile the AppProjects before the root Application
+  ansible.builtin.command:
+    argv:
+      - /usr/local/bin/k3s
+      - kubectl
+      - apply
+      - --server-side=true
+      - --force-conflicts
+      - --field-manager=umc-ansible-argocd-projects
+      - -n
+      - "{{ argocd_namespace }}"
+      - -f
+      - '-'
+    stdin: "{{ lookup('ansible.builtin.file', argocd_projects_manifest_path) }}"
+  when: argocd_projects_manifest_diff.rc == 1
+  changed_when: true
+
+# 사용자 정의 health gate를 root보다 먼저 적용해 과거의 낙관적 Healthy를 막는다.
+# root의 Healthy는 이 설정을 통해 child Application과 Secret 준비 상태까지 전달한다.
+- name: Compare the Argo CD health gates with Git
+  ansible.builtin.command:
+    argv:
+      - /usr/local/bin/k3s
+      - kubectl
+      - diff
+      - --server-side=true
+      - --force-conflicts
+      - --field-manager=umc-ansible-argocd-health
+      - -n
+      - "{{ argocd_namespace }}"
+      - -f
+      - '-'
+    stdin: "{{ lookup('ansible.builtin.file', argocd_health_manifest_path) }}"
+  register: argocd_health_manifest_diff
+  changed_when: false
+  failed_when: argocd_health_manifest_diff.rc not in [0, 1]
+
+- name: Reconcile the Argo CD health gates before the root Application
+  ansible.builtin.command:
+    argv:
+      - /usr/local/bin/k3s
+      - kubectl
+      - apply
+      - --server-side=true
+      - --force-conflicts
+      - --field-manager=umc-ansible-argocd-health
+      - -n
+      - "{{ argocd_namespace }}"
+      - -f
+      - '-'
+    stdin: "{{ lookup('ansible.builtin.file', argocd_health_manifest_path) }}"
+  when: argocd_health_manifest_diff.rc == 1
+  changed_when: true
+
+- name: Wait for the Argo CD deployments
+  ansible.builtin.command:
+    argv:
+      - /usr/local/bin/k3s
+      - kubectl
+      - rollout
+      - status
+      - "deployment/{{ item }}"
+      - -n
+      - "{{ argocd_namespace }}"
+      - --timeout=420s
+  loop:
+    - argocd-applicationset-controller
+    - argocd-repo-server
+    - argocd-server
+  changed_when: false
+
+- name: Wait for the Argo CD application controller
+  ansible.builtin.command:
+    argv:
+      - /usr/local/bin/k3s
+      - kubectl
+      - rollout
+      - status
+      - statefulset/argocd-application-controller
+      - -n
+      - "{{ argocd_namespace }}"
+      - --timeout=420s
+  changed_when: false

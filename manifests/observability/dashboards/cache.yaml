@@ -1,0 +1,584 @@
+# 자동 생성 — observability/ 원본은 직접 수정하고 scripts/gen-configmaps.py를 재실행하세요.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: dashboard-cache
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/managed-by: umc-infra
+    grafana_dashboard: "1"
+data:
+  cache.json: |
+    {
+      "annotations": {
+        "list": [
+          {
+            "builtIn": 1,
+            "datasource": {
+              "type": "grafana",
+              "uid": "-- Grafana --"
+            },
+            "enable": true,
+            "hide": true,
+            "iconColor": "rgba(0, 211, 255, 1)",
+            "name": "Annotations & Alerts",
+            "type": "dashboard"
+          }
+        ]
+      },
+      "description": "애플리케이션 인메모리(Caffeine) 캐시 지표. 글로벌 캐시 모듈(CacheNamespace)에 등록된 모든 캐시를 cache 라벨로 자동 표시한다. 새 namespace(예: chat)를 추가하면 CaffeineCacheMetrics 가 자동 노출하므로 별도 패널 수정 없이 여기 나타난다. 단, 해당 캐시가 한 번도 사용되지 않으면 lazy 등록 전이라 No data 로 보일 수 있다.",
+      "editable": true,
+      "graphTooltip": 1,
+      "links": [],
+      "panels": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "description": "캐시별 최근 5분 hit 비율 = hit / (hit+miss). 캐시마다 타일 하나. 트래픽 없으면 No data.",
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "thresholds"
+              },
+              "max": 1,
+              "min": 0,
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "red",
+                    "value": null
+                  },
+                  {
+                    "color": "orange",
+                    "value": 0.5
+                  },
+                  {
+                    "color": "green",
+                    "value": 0.8
+                  }
+                ]
+              },
+              "unit": "percentunit"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 6,
+            "w": 12,
+            "x": 0,
+            "y": 0
+          },
+          "id": 1,
+          "options": {
+            "colorMode": "value",
+            "graphMode": "area",
+            "justifyMode": "auto",
+            "orientation": "auto",
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "textMode": "value_and_name"
+          },
+          "targets": [
+            {
+              "editorMode": "code",
+              "expr": "sum by (cache) (rate(cache_gets_total{cache=~\"$cache\", result=\"hit\", application=~\"$service\", instance=~\"$instance\"}[5m])) / sum by (cache) (rate(cache_gets_total{cache=~\"$cache\", application=~\"$service\", instance=~\"$instance\"}[5m]))",
+              "legendFormat": "{{cache}}",
+              "range": true,
+              "refId": "A"
+            }
+          ],
+          "title": "Hit Rate (5m) — by cache",
+          "type": "stat"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "description": "캐시별 현재 적재 엔트리 수 (cache_size).",
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "thresholds"
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "blue",
+                    "value": null
+                  }
+                ]
+              },
+              "unit": "short"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 6,
+            "w": 6,
+            "x": 12,
+            "y": 0
+          },
+          "id": 2,
+          "options": {
+            "colorMode": "value",
+            "graphMode": "area",
+            "justifyMode": "auto",
+            "orientation": "auto",
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "textMode": "value_and_name"
+          },
+          "targets": [
+            {
+              "editorMode": "code",
+              "expr": "sum by (cache) (cache_size{cache=~\"$cache\", application=~\"$service\", instance=~\"$instance\"})",
+              "legendFormat": "{{cache}}",
+              "range": true,
+              "refId": "A"
+            }
+          ],
+          "title": "Cache Size (entries) — by cache",
+          "type": "stat"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "description": "캐시별 초당 조회 수 (hit+miss).",
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "thresholds"
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  }
+                ]
+              },
+              "unit": "ops"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 6,
+            "w": 3,
+            "x": 18,
+            "y": 0
+          },
+          "id": 3,
+          "options": {
+            "colorMode": "value",
+            "graphMode": "area",
+            "justifyMode": "auto",
+            "orientation": "auto",
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "textMode": "value_and_name"
+          },
+          "targets": [
+            {
+              "editorMode": "code",
+              "expr": "sum by (cache) (rate(cache_gets_total{cache=~\"$cache\", application=~\"$service\", instance=~\"$instance\"}[5m]))",
+              "legendFormat": "{{cache}}",
+              "range": true,
+              "refId": "A"
+            }
+          ],
+          "title": "Gets/s (5m) — by cache",
+          "type": "stat"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "description": "캐시별 초당 축출 수. 높으면 maximumSize 가 작거나 TTL 이 짧을 수 있음.",
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "thresholds"
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  },
+                  {
+                    "color": "orange",
+                    "value": 1
+                  }
+                ]
+              },
+              "unit": "ops"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 6,
+            "w": 3,
+            "x": 21,
+            "y": 0
+          },
+          "id": 4,
+          "options": {
+            "colorMode": "value",
+            "graphMode": "area",
+            "justifyMode": "auto",
+            "orientation": "auto",
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "textMode": "value_and_name"
+          },
+          "targets": [
+            {
+              "editorMode": "code",
+              "expr": "sum by (cache) (rate(cache_evictions_total{cache=~\"$cache\", application=~\"$service\", instance=~\"$instance\"}[5m]))",
+              "legendFormat": "{{cache}}",
+              "range": true,
+              "refId": "A"
+            }
+          ],
+          "title": "Evictions/s (5m) — by cache",
+          "type": "stat"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "description": "캐시별 hit / (hit+miss) 시계열.",
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "drawStyle": "line",
+                "fillOpacity": 20,
+                "lineWidth": 2,
+                "showPoints": "never"
+              },
+              "max": 1,
+              "min": 0,
+              "unit": "percentunit"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 0,
+            "y": 6
+          },
+          "id": 5,
+          "options": {
+            "legend": {
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "editorMode": "code",
+              "expr": "sum by (cache) (rate(cache_gets_total{cache=~\"$cache\", result=\"hit\", application=~\"$service\", instance=~\"$instance\"}[5m])) / sum by (cache) (rate(cache_gets_total{cache=~\"$cache\", application=~\"$service\", instance=~\"$instance\"}[5m]))",
+              "legendFormat": "{{cache}}",
+              "range": true,
+              "refId": "A"
+            }
+          ],
+          "title": "Hit Rate % over time (by cache)",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "description": "캐시별 초당 hit / miss 수.",
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "drawStyle": "line",
+                "fillOpacity": 20,
+                "lineWidth": 2,
+                "showPoints": "never"
+              },
+              "unit": "ops"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 6
+          },
+          "id": 6,
+          "options": {
+            "legend": {
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "editorMode": "code",
+              "expr": "sum by (cache) (rate(cache_gets_total{cache=~\"$cache\", result=\"hit\", application=~\"$service\", instance=~\"$instance\"}[5m]))",
+              "legendFormat": "{{cache}} hit",
+              "range": true,
+              "refId": "A"
+            },
+            {
+              "editorMode": "code",
+              "expr": "sum by (cache) (rate(cache_gets_total{cache=~\"$cache\", result=\"miss\", application=~\"$service\", instance=~\"$instance\"}[5m]))",
+              "legendFormat": "{{cache}} miss",
+              "range": true,
+              "refId": "B"
+            }
+          ],
+          "title": "Hits vs Misses (ops/s, by cache)",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "description": "캐시별 엔트리 수 추이.",
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "drawStyle": "line",
+                "fillOpacity": 10,
+                "lineWidth": 2,
+                "showPoints": "never"
+              },
+              "unit": "short"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 0,
+            "y": 14
+          },
+          "id": 7,
+          "options": {
+            "legend": {
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "editorMode": "code",
+              "expr": "sum by (cache) (cache_size{cache=~\"$cache\", application=~\"$service\", instance=~\"$instance\"})",
+              "legendFormat": "{{cache}}",
+              "range": true,
+              "refId": "A"
+            }
+          ],
+          "title": "Cache Size over time (entries, by cache)",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "description": "캐시별 초당 축출 수 추이.",
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "drawStyle": "line",
+                "fillOpacity": 20,
+                "lineWidth": 2,
+                "showPoints": "never"
+              },
+              "unit": "ops"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 14
+          },
+          "id": 8,
+          "options": {
+            "legend": {
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "editorMode": "code",
+              "expr": "sum by (cache) (rate(cache_evictions_total{cache=~\"$cache\", application=~\"$service\", instance=~\"$instance\"}[5m]))",
+              "legendFormat": "{{cache}}",
+              "range": true,
+              "refId": "A"
+            }
+          ],
+          "title": "Evictions (ops/s, by cache)",
+          "type": "timeseries"
+        }
+      ],
+      "refresh": "30s",
+      "schemaVersion": 39,
+      "tags": [
+        "umc-product",
+        "cache"
+      ],
+      "templating": {
+        "list": [
+          {
+            "allValue": ".*",
+            "current": {
+              "selected": true,
+              "text": "All",
+              "value": "$__all"
+            },
+            "datasource": {
+              "type": "prometheus",
+              "uid": "prometheus"
+            },
+            "definition": "label_values(process_uptime_milliseconds, application)",
+            "includeAll": true,
+            "label": "service",
+            "multi": true,
+            "name": "service",
+            "query": {
+              "qryType": 1,
+              "query": "label_values(process_uptime_milliseconds, application)",
+              "refId": "StandardVariableQuery"
+            },
+            "refresh": 2,
+            "sort": 1,
+            "type": "query"
+          },
+          {
+            "allValue": ".*",
+            "current": {
+              "selected": true,
+              "text": "All",
+              "value": "$__all"
+            },
+            "datasource": {
+              "type": "prometheus",
+              "uid": "prometheus"
+            },
+            "definition": "label_values(process_uptime_milliseconds{application=~\"$service\"}, instance)",
+            "includeAll": true,
+            "label": "instance",
+            "multi": true,
+            "name": "instance",
+            "query": {
+              "qryType": 1,
+              "query": "label_values(process_uptime_milliseconds{application=~\"$service\"}, instance)",
+              "refId": "StandardVariableQuery"
+            },
+            "refresh": 2,
+            "sort": 1,
+            "type": "query"
+          },
+          {
+            "allValue": ".*",
+            "current": {
+              "selected": true,
+              "text": "All",
+              "value": "$__all"
+            },
+            "datasource": {
+              "type": "prometheus",
+              "uid": "prometheus"
+            },
+            "definition": "label_values(cache_gets_total, cache)",
+            "includeAll": true,
+            "label": "cache",
+            "multi": true,
+            "name": "cache",
+            "query": {
+              "qryType": 1,
+              "query": "label_values(cache_gets_total, cache)",
+              "refId": "StandardVariableQuery"
+            },
+            "refresh": 2,
+            "sort": 1,
+            "type": "query"
+          }
+        ]
+      },
+      "time": {
+        "from": "now-6h",
+        "to": "now"
+      },
+      "timepicker": {},
+      "timezone": "browser",
+      "title": "UMC PRODUCT — Cache",
+      "uid": "umc-product-cache",
+      "version": 2
+    }

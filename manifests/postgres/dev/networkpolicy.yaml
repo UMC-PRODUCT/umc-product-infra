@@ -1,0 +1,84 @@
+# dev DB의 허용 경로. allow(-2)를 default-deny(-1)보다 먼저 적용한다.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: postgres-allow-required-ingress
+  namespace: dev-db
+  labels:
+    app.kubernetes.io/name: postgres
+    environment: dev
+  annotations:
+    argocd.argoproj.io/sync-wave: "-2"
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: postgres
+      app.kubernetes.io/component: database
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: dev-app
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: umc-product-server
+              app.kubernetes.io/instance: dev-umc-product-server
+            matchExpressions:
+              - key: app.kubernetes.io/component
+                operator: NotIn
+                values: [database-bootstrap, database-cleanup]
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: postgres-app-role
+              app.kubernetes.io/component: database-bootstrap
+      ports:
+        - { protocol: TCP, port: 5432 }
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: db-allow-dns-egress
+  namespace: dev-db
+  labels:
+    environment: dev
+  annotations:
+    argocd.argoproj.io/sync-wave: "-2"
+spec:
+  podSelector: {}
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - { protocol: UDP, port: 53 }
+        - { protocol: TCP, port: 53 }
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: postgres-bootstrap-allow-db-egress
+  namespace: dev-db
+  labels:
+    environment: dev
+  annotations:
+    argocd.argoproj.io/sync-wave: "-2"
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: postgres-app-role
+      app.kubernetes.io/component: database-bootstrap
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: postgres
+              app.kubernetes.io/component: database
+      ports:
+        - { protocol: TCP, port: 5432 }

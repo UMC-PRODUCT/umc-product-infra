@@ -1,0 +1,127 @@
+---
+- name: Enroll the UMC IDC server in Tailscale without changing its firewall
+  hosts: k3s_servers
+  gather_facts: false
+  become: true
+  any_errors_fatal: true
+  serial: 1
+  environment:
+    LC_ALL: C
+
+  # 이 단계는 임시 공인 SSH를 사용하지만 UFW와 sshd는 변경하지 않는다.
+  pre_tasks:
+    - name: Refuse an unreviewed Tailscale enrollment inventory
+      ansible.builtin.assert:
+        that:
+          - tailscale_enroll_confirm | default(false) | bool
+          - groups.get('k3s_servers', []) | length == 1
+          - ansible_host is defined
+          - "'CHANGE_ME' not in ansible_host"
+          - ansible_user is defined
+          - "'CHANGE_ME' not in ansible_user"
+          - tailscale_hostname is defined
+          - "'CHANGE_ME' not in tailscale_hostname"
+          - tailscale_required_tag | default('tag:umc-idc') == 'tag:umc-idc'
+          - tailscale_initial_admin_cidrs | default([]) | length > 0
+          - "'CHANGE_ME' not in (tailscale_initial_admin_cidrs | join(','))"
+        fail_msg: >-
+          Review the temporary public SSH address, administrator CIDR,
+          Tailscale hostname and tag, then set tailscale_enroll_confirm=true.
+      delegate_to: localhost
+      become: false
+      tags:
+        - preflight
+
+    - name: Require canonical initial administrator CIDRs narrower than Anywhere
+      ansible.builtin.command:
+        argv:
+          - python3
+          - -c
+          - |
+            import ipaddress
+            import sys
+
+            raw = sys.argv[1]
+            try:
+                network = ipaddress.ip_network(raw, strict=True)
+            except ValueError as error:
+                raise SystemExit(f"invalid CIDR {raw!r}: {error}") from error
+            if network.prefixlen == 0:
+                raise SystemExit(f"public CIDR is forbidden: {raw!r}")
+            if raw != network.with_prefixlen:
+                raise SystemExit(
+                    f"CIDR must be canonical: {raw!r}; use {network.with_prefixlen!r}"
+                )
+          - "{{ item }}"
+      loop: "{{ tailscale_initial_admin_cidrs }}"
+      changed_when: false
+      check_mode: false
+      delegate_to: localhost
+      become: false
+      tags:
+        - preflight
+
+    - name: Gather host facts after the local enrollment safety check
+      ansible.builtin.setup:
+
+    - name: Read the initial SSH connection metadata without sudo
+      ansible.builtin.command: printenv SSH_CONNECTION
+      register: tailscale_enroll_ssh_connection
+      changed_when: false
+      failed_when: false
+      check_mode: false
+      become: false
+
+    - name: Require the initial SSH peer to match the temporary allowlist
+      ansible.builtin.command:
+        argv:
+          - python3
+          - -c
+          - |
+            import ipaddress
+            import json
+            import sys
+
+            connection = sys.argv[1].split()
+            if len(connection) != 4:
+                raise SystemExit("SSH_CONNECTION is unavailable; refusing enrollment")
+            peer = ipaddress.ip_address(connection[0])
+            networks = [
+                ipaddress.ip_network(raw, strict=True)
+                for raw in json.loads(sys.argv[2])
+            ]
+            if not any(peer in network for network in networks):
+                raise SystemExit(
+                    f"initial SSH peer {peer} is outside "
+                    "tailscale_initial_admin_cidrs"
+                )
+          - "{{ tailscale_enroll_ssh_connection.stdout | default('') }}"
+          - "{{ tailscale_initial_admin_cidrs | to_json }}"
+      changed_when: false
+      check_mode: false
+      delegate_to: localhost
+      become: false
+
+  roles:
+    - role: tailscale
+      vars:
+        tailscale_enrollment_enabled: true
+
+  post_tasks:
+    - name: Verify that the tailnet grants reach native OpenSSH
+      ansible.builtin.wait_for:
+        host: "{{ tailscale_primary_ipv4 }}"
+        port: 22
+        state: started
+        connect_timeout: 5
+        timeout: 30
+      delegate_to: localhost
+      become: false
+
+    - name: Explain the mandatory handoff to the standard bootstrap
+      ansible.builtin.debug:
+        msg: >-
+          Enrollment succeeded. Replace ansible_host with
+          {{ tailscale_primary_ipv4 }} (or its MagicDNS name), set
+          bootstrap_confirm=true, verify ansible.builtin.ping, and only then
+          run playbooks/bootstrap.yml. This playbook did not change UFW or SSH.

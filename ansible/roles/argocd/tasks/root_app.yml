@@ -1,0 +1,101 @@
+---
+# root도 diff rc=0/1만 정상으로 보고 차이가 있을 때만 적용한다.
+# 서버 측 필드 관리 충돌은 Git의 root manifest를 기준으로 수렴시킨다.
+- name: Compare the root Application with Git
+  ansible.builtin.command:
+    argv:
+      - /usr/local/bin/k3s
+      - kubectl
+      - diff
+      - --server-side=true
+      - --force-conflicts
+      - --field-manager=umc-ansible-root-app
+      - -n
+      - "{{ argocd_namespace }}"
+      - -f
+      - '-'
+    stdin: "{{ lookup('ansible.builtin.file', argocd_root_app_manifest_path) }}"
+  register: argocd_root_app_diff
+  changed_when: false
+  failed_when: argocd_root_app_diff.rc not in [0, 1]
+
+- name: Reconcile the root Application when it differs
+  ansible.builtin.command:
+    argv:
+      - /usr/local/bin/k3s
+      - kubectl
+      - apply
+      - --server-side=true
+      - --force-conflicts
+      - --field-manager=umc-ansible-root-app
+      - -n
+      - "{{ argocd_namespace }}"
+      - -f
+      - '-'
+    stdin: "{{ lookup('ansible.builtin.file', argocd_root_app_manifest_path) }}"
+  when: argocd_root_app_diff.rc == 1
+  changed_when: true
+
+# hard refresh annotation은 Argo CD가 소비해 제거하는 일회성 신호다.
+# 제거를 확인한 뒤 상태를 기다려 이전 실행의 캐시를 성공으로 오인하지 않는다.
+- name: Request a hard refresh of the root Application
+  ansible.builtin.command:
+    argv:
+      - /usr/local/bin/k3s
+      - kubectl
+      - annotate
+      - application/root
+      - -n
+      - "{{ argocd_namespace }}"
+      - argocd.argoproj.io/refresh=hard
+      - --overwrite
+  changed_when: false
+
+- name: Wait for Argo CD to consume the hard refresh
+  ansible.builtin.command:
+    argv:
+      - /usr/local/bin/k3s
+      - kubectl
+      - get
+      - application/root
+      - -n
+      - "{{ argocd_namespace }}"
+      - -o
+      - json
+  register: argocd_root_app_refresh_state
+  changed_when: false
+  until:
+    - >-
+      (argocd_root_app_refresh_state.stdout | from_json)
+      .get('metadata', {}).get('annotations', {})
+      .get('argocd.argoproj.io/refresh', '') == ''
+  retries: "{{ argocd_root_app_refresh_retries }}"
+  delay: "{{ argocd_root_app_refresh_delay }}"
+
+# 성공은 Synced에 이어 custom health가 전달한 모든 하위 상태가 Healthy인 경우다.
+# 둘을 따로 기다려 Git 차이와 실행 중 리소스의 준비 실패를 구분한다.
+- name: Wait for the root Application to finish syncing
+  ansible.builtin.command:
+    argv:
+      - /usr/local/bin/k3s
+      - kubectl
+      - wait
+      - application/root
+      - -n
+      - "{{ argocd_namespace }}"
+      - "--for=jsonpath={.status.sync.status}=Synced"
+      - "--timeout={{ argocd_root_app_ready_timeout }}"
+  changed_when: false
+
+- name: Wait for the root Application and all health-gated children
+  ansible.builtin.command:
+    argv:
+      - /usr/local/bin/k3s
+      - kubectl
+      - wait
+      - application/root
+      - -n
+      - "{{ argocd_namespace }}"
+      - "--for=jsonpath={.status.health.status}=Healthy"
+      - "--timeout={{ argocd_root_app_ready_timeout }}"
+  changed_when: false

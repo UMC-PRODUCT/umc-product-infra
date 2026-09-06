@@ -1,0 +1,128 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Least-privilege DNS identities for the existing UMC Product Route 53 zone
+
+Parameters:
+  DnsZoneName:
+    Type: String
+    Default: university.neordinary.com
+    Description: Public DNS zone managed by UMC Product
+    MinLength: 3
+    MaxLength: 253
+    AllowedPattern: "^[A-Za-z0-9][A-Za-z0-9.-]*[A-Za-z0-9]$"
+  Route53HostedZoneId:
+    Type: String
+    Description: Existing public Route 53 hosted zone ID delegated to UMC Product
+    MinLength: 3
+    MaxLength: 32
+    AllowedPattern: "^Z[A-Z0-9]+$"
+
+Rules:
+  SeoulRegionOnly:
+    Assertions:
+      - Assert: !Equals [!Ref AWS::Region, ap-northeast-2]
+        AssertDescription: Deploy this stack only in Seoul (ap-northeast-2)
+
+Resources:
+  CertManagerRoute53User:
+    Type: AWS::IAM::User
+    Properties:
+      UserName: umc-cert-manager-route53
+      Policies:
+        - PolicyName: manage-umc-acme-dns-challenges
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: ObserveRoute53Changes
+                Effect: Allow
+                Action: route53:GetChange
+                Resource: !Sub "arn:${AWS::Partition}:route53:::change/*"
+              - Sid: ReadUmcDnsRecords
+                Effect: Allow
+                Action: route53:ListResourceRecordSets
+                Resource: !Sub "arn:${AWS::Partition}:route53:::hostedzone/${Route53HostedZoneId}"
+              - Sid: ManageOnlyUmcAcmeTxtRecords
+                Effect: Allow
+                Action: route53:ChangeResourceRecordSets
+                Resource: !Sub "arn:${AWS::Partition}:route53:::hostedzone/${Route53HostedZoneId}"
+                Condition:
+                  ForAllValues:StringEquals:
+                    route53:ChangeResourceRecordSetsActions:
+                      - UPSERT
+                      - DELETE
+                    route53:ChangeResourceRecordSetsNormalizedRecordNames:
+                      - !Sub "_acme-challenge.${DnsZoneName}"
+                      - !Sub "_acme-challenge.api.${DnsZoneName}"
+                      - !Sub "_acme-challenge.api-dev.${DnsZoneName}"
+                      - !Sub "_acme-challenge.grafana.${DnsZoneName}"
+                    route53:ChangeResourceRecordSetsRecordTypes:
+                      - TXT
+      Tags:
+        - Key: managed-by
+          Value: cloudformation
+        - Key: environment
+          Value: shared
+        - Key: purpose
+          Value: cert-manager-route53
+
+  ExternalDNSRoute53User:
+    Type: AWS::IAM::User
+    Properties:
+      UserName: umc-external-dns-route53
+      Policies:
+        - PolicyName: manage-umc-ingress-dns-records
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              # ExternalDNS의 AWS provider는 zone-id-filter가 있어도 먼저 zone 목록을 조회한다.
+              - Sid: DiscoverHostedZones
+                Effect: Allow
+                Action: route53:ListHostedZones
+                Resource: "*"
+              - Sid: ReadUmcDnsRecords
+                Effect: Allow
+                Action: route53:ListResourceRecordSets
+                Resource: !Sub "arn:${AWS::Partition}:route53:::hostedzone/${Route53HostedZoneId}"
+              - Sid: ManageOnlyUmcIngressAndOwnershipRecords
+                Effect: Allow
+                Action: route53:ChangeResourceRecordSets
+                Resource: !Sub "arn:${AWS::Partition}:route53:::hostedzone/${Route53HostedZoneId}"
+                Condition:
+                  ForAllValues:StringEquals:
+                    route53:ChangeResourceRecordSetsActions:
+                      - CREATE
+                      - UPSERT
+                      - DELETE
+                    route53:ChangeResourceRecordSetsRecordTypes:
+                      - A
+                      - TXT
+                  ForAllValues:StringLike:
+                    route53:ChangeResourceRecordSetsNormalizedRecordNames:
+                      - !Sub "api.${DnsZoneName}"
+                      - !Sub "api-dev.${DnsZoneName}"
+                      - !Sub "api-pr-*.${DnsZoneName}"
+                      - !Sub "grafana.${DnsZoneName}"
+                      - !Sub "_external-dns.api.${DnsZoneName}"
+                      - !Sub "_external-dns.api-dev.${DnsZoneName}"
+                      - !Sub "_external-dns.api-pr-*.${DnsZoneName}"
+                      - !Sub "_external-dns.grafana.${DnsZoneName}"
+      Tags:
+        - Key: managed-by
+          Value: cloudformation
+        - Key: environment
+          Value: shared
+        - Key: purpose
+          Value: external-dns-route53
+
+Outputs:
+  DnsZoneName:
+    Value: !Ref DnsZoneName
+  Route53HostedZoneId:
+    Value: !Ref Route53HostedZoneId
+  CertManagerRoute53UserName:
+    Value: !Ref CertManagerRoute53User
+  CertManagerRoute53UserArn:
+    Value: !GetAtt CertManagerRoute53User.Arn
+  ExternalDNSRoute53UserName:
+    Value: !Ref ExternalDNSRoute53User
+  ExternalDNSRoute53UserArn:
+    Value: !GetAtt ExternalDNSRoute53User.Arn

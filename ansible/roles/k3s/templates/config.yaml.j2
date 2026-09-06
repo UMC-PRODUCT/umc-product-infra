@@ -1,0 +1,9 @@
+write-kubeconfig-mode: '0600'
+secrets-encryption: true
+cluster-cidr: {{ k3s_cluster_cidr | quote }}
+service-cidr: {{ k3s_service_cidr | quote }}
+kubelet-arg:
+  - system-reserved=cpu={{ k3s_system_reserved_cpu }},memory={{ k3s_system_reserved_memory }}
+  - "eviction-hard=memory.available<{{ k3s_eviction_memory_available }},nodefs.available<{{ k3s_eviction_nodefs_available }},imagefs.available<{{ k3s_eviction_imagefs_available }},nodefs.inodesFree<{{ k3s_eviction_nodefs_inodes_free }},imagefs.inodesFree<{{ k3s_eviction_imagefs_inodes_free }}"
+  - container-log-max-size=10Mi
+  - container-log-max-files=5

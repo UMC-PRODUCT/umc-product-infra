@@ -1,0 +1,14 @@
+---
+
+common_timezone: Asia/Seoul
+
+common_packages:
+  - ca-certificates
+  - curl
+  # kubernetes.core.helm이 대상 서버에서 values를 처리할 때 사용한다.
+  - python3-yaml
+  - ufw
+
+# 공용 포트 계약은 Traefik이 직접 수신하는 443/tcp 하나뿐이다.
+common_public_tcp_ports:
+  - 443

@@ -1,0 +1,119 @@
+# PR 프리뷰 — PR 하나당 Application 을 자동 생성하고, PR 이 닫히면 지운다.
+#
+# 왜 라벨 필터인가: 열린 PR 전부에 환경을 띄우면 노드 메모리가 바닥난다.
+# `preview` 라벨을 붙인 PR 만 배포한다 — 라벨이 곧 3개뿐인 자리 예약이고, 의도를 명시하는 장치다.
+#
+# 왜 preview 네임스페이스 하나인가: 작은 단일 노드에서 동시 프리뷰 수와 공유 DB 접근을
+# 한 경계로 통제하기 위해서다. 시크릿은 /umc-product/preview 전용 IAM 역할로 prod·dev와 분리한다.
+#
+# 필요한 것
+#   - Secret preview-github-token (argocd 네임스페이스) : PR 목록 조회용 PAT.
+#     Secrets Manager /umc-product/platform/argocd/preview-github-token에서 ESO가 동기화한다.
+#     public repo여도 API rate limit과 안정적인 polling을 위해 사용한다.
+#     권한은 contents:read + pull_requests:read만 준다.
+#   - backend의 향후 trusted CI가 라벨 붙은 PR head SHA 이미지를 GHCR에 게시해야 한다.
+#     현재 BE CI에는 이 계약이 아직 없으므로 preview workload gate는 꺼 둔다.
+#   - 네이티브 모바일 로그인은 provider token을 API로 직접 보내므로 Preview에서도 검증한다.
+#     브라우저 callback 기반 OAuth는 동적 URL을 등록하지 않으며 callback broker도 두지 않는다.
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: umc-product-server-preview
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  # PR 이 닫히면 Application 과 그 리소스를 지운다
+  syncPolicy:
+    preserveResourcesOnDeletion: false
+
+  goTemplate: true
+  goTemplateOptions: ["missingkey=error"]
+
+  generators:
+    - pullRequest:
+        github:
+          owner: UMC-PRODUCT
+          repo: umc-product-server
+          tokenRef:
+            secretName: preview-github-token
+            key: token
+          # `preview` 라벨이 붙은 PR 만. 라벨 필터는 github 하위에 있다 —
+          # filters[] 는 branchMatch·targetBranchMatch·titleMatch 만 받는다(CRD 스키마 확인).
+          labels:
+            - preview
+        filters:
+          # preview는 develop을 향한 PR만 허용해 운영 브랜치 대상 PR과 분리한다.
+          - targetBranchMatch: "^develop$"
+        requeueAfterSeconds: 120
+
+  template:
+    metadata:
+      name: "umc-product-preview-{{ .number }}"
+      labels:
+        environment: preview
+        infra.university.neordinary.com/preview-pr: "{{ .number }}"
+      annotations:
+        # PR 브랜치와 커밋을 Application 에 남겨 UI 에서 바로 추적되게
+        infra.university.neordinary.com/preview-branch: "{{ .branch }}"
+        infra.university.neordinary.com/preview-head-sha: "{{ .head_sha }}"
+      finalizers:
+        - resources-finalizer.argocd.argoproj.io
+    spec:
+      project: preview
+      source:
+        repoURL: https://github.com/UMC-PRODUCT/umc-product-infra.git
+        targetRevision: main
+        path: charts/umc-product-server
+        helm:
+          valueFiles:
+            - values.yaml
+            - values-preview.yaml
+          parameters:
+            # 이미지 태그는 PR head 커밋 12자리. 향후 trusted publish CI도 같은 값을 쓴다.
+            # slice 는 배열용이라 문자열에 쓰면 "list should be type of slice or array but string"
+            # 으로 죽는다. sprig 의 substr 을 쓴다.
+            - name: image.tag
+              value: "{{ substr 0 12 .head_sha }}"
+            - name: fullnameOverride
+              value: "umc-product-server-pr-{{ .number }}"
+            - name: ingress.host
+              value: "api-pr-{{ .number }}.university.neordinary.com"
+            - name: ingress.tls[0].hosts[0]
+              value: "api-pr-{{ .number }}.university.neordinary.com"
+            # 모든 PR은 preview namespace의 공용 와일드카드 TLS Secret을 사용한다.
+            # Certificate는 PR Application 밖에서 관리해 PR 삭제 시 함께 지워지지 않는다.
+            - name: createDatabase.name
+              value: "umc_product_pr{{ .number }}"
+            - name: env.DATABASE_URL
+              value: "jdbc:postgresql://postgres-preview.preview.svc.cluster.local:5432/umc_product_pr{{ .number }}"
+            - name: env.SPRING_APPLICATION_NAME
+              # 대시보드 Service 드롭다운에서 PR 별로 골라 볼 수 있게
+              value: "preview-umc-product-pr{{ .number }}"
+            - name: env.APP_ENVIRONMENT
+              value: "preview-pr-{{ .number }}"
+            # URL 계열은 PR 마다 호스트가 달라야 해서 시크릿이 아니라 여기서 채운다.
+            # k8s 는 env가 envFrom을 덮으므로 공통 Secret에 값이 있어도 이쪽이 이긴다.
+            - name: env.SSO_ISSUER
+              value: "https://api-pr-{{ .number }}.university.neordinary.com"
+            - name: env.CERTIFICATE_VERIFICATION_URL_TEMPLATE
+              value: "https://api-pr-{{ .number }}.university.neordinary.com/api/v1/certificates/verify/{serialNumber}"
+            # DEMODAY_QR_BASE_URL은 API가 아니라 QR을 여는 FE origin이므로
+            # preview FE 도메인을 정한 뒤 별도 parameter로 추가한다.
+      destination:
+        server: https://kubernetes.default.svc
+        namespace: preview
+      # PR별 Deployment에 Reloader가 쓰는 runtime annotation만 Git diff에서 제외한다.
+      ignoreDifferences:
+        - group: apps
+          kind: Deployment
+          name: "umc-product-server-pr-{{ .number }}"
+          namespace: preview
+          jsonPointers:
+            - /spec/template/metadata/annotations/reloader.stakater.com~1last-reloaded-from
+      syncPolicy:
+        automated:
+          selfHeal: true
+          prune: true
+        syncOptions:
+          - RespectIgnoreDifferences=true

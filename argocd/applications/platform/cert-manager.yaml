@@ -1,0 +1,80 @@
+# cert-manager — Route 53 DNS-01로 공개 API의 TLS 인증서를 발급한다.
+# wave -2: Secret 계약(-1)과 ClusterIssuer(0)보다 CRD/controller가 먼저 준비된다.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: cert-manager
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "-2"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: cert-manager
+  source:
+    repoURL: https://charts.jetstack.io
+    chart: cert-manager
+    targetRevision: v1.21.1
+    helm:
+      valuesObject:
+        crds:
+          enabled: true
+          # CRD를 먼저 수동 삭제하면 Certificate Secret까지 연쇄 삭제될 수 있다.
+          keep: true
+        global:
+          rbac:
+            create: true
+            aggregateClusterRoles: false
+          leaderElection:
+            namespace: cert-manager
+        # Certificate가 삭제되면 해당 Certificate가 소유한 TLS Secret도 함께 정리한다.
+        enableCertificateOwnerRef: true
+        maxConcurrentChallenges: 5
+        image:
+          tag: v1.21.1
+          digest: sha256:416a2d76870d996460e62bd7f521bf14fa017be9e3e904aab92163a331fcb61a
+        resources:
+          requests: { cpu: 20m, memory: 64Mi }
+          limits: { memory: 128Mi }
+        webhook:
+          image:
+            tag: v1.21.1
+            digest: sha256:d8b3961b51c8c7320633f8208dc46bf88aa13804d0f7cbe48a096b2c523cee42
+          resources:
+            requests: { cpu: 10m, memory: 32Mi }
+            limits: { memory: 64Mi }
+        cainjector:
+          image:
+            tag: v1.21.1
+            digest: sha256:ccf6b919ec0500745a47a910118f834f9636d0aac1ff221245cd2557ed8c7c98
+          resources:
+            requests: { cpu: 10m, memory: 64Mi }
+            limits: { memory: 128Mi }
+        startupapicheck:
+          image:
+            tag: v1.21.1
+            digest: sha256:d8ab6416e6e7303a86fa0a8daa82c94a8001f21c9d78eb2e7db20534e5d07ae8
+          resources:
+            requests: { cpu: 10m, memory: 32Mi }
+            limits: { memory: 64Mi }
+        acmesolver:
+          image:
+            tag: v1.21.1
+            digest: sha256:dbc7cc1354f603918e7c5af7f55a0a620537394452c93a565bde75c6f48e8837
+        prometheus:
+          enabled: true
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: cert-manager
+  syncPolicy:
+    automated:
+      selfHeal: true
+      prune: true
+    syncOptions:
+      - ServerSideApply=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 10s
+        factor: 2
+        maxDuration: 3m
