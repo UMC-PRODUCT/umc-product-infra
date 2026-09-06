@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import ipaddress
 import re
 import sys
 from pathlib import Path
@@ -24,6 +25,8 @@ APP_IMAGE = (
     + "a" * 64
 )
 PREVIEW_APP_IMAGE = "ghcr.io/umc-product/umc-product-server:0123456789ab"
+TEST_NET_EDGE_TARGET = "203.0.113.10"
+CERTIFICATE_ISSUERS = {"letsencrypt-staging", "letsencrypt-production"}
 GOOGLE_CLIENT_ID_LIST = (
     "882297658822-ag179p23eqhc5lti8ue5cgbf5phekbfh.apps.googleusercontent.com,"
     "882297658822-qaf493b6fu6a9f33artnu435jimkoome.apps.googleusercontent.com,"
@@ -485,7 +488,97 @@ def resource(resources: list[dict], kind: str) -> dict:
     return matches[0]
 
 
-def validate_render(path: Path, environment: str) -> None:
+def edge_expectation(environment: str) -> tuple[str, str, str]:
+    return {
+        "prod": (
+            "api.university.neordinary.com",
+            "api-university-neordinary-com-tls",
+            "umc-product-server",
+        ),
+        "dev": (
+            "api-dev.university.neordinary.com",
+            "api-dev-university-neordinary-com-tls",
+            "umc-product-server",
+        ),
+        "preview": (
+            "api-pr-42.university.neordinary.com",
+            "preview-wildcard-tls",
+            "umc-product-server-pr-42",
+        ),
+    }[environment]
+
+
+def require_public_ipv4(value: str, label: str) -> None:
+    try:
+        address = ipaddress.ip_address(value)
+    except ValueError as error:
+        raise SystemExit(f"contract validation failed: {label}: {error}") from error
+    require(address.version == 4 and address.is_global, f"{label}: public IPv4 required")
+
+
+def validate_ingress_contract(
+    ingress: dict,
+    environment: str,
+    expected_target: str,
+    *,
+    test_net_fixture: bool = False,
+) -> None:
+    expected_host, expected_secret, expected_service = edge_expectation(environment)
+    if test_net_fixture:
+        require(
+            expected_target == TEST_NET_EDGE_TARGET,
+            f"{environment}: synthetic edge fixture must use TEST-NET target",
+        )
+    else:
+        require_public_ipv4(expected_target, f"{environment}: ExternalDNS source target")
+
+    require(
+        ingress["spec"].get("ingressClassName") == "traefik",
+        f"{environment}: Traefik Ingress class",
+    )
+    require(
+        ingress["spec"].get("rules")
+        == [
+            {
+                "host": expected_host,
+                "http": {
+                    "paths": [
+                        {
+                            "path": "/",
+                            "pathType": "Prefix",
+                            "backend": {
+                                "service": {
+                                    "name": expected_service,
+                                    "port": {"name": "http"},
+                                }
+                            },
+                        }
+                    ]
+                },
+            }
+        ],
+        f"{environment}: exact public route",
+    )
+    require(
+        ingress["spec"].get("tls")
+        == [{"hosts": [expected_host], "secretName": expected_secret}],
+        f"{environment}: TLS binding",
+    )
+    require(
+        ingress["metadata"].get("annotations")
+        == {
+            "argocd.argoproj.io/sync-wave": "1",
+            "external-dns.kubernetes.io/managed-by": "umc-infra",
+            "external-dns.kubernetes.io/target": expected_target,
+            "traefik.ingress.kubernetes.io/router.entrypoints": "websecure",
+        },
+        f"{environment}: exact Route53-backed Ingress annotations",
+    )
+
+
+def validate_render(
+    path: Path, environment: str, ingress_enabled: bool
+) -> None:
     resources = yaml_documents(path)
     deployment = resource(resources, "Deployment")
     service = resource(resources, "Service")
@@ -622,7 +715,9 @@ def validate_render(path: Path, environment: str) -> None:
     for key, expected in expected_environment.items():
         require(environment_values.get(key) == expected, f"{environment}: env {key}")
 
+    expected_host, expected_secret, _ = edge_expectation(environment)
     certificates = [item for item in resources if item.get("kind") == "Certificate"]
+    certificate_issuer: str | None = None
     if environment == "preview":
         require(not certificates, "preview: per-PR Certificate must be disabled")
         require(
@@ -633,16 +728,6 @@ def validate_render(path: Path, environment: str) -> None:
             "preview: Service quota gate must run before createdb",
         )
     else:
-        expected_tls = {
-            "prod": (
-                "api.university.neordinary.com",
-                "api-university-neordinary-com-tls",
-            ),
-            "dev": (
-                "api-dev.university.neordinary.com",
-                "api-dev-university-neordinary-com-tls",
-            ),
-        }[environment]
         certificate = resource(resources, "Certificate")
         require(
             certificate["metadata"].get("annotations", {}).get(
@@ -652,21 +737,24 @@ def validate_render(path: Path, environment: str) -> None:
             f"{environment}: Certificate must precede database/application resources",
         )
         require(
-            certificate["spec"]["dnsNames"] == [expected_tls[0]],
+            certificate["spec"]["dnsNames"] == [expected_host],
             f"{environment}: TLS host",
         )
         require(
-            certificate["spec"]["secretName"] == expected_tls[1],
+            certificate["spec"]["secretName"] == expected_secret,
             f"{environment}: TLS Secret",
         )
+        issuer_ref = certificate["spec"]["issuerRef"]
+        certificate_issuer = issuer_ref.get("name")
         require(
-            certificate["spec"]["issuerRef"]
+            issuer_ref
             == {
                 "group": "cert-manager.io",
                 "kind": "ClusterIssuer",
-                "name": "letsencrypt-staging",
-            },
-            f"{environment}: bootstrap staging ClusterIssuer",
+                "name": certificate_issuer,
+            }
+            and certificate_issuer in CERTIFICATE_ISSUERS,
+            f"{environment}: supported ClusterIssuer",
         )
         require(
             certificate["spec"]["privateKey"]
@@ -674,7 +762,25 @@ def validate_render(path: Path, environment: str) -> None:
             f"{environment}: certificate key contract",
         )
 
-    require(not any(item.get("kind") == "Ingress" for item in resources), f"{environment}: ingress off")
+    ingresses = [item for item in resources if item.get("kind") == "Ingress"]
+    require(
+        len(ingresses) == (1 if ingress_enabled else 0),
+        f"{environment}: rendered Ingress must match source gate",
+    )
+    if ingress_enabled:
+        if environment != "preview":
+            require(
+                certificate_issuer == "letsencrypt-production",
+                f"{environment}: active Ingress requires production Certificate",
+            )
+        source_values = yaml.safe_load(
+            (ROOT / "charts" / "umc-product-server" / "values.yaml").read_text(
+                encoding="utf-8"
+            )
+        )
+        source_target = str(source_values["externalDNS"]["target"])
+        validate_ingress_contract(ingresses[0], environment, source_target)
+
     policies = [item for item in resources if item.get("kind") == "NetworkPolicy"]
     require(len(policies) == (0 if environment == "preview" else 2), f"{environment}: policies")
     if environment == "preview":
@@ -697,57 +803,42 @@ def validate_render(path: Path, environment: str) -> None:
         require("CREATE EXTENSION IF NOT EXISTS btree_gist;" in script, "preview: btree_gist bootstrap")
 
 
-def validate_edge_render(path: Path) -> None:
+def validate_active_edge_fixture(path: Path) -> None:
     resources = yaml_documents(path)
     ingress = resource(resources, "Ingress")
     certificate = resource(resources, "Certificate")
-    require(ingress["spec"]["ingressClassName"] == "traefik", "edge: Traefik class")
     require(
-        ingress["spec"]["rules"] == [
-            {
-                "host": "api.university.neordinary.com",
-                "http": {
-                    "paths": [
-                        {
-                            "path": "/",
-                            "pathType": "Prefix",
-                            "backend": {
-                                "service": {
-                                    "name": "umc-product-server",
-                                    "port": {"name": "http"},
-                                }
-                            },
-                        }
-                    ]
-                },
-            }
-        ],
-        "edge: exact production route",
-    )
-    require(
-        ingress["spec"]["tls"]
-        == [
-            {
-                "hosts": ["api.university.neordinary.com"],
-                "secretName": "api-university-neordinary-com-tls",
-            }
-        ],
-        "edge: TLS binding",
-    )
-    annotations = ingress["metadata"]["annotations"]
-    require(
-        annotations
+        certificate["spec"].get("issuerRef")
         == {
-            "argocd.argoproj.io/sync-wave": "1",
-            "external-dns.kubernetes.io/managed-by": "umc-infra",
-            "external-dns.kubernetes.io/target": "203.0.113.10",
-            "traefik.ingress.kubernetes.io/router.entrypoints": "websecure",
+            "group": "cert-manager.io",
+            "kind": "ClusterIssuer",
+            "name": "letsencrypt-production",
         },
-        "edge: exact Route53-backed Ingress annotations",
+        "active edge fixture: production Certificate",
     )
     require(
         certificate["metadata"]["annotations"]["argocd.argoproj.io/sync-wave"] == "-2",
-        "edge: Certificate wave",
+        "active edge fixture: Certificate wave",
+    )
+    validate_ingress_contract(
+        ingress,
+        "prod",
+        TEST_NET_EDGE_TARGET,
+        test_net_fixture=True,
+    )
+
+
+def validate_active_preview_edge_fixture(path: Path) -> None:
+    resources = yaml_documents(path)
+    require(
+        not any(item.get("kind") == "Certificate" for item in resources),
+        "active preview edge fixture: per-PR Certificate must stay disabled",
+    )
+    validate_ingress_contract(
+        resource(resources, "Ingress"),
+        "preview",
+        TEST_NET_EDGE_TARGET,
+        test_net_fixture=True,
     )
 
 
@@ -1118,9 +1209,10 @@ def validate_repository_identity() -> None:
 
 
 def main() -> int:
-    if len(sys.argv) != 6:
+    if len(sys.argv) != 7:
         raise SystemExit(
-            "usage: validate_contracts.py PROD_RENDER DEV_RENDER PREVIEW_RENDER SECRETS_RENDER EDGE_RENDER"
+            "usage: validate_contracts.py PROD_RENDER DEV_RENDER PREVIEW_RENDER "
+            "SECRETS_RENDER ACTIVE_EDGE_FIXTURE ACTIVE_PREVIEW_EDGE_FIXTURE"
         )
     validate_repository_identity()
     validate_route53_contract()
@@ -1130,9 +1222,23 @@ def main() -> int:
     validate_preview_budget()
     validate_reloader_argocd_contract()
     for environment, filename in zip(("prod", "dev", "preview"), sys.argv[1:4]):
-        validate_render(Path(filename), environment)
+        overlay = yaml.safe_load(
+            (
+                ROOT
+                / "charts"
+                / "umc-product-server"
+                / f"values-{environment}.yaml"
+            ).read_text(encoding="utf-8")
+        )
+        ingress_enabled = overlay["ingress"]["enabled"]
+        require(
+            isinstance(ingress_enabled, bool),
+            f"{environment}: ingress.enabled must be boolean",
+        )
+        validate_render(Path(filename), environment, ingress_enabled)
     validate_secrets(Path(sys.argv[4]))
-    validate_edge_render(Path(sys.argv[5]))
+    validate_active_edge_fixture(Path(sys.argv[5]))
+    validate_active_preview_edge_fixture(Path(sys.argv[6]))
     print("UMC infrastructure contracts are valid.")
     return 0
 

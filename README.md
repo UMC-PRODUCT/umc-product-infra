@@ -4,8 +4,8 @@ UMC Product의 단일 노드 K3s 클러스터를 선언적으로 운영하는 Gi
 서버 초기 구성부터 앱·DB·DNS/TLS·관측·AWS 외부 자원의 계약을 관리한다.
 
 > [!IMPORTANT]
-> 앱과 Ingress, 예약 backup은 기본적으로 안전장치가 닫혀 있다.
-> 아래 `현재 안전장치`의 해제 조건을 검증한 뒤 필요한 gate만 하나씩 활성화한다.
+> prod/dev/preview 앱과 API Ingress, 예약 backup은 아직 안전장치가 닫혀 있다.
+> Grafana 외부 접속 설정은 Git에 선언됐지만 실제 Certificate·DNS·HTTPS 준비 상태는 배포 후 확인해야 한다.
 
 ## 인프라 다이어그램
 
@@ -108,19 +108,24 @@ umc-infra/
 환경별 DB, resource, S3/SES와 확장 조건은 [아키텍처 결정 기록](docs/architecture/k3s.md),
 DNS와 접근 정책은 [도메인/TLS 가이드](docs/guides/domains-tls.md)를 따른다.
 
-## 현재 안전장치
+## 현재 Git 설정과 남은 운영 확인
 
-| 영역 | 초기 상태 | 해제 조건 |
-|---|---|---|
-| 앱 | `deployment.enabled: false` | 검증된 GHCR tag·digest와 runtime 계약 |
-| 외부 접근 | `ingress.enabled: false` | DNS, production Certificate와 edge 검증 |
-| DNS | Hosted Zone 확정·공인 IP placeholder | 고정 Public IPv4를 모든 target과 `/32` filter에 동일 반영 |
-| TLS | Let's Encrypt staging | DNS-01 성공 후 production issuer |
-| DB backup | `suspend: true` | S3 upload와 외부 restore rehearsal |
-| root 삭제 | `prune: false` | 첫 운영 안정화와 삭제 복구 절차 검증 |
+| 영역 | Git desired state | 판단 | 실제 다음 단계 |
+|---|---|---|---|
+| DNS | `172.198.75.88`, ExternalDNS filter `/32` | 설정 완료 | 클러스터 배포 후 A·TXT 레코드 확인 |
+| TLS | Let's Encrypt production | 설정 완료 | Certificate의 최신 generation이 `Ready=True`인지 확인 |
+| Grafana | public Ingress 활성 | 배포 후 확인 | HTTPS 접속, 로그인과 팀원 권한 확인 |
+| prod/dev 앱 | `deployment.enabled: false`, image placeholder | 잠금 유지 | 검증된 GHCR tag·digest와 runtime 계약 반영 |
+| prod/dev API | `ingress.enabled: false` | 잠금 유지 | 앱 gate와 같은 PR에서 활성화하고 외부 HTTPS 확인 |
+| Preview API | Deployment·Ingress 비활성 | 잠금 유지 | 신뢰된 PR 이미지 발행 CI를 만든 뒤 활성화 |
+| DB backup | `suspend: true` | 잠금 유지 | S3 업로드와 클러스터 외부 복원 테스트 성공 |
+| root/cluster 자동 삭제 | `prune: false` | 안전장치 유지 | 첫 운영 안정화와 삭제 복구 절차 검증 후 재검토 |
 
-이 값들은 오류가 아니라 준비되지 않은 배포를 막는 gate다. 각 행의 해제 조건을 검증하고
-한 번에 하나씩 별도 변경으로 연다.
+`설정 완료`는 실제 서비스 검증 완료를 뜻하지 않는다. DNS와 TLS controller는 클러스터가
+동작한 뒤 레코드와 Certificate를 만든다. 첫 앱 이미지 배포 PR에서는 tag·digest와
+Deployment·Ingress를 함께 활성화하며, Argo CD는 prod/dev Application 안에서
+Certificate → Deployment → Ingress 순서로 기다린다. Preview는 공용 wildcard Certificate가
+`Ready=True`인 것을 확인한 뒤 PR 이미지 발행과 함께 연다.
 
 ## 로컬 검증
 

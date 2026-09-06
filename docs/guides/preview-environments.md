@@ -2,7 +2,7 @@
 
 대상은 내부의 신뢰된 same-repository PR뿐이다. fork와 외부 PR 코드는 build, preview, deploy하지 않는다.
 동시 상한은 3개다. URL은 `https://api-pr-<PR번호>.university.neordinary.com`이며 모바일 앱이 직접 호출한다.
-Deployment와 Ingress는 image, IDC public IPv4, Route53/TLS gate 통과 전까지 비활성이다.
+현재 Deployment와 Ingress는 trusted image publish가 준비될 때까지 비활성이다.
 
 ## 사용 조건
 
@@ -152,7 +152,8 @@ kubectl exec -it -n preview postgres-preview-0 -- sh -ceu '
 - `/umc-product/preview/postgres-preview-secrets`는 preview 관리자 자격증명을 가진다.
 - GHCR package는 public이고 Pod는 anonymous pull한다. `ghcr-pull` Secret을 만들거나 주입하지 않는다.
 - preview namespace의 app/DB Secret과 argocd token ExternalSecret이 `Ready=True`인지 확인한다.
-- preview namespace의 `*.university.neordinary.com` Certificate가 `Ready=True`이고 `preview-wildcard-tls`가 존재하는지 확인한다.
+- preview namespace의 `*.university.neordinary.com` Certificate가 `letsencrypt-production`을 사용하고,
+  최신 generation에서 `Ready=True`이며 `preview-wildcard-tls`가 존재하는지 확인한다.
 - `preview` label 권한을 신뢰된 maintainer로 제한한다.
 - fork PR에 label을 붙여도 backend image가 생성되지 않는지 실제로 확인한다.
 - 3개 preview가 떠 있을 때 네 번째 preview의 Service가 quota에서 fail-closed되고 database를 만들지 않는지 확인한다.

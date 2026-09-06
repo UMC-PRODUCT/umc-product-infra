@@ -95,8 +95,7 @@ spec:
               issuerRef:
                 group: cert-manager.io
                 kind: ClusterIssuer
-                # 첫 DNS-01 검증 뒤 letsencrypt-production으로 승격한다.
-                name: letsencrypt-staging
+                name: letsencrypt-production
               privateKey:
                 algorithm: ECDSA
                 size: 256
@@ -149,15 +148,14 @@ spec:
                   nodeGraph:
                     enabled: true
         # 팀원은 public HTTPS 주소에서 Grafana 로컬 계정으로 로그인한다.
-        # 현재는 실제 IDC public IPv4와 production 인증서가 없으므로 gate를 닫아 둔다.
+        # Certificate(-2)가 최신 generation에서 Ready가 된 뒤 Ingress(1)를 연다.
         ingress:
-          enabled: false
+          enabled: true
           ingressClassName: traefik
           annotations:
             argocd.argoproj.io/sync-wave: "1"
             external-dns.kubernetes.io/managed-by: umc-infra
-            # TEST-NET placeholder이며 ExternalDNS target filter에도 거부된다.
-            external-dns.kubernetes.io/target: "192.0.2.1"
+            external-dns.kubernetes.io/target: "172.198.75.88"
             traefik.ingress.kubernetes.io/router.entrypoints: websecure
           hosts: [grafana.university.neordinary.com]
           path: /

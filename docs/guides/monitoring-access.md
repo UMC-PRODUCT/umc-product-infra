@@ -8,12 +8,11 @@ Grafana의 canonical URL은 `https://grafana.university.neordinary.com`이며 UM
 Tailscale은 팀원의 Grafana 접속 조건이 아니다. 공개 HTTPS 뒤에서 Grafana 자체 로그인을 사용하고,
 익명 접근과 자체 회원가입은 끈다. 운영자가 사람별 계정을 만들고 기본 권한은 `Viewer`로 둔다.
 
-현재 `ingress.enabled: false`인 이유는 Grafana를 계속 비공개로 두기 위해서가 아니다. 실제 IDC
-public IPv4와 production Certificate가 아직 준비되지 않은 bootstrap 안전장치다. 이 두 조건을
-검증한 뒤 public Ingress와 Route53 exact record를 함께 활성화한다. 기존 hostname이나 임시
-인증서를 재사용하지 않는다.
+저장소 desired state에는 고정 IDC public IPv4, production Certificate와 public Ingress가 함께
+선언되어 있다. Argo CD는 Grafana Application 안에서 Certificate wave `-2`가 최신 generation으로
+`Ready=True`가 된 뒤 Ingress wave `1`을 적용한다. 실제 클러스터 수렴 여부는 아래 절차로 확인한다.
 
-## Ingress 활성화 전 점검
+## 클러스터 내부 health 점검
 
 인프라 관리자는 IDC 노드에서 cluster-local Grafana를 port-forward해 health를 점검할 수 있다.
 
@@ -89,18 +88,16 @@ public gate를 통과한 뒤 팀원은 Tailscale, SSH, kubeconfig 없이 canonic
 Viewer도 연결된 datasource에 직접 query할 수 있으므로 제품팀 구성원에게만 계정을 발급하고,
 애플리케이션 log에는 token, password, 개인정보를 남기지 않는다.
 
-## public 활성화 gate
+## public 배포 검증
 
 Route53은 hostname을 IDC public IPv4로 해석할 뿐 proxy, WAF, 사용자 인증을 제공하지 않는다.
-사용자 인증은 Grafana가 담당한다. 실제 IDC public IPv4와 production TLS가 준비되기 전에는
-`ingress.enabled: false`를 유지하고 Tailscale 관리 경로에서 health만 확인한다.
+사용자 인증은 Grafana가 담당한다. Grafana Ingress는 API Ingress와 독립적으로 켜고 끌 수 있다.
+아래 항목을 순서대로 확인한다.
 
-아래 항목을 하나의 검토된 변경으로 적용한다.
-
-1. Grafana target annotation과 ExternalDNS `--target-net-filter`를 실제 IDC public IPv4와 같은 값으로 바꾼다.
-2. `monitoring` namespace의 `grafana.university.neordinary.com` production Certificate가 `Ready=True`인지 확인한다.
+1. Grafana target annotation과 ExternalDNS `--target-net-filter`가 `172.198.75.88`과 같은 `/32`인지 확인한다.
+2. `monitoring` namespace의 `grafana.university.neordinary.com` production Certificate가 최신 generation에서 `Ready=True`인지 확인한다.
 3. `root_url`, domain enforcement, secure cookie, basic auth, 익명 접근 off와 회원가입 off를 확인한다.
-4. Ingress를 활성화하고 ExternalDNS의 exact A record와 TXT ownership을 확인한다.
+4. Ingress와 ExternalDNS의 exact A record 및 TXT ownership을 확인한다.
 5. 외부에서 DNS 결과, certificate chain, HTTP→HTTPS 우회 불가와 login 화면을 확인한다.
 6. 관리자 계정으로 로그인해 팀원별 `Viewer` 계정을 만들고 Viewer가 관리 기능에 접근하지 못하는지 확인한다.
 7. Tailscale 경유 local-only health와 관리자 복구 경로도 계속 확인한다.
@@ -113,8 +110,8 @@ key와 AWS access key도 Git에 저장하지 않는다. DNS와 인증서 절차�
 
 - 앱은 `otel-collector.monitoring.svc.cluster.local:4317/4318`에만 OTLP를 보낸다.
 - Collector ingress는 `app`, `dev-app`, `preview` namespace의 앱 Pod만 허용한다.
-- Grafana Ingress는 bootstrap gate 전까지 비활성이다. 활성화 후에도 `kube-system`의 Traefik
-  Pod에서 오는 `3000/TCP`만 별도 허용한다.
+- Grafana Ingress는 API Ingress와 독립적으로 관리한다. `kube-system`의 Traefik Pod에서 오는
+  `3000/TCP`만 별도 허용한다.
 - Actuator 9090은 application Service나 Ingress에 노출하지 않는다.
 - Prometheus 14일, Tempo 7일, Loki 90일 retention을 사용한다.
 - 단일 노드 local-path storage라서 node loss 시 telemetry가 유실될 수 있다.

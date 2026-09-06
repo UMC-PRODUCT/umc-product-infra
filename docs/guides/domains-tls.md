@@ -54,16 +54,15 @@ cert-manager는 `preview` namespace에 `Certificate/preview-wildcard` 하나를 
 
 모든 Ingress의 `external-dns.kubernetes.io/target`은 같은 고정 IDC public IPv4다.
 ExternalDNS의 `--target-net-filter=<IDC IPv4>/32`도 같은 값으로 제한한다.
-Hosted Zone ID는 cert-manager와 ExternalDNS에 이미 반영되어 있다. 다음 public IP 값만
-의도적인 fail-closed placeholder다.
+Hosted Zone ID와 고정 public IPv4는 cert-manager, ExternalDNS와 Ingress 설정에 반영되어 있다.
 
-- application chart `externalDNS.target`: `bootstrap-required`
-- ExternalDNS controller `--target-net-filter`: `192.0.2.0/32`
-- Grafana Ingress `external-dns.kubernetes.io/target`: `192.0.2.1`
+- application chart `externalDNS.target`: `172.198.75.88`
+- ExternalDNS controller `--target-net-filter`: `172.198.75.88/32`
+- Grafana Ingress `external-dns.kubernetes.io/target`: `172.198.75.88`
 
-Hosted Zone ID는 비밀값이 아니라 Git에 둔다. 실제 IDC public IPv4가 확정되면 세 target은
-같은 IPv4, controller filter는 해당 `/32`로 바꾸고
-Certificate·DNS 검증 전에 Ingress를 열지 않는다.
+Hosted Zone ID와 public IPv4는 비밀값이 아니라 Git에 둔다. IP를 미리 넣어도 Ingress가 없으면
+ExternalDNS가 A record를 만들지 않는다. `203.0.113.10` 같은 TEST-NET 주소는 CI의 합성 렌더
+fixture에서만 사용하며 실제 desired state로 허용하지 않는다.
 
 Route 53은 origin proxy가 아니므로 UFW와 Azure NSG/최종 IDC 상위 방화벽에서 public
 `443/tcp`를 인터넷에 허용해야 한다. DNS-01을 쓰므로 Let's Encrypt용 public
@@ -91,14 +90,15 @@ challenge TXT 작성과 변경 상태 조회, ExternalDNS에는 exact A/TXT reco
 2. 외부 resolver에서 NS·SOA가 Route 53으로 수렴했는지 확인한다.
 3. 기존 Hosted Zone ID를 전달해 `umc-product-route53-dns` IAM stack을 배포한다.
 4. cert-manager·ExternalDNS 전용 IAM 자격증명을 만들고 각 Secrets Manager source에 저장한다.
-5. ExternalDNS와 ClusterIssuer에 같은 Hosted Zone ID를 넣고, public IPv4 placeholder를 실제 값으로 바꿔 검토·merge한다.
+5. ExternalDNS와 ClusterIssuer에 같은 Hosted Zone ID를 넣고, 세 public IPv4 target과 `/32` filter가 일치하는지 확인한다.
 6. `route53-credentials` ExternalSecret 두 개와 controller rollout을 확인한다.
-7. host별 Certificate와 Preview wildcard Certificate를 `letsencrypt-staging`으로 검증한다.
-8. 모든 Certificate issuer를 함께 `letsencrypt-production`으로 바꾸고 `Ready=True`를 확인한다.
-9. API Ingress를 활성화하고 ExternalDNS의 exact A/TXT record ownership을 확인한다.
+7. production Certificate를 적용한다. 같은 Application의 Ingress도 함께 활성화했다면 Argo CD가
+   Certificate의 최신 generation `Ready=True`를 기다린 뒤 다음 sync wave를 적용한다.
+8. Grafana exact A/TXT record, 인증서 체인, 로그인 필수 상태와 팀원 `Viewer` 계정을
+   [모니터링 접근 가이드](monitoring-access.md)대로 검증한다.
+9. 첫 GHCR image tag·digest가 준비되면 prod/dev별 Deployment와 API Ingress를 같은 PR에서 켠다.
 10. 외부에서 DNS 결과가 고정 IDC IPv4인지, HTTPS 인증서 체인과 API 인증이 정상인지 검증한다.
-11. Grafana production Certificate를 확인하고 Ingress를 활성화한 뒤 exact A/TXT record,
-    로그인 필수 상태와 팀원 `Viewer` 계정을 [모니터링 접근 가이드](monitoring-access.md)대로 검증한다.
+11. Preview는 production wildcard Certificate가 `Ready=True`인 것을 확인한 뒤 trusted PR에만 연다.
 
 ```bash
 dig +short NS university.neordinary.com

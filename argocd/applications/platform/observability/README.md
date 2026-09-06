@@ -73,7 +73,7 @@ datasource 같은 수신 경로도 필요한 monitoring 내부 통신만 연다.
 적용하지 않았으므로 outbound 제한은 별도 보강 항목이다.
 
 Grafana의 목표 접근 경로는 `grafana.university.neordinary.com` public HTTPS + Grafana login이다.
-익명 접근과 회원가입은 끄고 팀원마다 기본 `Viewer` 계정을 발급한다. 현재 Ingress가 꺼진 것은
-실제 IDC public IPv4와 production TLS가 준비되기 전 bootstrap 안전장치다. 그동안은 인프라
-관리자만 Tailscale 경유 SSH tunnel로 health를 점검한다. 활성화 조건과 계정 운영은
+익명 접근과 회원가입은 끄고 팀원마다 기본 `Viewer` 계정을 발급한다. desired state의 production
+Certificate와 public Ingress는 같은 Grafana Application에 있으며, Argo CD가 Certificate 준비를
+기다린 뒤 Ingress를 적용한다. 활성화 검증과 계정 운영은
 [모니터링 접근 가이드](../../../../docs/guides/monitoring-access.md)를 따른다.

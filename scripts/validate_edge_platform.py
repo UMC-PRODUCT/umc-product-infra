@@ -16,6 +16,7 @@ import yaml
 ROOT = Path(__file__).resolve().parent.parent
 APPLICATION_DIR = ROOT / "argocd" / "applications" / "platform"
 IMAGE_DIGEST = re.compile(r"@sha256:[0-9a-f]{64}$")
+LETSENCRYPT_ISSUERS = {"letsencrypt-staging", "letsencrypt-production"}
 EXPECTED = {
     "cert-manager": {
         "project": "cert-manager",
@@ -197,6 +198,7 @@ def validate_external_dns(application: dict, resources: list[dict]) -> tuple[str
         "--aws-zone-type=public",
         "--managed-record-types=A",
         "--managed-record-types=TXT",
+        "--annotation-prefix=external-dns.kubernetes.io/",
         "--events",
     }
     require(required_args <= args, f"external-dns: arguments missing {required_args - args}")
@@ -262,6 +264,13 @@ def validate_external_dns(application: dict, resources: list[dict]) -> tuple[str
         application["spec"]["source"]["helm"]["valuesObject"].get("managedRecordTypes")
         == ["A", "TXT"],
         "external-dns: only A records and TXT ownership may be managed",
+    )
+    require(
+        application["spec"]["source"]["helm"]["valuesObject"].get(
+            "annotationPrefix"
+        )
+        == "external-dns.kubernetes.io/",
+        "external-dns: annotation prefix must match Ingress annotations",
     )
     return filters[0], zone_filters[0]
 
@@ -477,7 +486,7 @@ def validate_issuers(zone_filter: str) -> None:
         )
 
 
-def validate_preview_wildcard_certificate() -> None:
+def validate_preview_wildcard_certificate() -> str:
     certificate_path = (
         ROOT / "manifests" / "cert-manager" / "preview-wildcard-certificate.yaml"
     )
@@ -515,23 +524,29 @@ def validate_preview_wildcard_certificate() -> None:
         spec.get("secretName") == "preview-wildcard-tls",
         "preview: shared wildcard TLS Secret",
     )
+    issuer_ref = spec.get("issuerRef", {})
+    issuer_name = issuer_ref.get("name")
     require(
-        spec.get("issuerRef")
+        issuer_ref
         == {
             "group": "cert-manager.io",
             "kind": "ClusterIssuer",
-            "name": "letsencrypt-staging",
-        },
-        "preview: bootstrap staging ClusterIssuer",
+            "name": issuer_name,
+        }
+        and issuer_name in LETSENCRYPT_ISSUERS,
+        "preview: supported ClusterIssuer",
     )
     require(
         spec.get("privateKey")
         == {"algorithm": "ECDSA", "size": 256, "rotationPolicy": "Always"},
         "preview: wildcard private key contract",
     )
+    return issuer_name
 
 
-def validate_target_gate(target_filter: str, zone_filter: str) -> None:
+def validate_target_gate(
+    target_filter: str, zone_filter: str, preview_issuer: str
+) -> None:
     base = yaml.safe_load((ROOT / "charts" / "umc-product-server" / "values.yaml").read_text())
     grafana = documents(
         ROOT / "argocd" / "applications" / "platform" / "observability" / "grafana.yaml"
@@ -548,8 +563,7 @@ def validate_target_gate(target_filter: str, zone_filter: str) -> None:
     grafana_issuer = grafana_certificate["spec"]["issuerRef"]["name"]
 
     if app_target == "bootstrap-required":
-        require(app_issuer == "letsencrypt-staging", "bootstrap app issuer must be staging")
-        require(grafana_issuer == "letsencrypt-staging", "bootstrap Grafana issuer must be staging")
+        address = None
         require(
             zone_filter == "bootstrap-required"
             or re.fullmatch(r"Z[A-Z0-9]+", zone_filter) is not None,
@@ -557,26 +571,88 @@ def validate_target_gate(target_filter: str, zone_filter: str) -> None:
         )
         require(target_filter == "192.0.2.0/32", "bootstrap target filter must fail closed")
         require(grafana_target == "192.0.2.1", "Grafana bootstrap target must be filtered")
-        require(grafana_ingress.get("enabled") is False, "Grafana placeholder Ingress")
-        for filename in ("values-prod.yaml", "values-dev.yaml", "values-preview.yaml"):
-            values = yaml.safe_load((ROOT / "charts" / "umc-product-server" / filename).read_text())
-            require(values["ingress"]["enabled"] is False, f"{filename}: placeholder Ingress")
-        return
+    else:
+        try:
+            address = ipaddress.ip_address(app_target)
+        except ValueError as error:
+            raise SystemExit(
+                f"edge platform validation failed: invalid IDC address: {error}"
+            ) from error
+        require(address.version == 4 and address.is_global, "IDC target must be a public IPv4")
+        require(
+            re.fullmatch(r"Z[A-Z0-9]+", zone_filter) is not None,
+            "Route53 Hosted Zone ID must start with Z and contain uppercase alphanumerics",
+        )
+        require(target_filter == f"{address}/32", "ExternalDNS filter must match IDC IPv4")
+        require(grafana_target == str(address), "Grafana target must match IDC IPv4")
 
-    try:
-        address = ipaddress.ip_address(app_target)
-    except ValueError as error:
-        raise SystemExit(f"edge platform validation failed: invalid IDC address: {error}") from error
-    require(address.version == 4 and address.is_global, "IDC target must be a public IPv4")
-    require(app_issuer == "letsencrypt-production", "active app issuer must be production")
-    require(grafana_issuer == "letsencrypt-production", "active Grafana issuer must be production")
-    require(
-        re.fullmatch(r"Z[A-Z0-9]+", zone_filter) is not None,
-        "Route53 Hosted Zone ID must start with Z and contain uppercase alphanumerics",
+    require(app_issuer in LETSENCRYPT_ISSUERS, "app issuer must be supported")
+    require(grafana_issuer in LETSENCRYPT_ISSUERS, "Grafana issuer must be supported")
+
+    for environment in ("prod", "dev", "preview"):
+        values = yaml.safe_load(
+            (
+                ROOT
+                / "charts"
+                / "umc-product-server"
+                / f"values-{environment}.yaml"
+            ).read_text()
+        )
+        ingress_enabled = values["ingress"]["enabled"]
+        deployment_enabled = values["deployment"]["enabled"]
+        require(
+            isinstance(ingress_enabled, bool),
+            f"{environment}: Ingress gate must be boolean",
+        )
+        require(
+            isinstance(deployment_enabled, bool),
+            f"{environment}: Deployment gate must be boolean",
+        )
+        if not ingress_enabled:
+            continue
+
+        require(
+            address is not None,
+            f"{environment}: active Ingress requires IDC public IPv4",
+        )
+        require(deployment_enabled, f"{environment}: active Ingress requires Deployment")
+        if environment == "preview":
+            require(
+                preview_issuer == "letsencrypt-production",
+                "preview: active Ingress requires production wildcard issuer",
+            )
+        else:
+            require(
+                app_issuer == "letsencrypt-production",
+                f"{environment}: active Ingress requires production issuer",
+            )
+
+    if grafana_ingress.get("enabled") is True:
+        require(address is not None, "Grafana: active Ingress requires IDC public IPv4")
+        require(
+            grafana_issuer == "letsencrypt-production",
+            "Grafana: active Ingress requires production issuer",
+        )
+    else:
+        require(
+            grafana_ingress.get("enabled") is False,
+            "Grafana Ingress gate must be boolean",
+        )
+
+
+def validate_certificate_health_gate() -> None:
+    config = documents(ROOT / "manifests" / "cluster" / "argocd-health.yaml")[0]
+    health = config["data"]["resource.customizations.health.cert-manager.io_Certificate"]
+    generation_guard = health.find(
+        "condition.observedGeneration ~= obj.metadata.generation"
     )
-    require(target_filter == f"{address}/32", "ExternalDNS filter must match IDC IPv4")
-    require(grafana_target == str(address), "Grafana target must match IDC IPv4")
-    require(grafana_ingress.get("enabled") is True, "active Grafana Ingress must be enabled")
+    ready_true = health.find('condition.status == "True"')
+    require(
+        "condition.observedGeneration == nil" in health
+        and generation_guard >= 0
+        and ready_true > generation_guard,
+        "Certificate health must reject stale observedGeneration before Ready=True",
+    )
 
 
 def validate_project_boundaries() -> None:
@@ -694,8 +770,9 @@ def main() -> int:
     )
     validate_reloader(applications["reloader"], rendered["reloader"])
     validate_issuers(zone_filter)
-    validate_preview_wildcard_certificate()
-    validate_target_gate(target_filter, zone_filter)
+    preview_issuer = validate_preview_wildcard_certificate()
+    validate_target_gate(target_filter, zone_filter, preview_issuer)
+    validate_certificate_health_gate()
     validate_project_boundaries()
     print("cert-manager, ExternalDNS, and Reloader platform contracts are valid")
     return 0

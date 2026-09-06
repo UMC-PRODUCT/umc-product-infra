@@ -14,8 +14,7 @@ spec:
   issuerRef:
     group: cert-manager.io
     kind: ClusterIssuer
-    # 첫 DNS-01 검증 뒤 letsencrypt-production으로 승격한다.
-    name: letsencrypt-staging
+    name: letsencrypt-production
   privateKey:
     algorithm: ECDSA
     size: 256

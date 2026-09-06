@@ -1,3 +1,12 @@
+{{- if and .Values.ingress.enabled (not .Values.deployment.enabled) }}
+{{- fail "ingress.enabled=true이면 deployment.enabled=true여야 함" }}
+{{- end }}
+{{- if and .Values.ingress.enabled (ne .Values.environment "preview") (not .Values.certificate.enabled) }}
+{{- fail "prod/dev ingress.enabled=true이면 certificate.enabled=true여야 함" }}
+{{- end }}
+{{- if and .Values.ingress.enabled (ne .Values.environment "preview") (ne .Values.certificate.issuerRef.name "letsencrypt-production") }}
+{{- fail "prod/dev ingress.enabled=true이면 letsencrypt-production 인증서가 필요함" }}
+{{- end }}
 {{- if and .Values.deployment.enabled .Values.ingress.enabled }}
 {{- $host := required "ingress.enabled=true이면 ingress.host가 필수" .Values.ingress.host }}
 {{- $className := required "ingress.enabled=true이면 ingress.className이 필수" .Values.ingress.className }}

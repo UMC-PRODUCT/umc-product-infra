@@ -25,6 +25,8 @@ spec:
         # A record와 TXT registry ownership만 허용한다.
         managedRecordTypes: [A, TXT]
         domainFilters: [university.neordinary.com]
+        # Ingress가 사용하는 stable annotation namespace를 ExternalDNS에도 명시한다.
+        annotationPrefix: external-dns.kubernetes.io/
         annotationFilter: external-dns.kubernetes.io/managed-by=umc-infra
         policy: sync
         registry: txt
@@ -37,8 +39,8 @@ spec:
           - --zone-id-filter=Z02258617BWIPPUVEV88
           - --ingress-class=traefik
           - --aws-zone-type=public
-          # 실제 IDC public IPv4/32로 바꾸기 전에는 어떤 운영 target도 통과하지 않는다.
-          - --target-net-filter=192.0.2.0/32
+          # ExternalDNS가 이 IDC public IPv4 외의 target을 만들지 못하게 제한한다.
+          - --target-net-filter=172.198.75.88/32
         env:
           - name: AWS_DEFAULT_REGION
             value: ap-northeast-2

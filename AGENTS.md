@@ -19,8 +19,8 @@ Git에서 변경하고 Argo CD로 수렴시킨다.
 
 - 기존 worktree 변경을 보존하고 요청과 직접 관련된 파일만 수정한다.
 - GitOps가 관리하는 live resource를 수동 `kubectl apply`로 고친 뒤 끝내지 않는다.
-- fail-closed 값(`bootstrap-required`, 비활성 Deployment/Ingress, staging issuer, 정지된 backup)을
-  선행 조건 검증 없이 열지 않는다.
+- fail-closed 값(`bootstrap-required`, 비활성 앱 Deployment/API Ingress, 정지된 backup)과
+  미검증 production Certificate/Ingress를 선행 조건 검증 없이 열지 않는다.
 - K3s·Helm·chart 버전을 바꿀 때 연결된 URL·checksum·image digest도 함께 검증한다.
 - 실제 Secret 값, access key, private key, token을 Git·로그·명령행 인자에 남기지 않는다.
 - `.env.*`는 Git에 넣지 않으며 Kubernetes Secret 값을 조회·출력하지 않는다.

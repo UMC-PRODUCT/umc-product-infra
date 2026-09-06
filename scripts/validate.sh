@@ -24,6 +24,8 @@ fi
 
 readonly validation_tag=0123456789ab
 readonly validation_digest=sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+# RFC 5737 TEST-NET-3. 합성 Ingress 렌더 검증에만 쓰며 운영 target으로 허용하지 않는다.
+readonly test_net_edge_target=203.0.113.10
 common_args=(
   --set deployment.enabled=true
   --set-string "image.tag=$validation_tag"
@@ -108,6 +110,35 @@ if helm template dev-umc-product-server charts/umc-product-server \
   exit 1
 fi
 
+# Ingress가 닫힌 bootstrap 상태에서는 staging issuer와 차단 target을 계속 허용한다.
+helm template umc-product-server charts/umc-product-server \
+  -f charts/umc-product-server/values-prod.yaml "${common_args[@]}" \
+  --set ingress.enabled=false \
+  --set-string certificate.issuerRef.name=letsencrypt-staging \
+  --set-string externalDNS.target=bootstrap-required \
+  >/dev/null
+
+# 외부 Ingress는 production Certificate와 실제 target 계약을 동시에 만족해야 한다.
+# TEST-NET은 이 negative render에서 형식 검증용으로만 사용한다.
+if helm template umc-product-server charts/umc-product-server \
+  -f charts/umc-product-server/values-prod.yaml "${common_args[@]}" \
+  --set ingress.enabled=true \
+  --set-string certificate.issuerRef.name=letsencrypt-staging \
+  --set-string "externalDNS.target=$test_net_edge_target" \
+  >/dev/null 2>&1; then
+  echo "Ingress with staging Certificate unexpectedly passed" >&2
+  exit 1
+fi
+if helm template umc-product-server charts/umc-product-server \
+  -f charts/umc-product-server/values-prod.yaml "${common_args[@]}" \
+  --set ingress.enabled=true \
+  --set-string certificate.issuerRef.name=letsencrypt-production \
+  --set-string externalDNS.target=bootstrap-required \
+  >/dev/null 2>&1; then
+  echo "Ingress with bootstrap ExternalDNS target unexpectedly passed" >&2
+  exit 1
+fi
+
 helm lint charts/umc-product-server --strict \
   -f charts/umc-product-server/values-prod.yaml "${common_args[@]}"
 helm template umc-product-server charts/umc-product-server \
@@ -149,13 +180,22 @@ helm template umc-product-preview-42 charts/umc-product-server \
   -f charts/umc-product-server/values-preview.yaml "${preview_args[@]}" \
   >"$validation_dir/preview.yaml"
 
-# 외부 노출 gate를 연 별도 렌더로 TLS/DNS/Ingress 계약을 검증한다.
+# 운영값과 분리된 TEST-NET 합성 렌더로 production TLS/DNS/Ingress 계약을 검증한다.
 helm template umc-product-server charts/umc-product-server \
   --namespace app \
   -f charts/umc-product-server/values-prod.yaml "${common_args[@]}" \
   --set ingress.enabled=true \
-  --set-string externalDNS.target=203.0.113.10 \
-  >"$validation_dir/edge.yaml"
+  --set-string certificate.issuerRef.name=letsencrypt-production \
+  --set-string "externalDNS.target=$test_net_edge_target" \
+  >"$validation_dir/active-edge-test-net.yaml"
+
+# Preview는 PR별 Certificate를 만들지 않고 공용 wildcard TLS Secret을 참조한다.
+helm template umc-product-preview-42 charts/umc-product-server \
+  --namespace preview \
+  -f charts/umc-product-server/values-preview.yaml "${preview_args[@]}" \
+  --set ingress.enabled=true \
+  --set-string "externalDNS.target=$test_net_edge_target" \
+  >"$validation_dir/active-preview-edge-test-net.yaml"
 
 secrets_args=(--set-string aws.accountId=123456789012)
 helm lint charts/umc-secrets --strict "${secrets_args[@]}"
@@ -176,7 +216,8 @@ python3 scripts/validate_contracts.py \
   "$validation_dir/dev.yaml" \
   "$validation_dir/preview.yaml" \
   "$validation_dir/secrets.yaml" \
-  "$validation_dir/edge.yaml"
+  "$validation_dir/active-edge-test-net.yaml" \
+  "$validation_dir/active-preview-edge-test-net.yaml"
 
 python3 - <<'PY'
 from pathlib import Path
@@ -218,7 +259,9 @@ if command -v kubeconform >/dev/null; then
   kubeconform -strict -summary -ignore-missing-schemas -kubernetes-version 1.36.0 \
     "$validation_dir/prod.yaml" "$validation_dir/dev.yaml" \
     "$validation_dir/preview.yaml" "$validation_dir/secrets.yaml" \
-    "$validation_dir/edge.yaml" "$validation_dir/argocd.yaml" \
+    "$validation_dir/active-edge-test-net.yaml" \
+    "$validation_dir/active-preview-edge-test-net.yaml" \
+    "$validation_dir/argocd.yaml" \
     "$validation_dir"/observability-*.yaml \
     "$validation_dir"/platform-*.yaml
 else

@@ -263,19 +263,20 @@ Ansible 명령 한 번이 성공했다고 서비스 배포가 끝난 것은 아�
 | 애플리케이션 | 고정 image digest, migration, probe, 핵심 기능 smoke test 통과 |
 | 운영 준비 | 외부 uptime 감시, alert 수신, backup RPO/RTO와 복구 절차 검증 |
 
-## 8. 현재 의도적으로 닫힌 gate 찾기
+## 8. 현재 배포 gate 찾기
 
 다음은 오류가 아니라 준비되지 않은 상태에서 외부 노출이나 데이터 생성을 막는 안전장치다.
 
-- 앱: 환경별 `deployment.enabled: false`, image가 `bootstrap-required`
-- Ingress: 환경별 `ingress.enabled: false`
-- DNS: ExternalDNS Zone ID와 공인 IP가 문서용 placeholder
-- TLS: 최초 DNS-01 검증을 위한 Let's Encrypt staging issuer
+- prod/dev 앱: `deployment.enabled: false`, image가 `bootstrap-required`
+- prod/dev API Ingress: 환경별 `ingress.enabled: false`
+- DNS: 실제 public IPv4 `172.198.75.88`과 같은 `/32` filter
+- TLS: Let's Encrypt production issuer
+- Grafana: public Ingress 활성
 - backup: `suspend: true`
 - root: 초기 이관 중 child Application 오삭제를 막는 `prune: false`
 
-이 gate는 한꺼번에 모두 열지 않는다. 관련 작업 가이드의 사전 조건과 성공 기준을 확인한 뒤
-필요한 gate만 Git PR로 연다.
+각 gate는 독립적으로 관리한다. prod/dev는 검증된 image tag·digest가 준비되면 해당 환경의
+Deployment와 Ingress를 같은 Git PR에서 열 수 있다.
 
 ## 9. 실행 전에 사람이 확인할 외부 영역
 
