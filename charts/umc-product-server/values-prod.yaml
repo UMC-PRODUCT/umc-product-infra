@@ -3,11 +3,11 @@
 environment: prod
 
 deployment:
-  enabled: false
+  enabled: true
 
 image:
-  tag: bootstrap-required
-  digest: ""
+  tag: "50c081ec0b4d"
+  digest: "sha256:b07e9322f0b53560eb82a312437c9e293563efa186953306710631166cd50481"
 
 priorityClassName: app-important
 
@@ -17,7 +17,7 @@ networkPolicy:
     namespace: db
 
 ingress:
-  enabled: false
+  enabled: true
   host: api.university.neordinary.com
   tls:
     - hosts: [api.university.neordinary.com]
