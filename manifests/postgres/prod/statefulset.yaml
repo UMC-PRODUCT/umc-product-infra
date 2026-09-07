@@ -63,15 +63,14 @@ spec:
                 secretKeyRef: { name: postgres-secrets, key: POSTGRES_PASSWORD }
             - name: POSTGRES_DB
               value: umc_product
-          # Guaranteed QoS: requests == limits (cpu·memory 모두) — 계획 §4-3 eviction 방어
-          # Guaranteed QoS 조건: cpu·memory 모두 requests == limits
-          # 예약해도 유휴분은 다른 파드가 쓴다 — vacuum·인덱스 빌드·pg_dump에 실코어 2개 확보
+          # 임시 Azure 4 vCPU 테스트 노드 예산. 최종 IDC 전환 시 CPU를 다시 산정한다.
+          # requests == limits를 유지해 Guaranteed QoS는 보존한다.
           resources:
             requests:
-              cpu: 2000m
+              cpu: 500m
               memory: 8Gi
             limits:
-              cpu: 2000m
+              cpu: 500m
               memory: 8Gi
           securityContext:
             allowPrivilegeEscalation: false
