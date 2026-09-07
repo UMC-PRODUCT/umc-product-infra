@@ -101,10 +101,11 @@ Resources:
                       - !Sub "api-dev.${DnsZoneName}"
                       - !Sub "api-pr-*.${DnsZoneName}"
                       - !Sub "grafana.${DnsZoneName}"
-                      - !Sub "_external-dns.api.${DnsZoneName}"
-                      - !Sub "_external-dns.api-dev.${DnsZoneName}"
-                      - !Sub "_external-dns.api-pr-*.${DnsZoneName}"
-                      - !Sub "_external-dns.grafana.${DnsZoneName}"
+                      # ExternalDNS v0.21은 A record ownership TXT에 a-를 붙인다.
+                      - !Sub "_external-dns.a-api.${DnsZoneName}"
+                      - !Sub "_external-dns.a-api-dev.${DnsZoneName}"
+                      - !Sub "_external-dns.a-api-pr-*.${DnsZoneName}"
+                      - !Sub "_external-dns.a-grafana.${DnsZoneName}"
       Tags:
         - Key: managed-by
           Value: cloudformation
