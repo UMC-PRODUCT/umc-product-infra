@@ -181,6 +181,10 @@ def validate_cert_manager(resources: list[dict]) -> None:
 
 
 def validate_external_dns(application: dict, resources: list[dict]) -> tuple[str, str]:
+    require(
+        application["spec"]["source"]["helm"].get("skipCrds") is True,
+        "external-dns: unused DNSEndpoint CRD must be skipped",
+    )
     deployments = [item for item in resources if item.get("kind") == "Deployment"]
     require(len(deployments) == 1, "external-dns: one Deployment")
     container = deployments[0]["spec"]["template"]["spec"]["containers"][0]
