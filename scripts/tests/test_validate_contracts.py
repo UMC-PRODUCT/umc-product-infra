@@ -4,9 +4,13 @@
 from __future__ import annotations
 
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
+
+SCRIPTS_DIR = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(SCRIPTS_DIR))
 
 from validate_contracts import git_visible_files
 
