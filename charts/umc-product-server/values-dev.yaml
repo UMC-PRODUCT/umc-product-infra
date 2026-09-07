@@ -3,11 +3,11 @@
 environment: dev
 
 deployment:
-  enabled: false
+  enabled: true
 
 image:
-  tag: bootstrap-required
-  digest: ""
+  tag: "c2237362a8b1"
+  digest: "sha256:0baf18e4298e03c4708095ed075e8c3defa177ac768dcd88ff44352c9ac35f3a"
 
 priorityClassName: dev-low
 
@@ -17,7 +17,7 @@ networkPolicy:
     namespace: dev-db
 
 ingress:
-  enabled: false
+  enabled: true
   host: api-dev.university.neordinary.com
   tls:
     - hosts: [api-dev.university.neordinary.com]
