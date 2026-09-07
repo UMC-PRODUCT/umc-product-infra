@@ -1,4 +1,5 @@
-# monitoring namespace의 kube-state-metrics가 backup Job 상태만 읽는다.
+# monitoring namespace의 kube-state-metrics가 prod DB 워크로드 상태와
+# 예약 리소스/PVC 용량을 읽는다. Secret과 Pod log는 읽지 않는다.
 # 외부 Helm chart에 db destination을 열지 않기 위해 trusted raw manifest로 분리한다.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
@@ -9,6 +10,12 @@ metadata:
     app.kubernetes.io/name: kube-state-metrics
     app.kubernetes.io/component: metrics
 rules:
+  - apiGroups: [""]
+    resources: ["pods", "persistentvolumeclaims"]
+    verbs: ["list", "watch"]
+  - apiGroups: ["apps"]
+    resources: ["statefulsets"]
+    verbs: ["list", "watch"]
   - apiGroups: ["batch"]
     resources: ["cronjobs"]
     verbs: ["list", "watch"]

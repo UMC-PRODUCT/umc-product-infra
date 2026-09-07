@@ -49,7 +49,7 @@ groups:
           description: "job={{ $labels.job }}, instance={{ $labels.instance }} target을 3분 이상 scrape하지 못했어요. exporter와 네트워크 상태를 확인해주세요."
 
       - alert: PostgreSQLDown
-        expr: up{job=~".*postgres.*"} == 0 or pg_up == 0
+        expr: up{job="postgres-exporter"} == 0 or pg_up{job="postgres-exporter"} == 0
         for: 1m
         labels:
           severity: critical

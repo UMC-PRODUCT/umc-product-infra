@@ -2988,25 +2988,16 @@
                     "hidden": false,
                     "query": {
                       "datasource": {
-                        "name": "cloudwatch"
+                        "name": "prometheus"
                       },
-                      "group": "cloudwatch",
+                      "group": "prometheus",
                       "kind": "DataQuery",
                       "spec": {
-                        "dimensions": {
-                          "DBInstanceIdentifier": "$rds_instance"
-                        },
-                        "id": "cpu_utilization",
-                        "label": "CPUUtilization",
-                        "matchExact": true,
-                        "metricEditorMode": 0,
-                        "metricName": "CPUUtilization",
-                        "metricQueryType": 0,
-                        "namespace": "AWS/RDS",
-                        "period": "auto",
-                        "queryMode": "Metrics",
-                        "region": "$aws_region",
-                        "statistic": "Average"
+                        "editorMode": "code",
+                        "expr": "max(pg_up{job=\"postgres-exporter\"})",
+                        "format": "time_series",
+                        "instant": true,
+                        "range": false
                       },
                       "version": "v0"
                     },
@@ -3018,60 +3009,50 @@
               "transformations": []
             }
           },
-          "description": "AWS/RDS CPUUtilization 지표입니다. 선택한 RDS 인스턴스의 CPU 사용률을 백분율로 표시합니다.",
+          "description": "postgres_exporter가 PostgreSQL에 연결해 메트릭을 수집할 수 있으면 1, 연결할 수 없으면 0입니다.",
           "id": 90,
           "links": [],
-          "title": "RDS CPU Utilization",
+          "title": "PostgreSQL Up",
           "vizConfig": {
-            "group": "timeseries",
+            "group": "stat",
             "kind": "VizConfig",
             "spec": {
               "fieldConfig": {
                 "defaults": {
                   "color": {
-                    "mode": "palette-classic"
+                    "mode": "thresholds"
                   },
-                  "custom": {
-                    "drawStyle": "line",
-                    "fillOpacity": 15,
-                    "lineWidth": 2,
-                    "showPoints": "never",
-                    "stacking": {
-                      "mode": "none"
-                    }
-                  },
-                  "max": 100,
+                  "max": 1,
                   "min": 0,
                   "thresholds": {
                     "mode": "absolute",
                     "steps": [
                       {
-                        "color": "green"
+                        "color": "red"
                       },
                       {
-                        "color": "yellow",
-                        "value": 70
-                      },
-                      {
-                        "color": "red",
-                        "value": 90
+                        "color": "green",
+                        "value": 1
                       }
                     ]
                   },
-                  "unit": "percent"
+                  "unit": "none"
                 },
                 "overrides": []
               },
               "options": {
-                "legend": {
-                  "displayMode": "list",
-                  "placement": "bottom",
-                  "showLegend": true
+                "colorMode": "value",
+                "graphMode": "area",
+                "justifyMode": "auto",
+                "orientation": "auto",
+                "reduceOptions": {
+                  "calcs": [
+                    "lastNotNull"
+                  ],
+                  "fields": "",
+                  "values": false
                 },
-                "tooltip": {
-                  "mode": "multi",
-                  "sort": "desc"
-                }
+                "textMode": "auto"
               }
             },
             "version": "13.0.1"
@@ -3091,25 +3072,15 @@
                     "hidden": false,
                     "query": {
                       "datasource": {
-                        "name": "cloudwatch"
+                        "name": "prometheus"
                       },
-                      "group": "cloudwatch",
+                      "group": "prometheus",
                       "kind": "DataQuery",
                       "spec": {
-                        "dimensions": {
-                          "DBInstanceIdentifier": "$rds_instance"
-                        },
-                        "id": "cpu_credit_balance",
-                        "label": "CPUCreditBalance",
-                        "matchExact": true,
-                        "metricEditorMode": 0,
-                        "metricName": "CPUCreditBalance",
-                        "metricQueryType": 0,
-                        "namespace": "AWS/RDS",
-                        "period": "300",
-                        "queryMode": "Metrics",
-                        "region": "$aws_region",
-                        "statistic": "Average"
+                        "editorMode": "code",
+                        "expr": "sum(pg_stat_activity_count{job=\"postgres-exporter\", datname=\"umc_product\"})",
+                        "legendFormat": "Current connections",
+                        "range": true
                       },
                       "version": "v0"
                     },
@@ -3121,10 +3092,10 @@
               "transformations": []
             }
           },
-          "description": "db.t2, db.t3, db.t4g 계열에서만 제공되는 AWS/RDS CPUCreditBalance 지표입니다. T 계열이 아닌 인스턴스는 데이터가 표시되지 않는 것이 정상입니다.",
+          "description": "umc_product 데이터베이스에 현재 연결된 세션 수입니다.",
           "id": 91,
           "links": [],
-          "title": "RDS CPU Credit Balance",
+          "title": "PostgreSQL Connections",
           "vizConfig": {
             "group": "timeseries",
             "kind": "VizConfig",
@@ -3184,25 +3155,15 @@
                     "hidden": false,
                     "query": {
                       "datasource": {
-                        "name": "cloudwatch"
+                        "name": "prometheus"
                       },
-                      "group": "cloudwatch",
+                      "group": "prometheus",
                       "kind": "DataQuery",
                       "spec": {
-                        "dimensions": {
-                          "DBInstanceIdentifier": "$rds_instance"
-                        },
-                        "id": "cpu_credit_usage",
-                        "label": "CPUCreditUsage",
-                        "matchExact": true,
-                        "metricEditorMode": 0,
-                        "metricName": "CPUCreditUsage",
-                        "metricQueryType": 0,
-                        "namespace": "AWS/RDS",
-                        "period": "300",
-                        "queryMode": "Metrics",
-                        "region": "$aws_region",
-                        "statistic": "Sum"
+                        "editorMode": "code",
+                        "expr": "max(pg_settings_max_connections{job=\"postgres-exporter\"})",
+                        "legendFormat": "Max connections",
+                        "range": true
                       },
                       "version": "v0"
                     },
@@ -3214,10 +3175,10 @@
               "transformations": []
             }
           },
-          "description": "db.t2, db.t3, db.t4g 계열에서만 제공되는 AWS/RDS CPUCreditUsage 지표입니다. 5분 동안 소비한 CPU Credit 합계를 표시합니다.",
+          "description": "PostgreSQL의 max_connections 설정값입니다. 현재 연결 수 패널과 함께 여유 용량을 확인합니다.",
           "id": 92,
           "links": [],
-          "title": "RDS CPU Credit Usage",
+          "title": "PostgreSQL Max Connections",
           "vizConfig": {
             "group": "timeseries",
             "kind": "VizConfig",
@@ -3277,25 +3238,15 @@
                     "hidden": false,
                     "query": {
                       "datasource": {
-                        "name": "cloudwatch"
+                        "name": "prometheus"
                       },
-                      "group": "cloudwatch",
+                      "group": "prometheus",
                       "kind": "DataQuery",
                       "spec": {
-                        "dimensions": {
-                          "DBInstanceIdentifier": "$rds_instance"
-                        },
-                        "id": "database_connections",
-                        "label": "DatabaseConnections",
-                        "matchExact": true,
-                        "metricEditorMode": 0,
-                        "metricName": "DatabaseConnections",
-                        "metricQueryType": 0,
-                        "namespace": "AWS/RDS",
-                        "period": "auto",
-                        "queryMode": "Metrics",
-                        "region": "$aws_region",
-                        "statistic": "Average"
+                        "editorMode": "code",
+                        "expr": "max(pg_database_size_bytes{job=\"postgres-exporter\", datname=\"umc_product\"})",
+                        "legendFormat": "umc_product",
+                        "range": true
                       },
                       "version": "v0"
                     },
@@ -3307,17 +3258,17 @@
               "transformations": []
             }
           },
-          "description": "AWS/RDS DatabaseConnections 지표입니다. 선택한 RDS 인스턴스에 연결된 클라이언트 네트워크 연결 수를 표시합니다.",
+          "description": "umc_product 데이터베이스가 PostgreSQL에서 차지하는 논리적 크기입니다. PVC 전체 사용량과는 다른 값입니다.",
           "id": 93,
           "links": [],
-          "title": "RDS Database Connections",
+          "title": "PostgreSQL Database Size",
           "vizConfig": {
             "group": "timeseries",
             "kind": "VizConfig",
             "spec": {
               "fieldConfig": {
                 "defaults": {
-                  "unit": "short"
+                  "unit": "bytes"
                 },
                 "overrides": []
               },
@@ -3350,25 +3301,15 @@
                     "hidden": false,
                     "query": {
                       "datasource": {
-                        "name": "cloudwatch"
+                        "name": "prometheus"
                       },
-                      "group": "cloudwatch",
+                      "group": "prometheus",
                       "kind": "DataQuery",
                       "spec": {
-                        "dimensions": {
-                          "DBInstanceIdentifier": "$rds_instance"
-                        },
-                        "id": "freeable_memory",
-                        "label": "FreeableMemory",
-                        "matchExact": true,
-                        "metricEditorMode": 0,
-                        "metricName": "FreeableMemory",
-                        "metricQueryType": 0,
-                        "namespace": "AWS/RDS",
-                        "period": "auto",
-                        "queryMode": "Metrics",
-                        "region": "$aws_region",
-                        "statistic": "Average"
+                        "editorMode": "code",
+                        "expr": "sum(rate(pg_stat_database_xact_commit{job=\"postgres-exporter\", datname=\"umc_product\"}[$__rate_interval]))",
+                        "legendFormat": "Commits",
+                        "range": true
                       },
                       "version": "v0"
                     },
@@ -3380,17 +3321,17 @@
               "transformations": []
             }
           },
-          "description": "AWS/RDS FreeableMemory 지표입니다. PostgreSQL 인스턴스에서 사용 가능한 메모리를 표시합니다.",
+          "description": "umc_product 데이터베이스에서 초당 커밋되는 트랜잭션 수입니다.",
           "id": 94,
           "links": [],
-          "title": "RDS Freeable Memory",
+          "title": "PostgreSQL Commit Rate",
           "vizConfig": {
             "group": "timeseries",
             "kind": "VizConfig",
             "spec": {
               "fieldConfig": {
                 "defaults": {
-                  "unit": "bytes"
+                  "unit": "ops"
                 },
                 "overrides": []
               },
@@ -3423,25 +3364,15 @@
                     "hidden": false,
                     "query": {
                       "datasource": {
-                        "name": "cloudwatch"
+                        "name": "prometheus"
                       },
-                      "group": "cloudwatch",
+                      "group": "prometheus",
                       "kind": "DataQuery",
                       "spec": {
-                        "dimensions": {
-                          "DBInstanceIdentifier": "$rds_instance"
-                        },
-                        "id": "free_storage_space",
-                        "label": "FreeStorageSpace",
-                        "matchExact": true,
-                        "metricEditorMode": 0,
-                        "metricName": "FreeStorageSpace",
-                        "metricQueryType": 0,
-                        "namespace": "AWS/RDS",
-                        "period": "auto",
-                        "queryMode": "Metrics",
-                        "region": "$aws_region",
-                        "statistic": "Average"
+                        "editorMode": "code",
+                        "expr": "sum(rate(pg_stat_database_xact_rollback{job=\"postgres-exporter\", datname=\"umc_product\"}[$__rate_interval]))",
+                        "legendFormat": "Rollbacks",
+                        "range": true
                       },
                       "version": "v0"
                     },
@@ -3453,17 +3384,17 @@
               "transformations": []
             }
           },
-          "description": "AWS/RDS FreeStorageSpace 지표입니다. 선택한 RDS 인스턴스의 사용 가능한 스토리지 공간을 표시합니다.",
+          "description": "umc_product 데이터베이스에서 초당 롤백되는 트랜잭션 수입니다. 평소보다 급증하면 애플리케이션 오류나 경합을 확인합니다.",
           "id": 95,
           "links": [],
-          "title": "RDS Free Storage Space",
+          "title": "PostgreSQL Rollback Rate",
           "vizConfig": {
             "group": "timeseries",
             "kind": "VizConfig",
             "spec": {
               "fieldConfig": {
                 "defaults": {
-                  "unit": "bytes"
+                  "unit": "ops"
                 },
                 "overrides": []
               },
@@ -3496,25 +3427,15 @@
                     "hidden": false,
                     "query": {
                       "datasource": {
-                        "name": "cloudwatch"
+                        "name": "prometheus"
                       },
-                      "group": "cloudwatch",
+                      "group": "prometheus",
                       "kind": "DataQuery",
                       "spec": {
-                        "dimensions": {
-                          "DBInstanceIdentifier": "$rds_instance"
-                        },
-                        "id": "disk_queue_depth",
-                        "label": "DiskQueueDepth",
-                        "matchExact": true,
-                        "metricEditorMode": 0,
-                        "metricName": "DiskQueueDepth",
-                        "metricQueryType": 0,
-                        "namespace": "AWS/RDS",
-                        "period": "auto",
-                        "queryMode": "Metrics",
-                        "region": "$aws_region",
-                        "statistic": "Average"
+                        "editorMode": "code",
+                        "expr": "100 * sum(rate(pg_stat_database_blks_hit{job=\"postgres-exporter\", datname=\"umc_product\"}[$__rate_interval])) / clamp_min(sum(rate(pg_stat_database_blks_hit{job=\"postgres-exporter\", datname=\"umc_product\"}[$__rate_interval])) + sum(rate(pg_stat_database_blks_read{job=\"postgres-exporter\", datname=\"umc_product\"}[$__rate_interval])), 1)",
+                        "legendFormat": "Cache hit ratio",
+                        "range": true
                       },
                       "version": "v0"
                     },
@@ -3526,17 +3447,19 @@
               "transformations": []
             }
           },
-          "description": "AWS/RDS DiskQueueDepth 지표입니다. 디스크 I/O 처리를 기다리는 읽기·쓰기 요청 수를 표시합니다.",
+          "description": "PostgreSQL shared buffer에서 처리된 블록 읽기의 비율입니다. 100%에 가까울수록 디스크 읽기 의존도가 낮습니다.",
           "id": 96,
           "links": [],
-          "title": "RDS Disk Queue Depth",
+          "title": "PostgreSQL Cache Hit Ratio",
           "vizConfig": {
             "group": "timeseries",
             "kind": "VizConfig",
             "spec": {
               "fieldConfig": {
                 "defaults": {
-                  "unit": "short"
+                  "max": 100,
+                  "min": 0,
+                  "unit": "percent"
                 },
                 "overrides": []
               },
@@ -3569,25 +3492,15 @@
                     "hidden": false,
                     "query": {
                       "datasource": {
-                        "name": "cloudwatch"
+                        "name": "prometheus"
                       },
-                      "group": "cloudwatch",
+                      "group": "prometheus",
                       "kind": "DataQuery",
                       "spec": {
-                        "dimensions": {
-                          "DBInstanceIdentifier": "$rds_instance"
-                        },
-                        "id": "read_latency",
-                        "label": "ReadLatency",
-                        "matchExact": true,
-                        "metricEditorMode": 0,
-                        "metricName": "ReadLatency",
-                        "metricQueryType": 0,
-                        "namespace": "AWS/RDS",
-                        "period": "auto",
-                        "queryMode": "Metrics",
-                        "region": "$aws_region",
-                        "statistic": "Average"
+                        "editorMode": "code",
+                        "expr": "sum(rate(pg_stat_database_deadlocks{job=\"postgres-exporter\", datname=\"umc_product\"}[$__rate_interval]))",
+                        "legendFormat": "Deadlocks",
+                        "range": true
                       },
                       "version": "v0"
                     },
@@ -3600,25 +3513,15 @@
                     "hidden": false,
                     "query": {
                       "datasource": {
-                        "name": "cloudwatch"
+                        "name": "prometheus"
                       },
-                      "group": "cloudwatch",
+                      "group": "prometheus",
                       "kind": "DataQuery",
                       "spec": {
-                        "dimensions": {
-                          "DBInstanceIdentifier": "$rds_instance"
-                        },
-                        "id": "write_latency",
-                        "label": "WriteLatency",
-                        "matchExact": true,
-                        "metricEditorMode": 0,
-                        "metricName": "WriteLatency",
-                        "metricQueryType": 0,
-                        "namespace": "AWS/RDS",
-                        "period": "auto",
-                        "queryMode": "Metrics",
-                        "region": "$aws_region",
-                        "statistic": "Average"
+                        "editorMode": "code",
+                        "expr": "sum(rate(pg_stat_database_conflicts{job=\"postgres-exporter\", datname=\"umc_product\"}[$__rate_interval]))",
+                        "legendFormat": "Conflicts",
+                        "range": true
                       },
                       "version": "v0"
                     },
@@ -3630,17 +3533,17 @@
               "transformations": []
             }
           },
-          "description": "AWS/RDS ReadLatency와 WriteLatency 지표입니다. 디스크 읽기·쓰기 I/O 작업당 평균 지연 시간을 초 단위로 표시합니다.",
+          "description": "umc_product 데이터베이스에서 발생한 deadlock과 recovery conflict의 초당 증가율입니다.",
           "id": 97,
           "links": [],
-          "title": "RDS Read / Write Latency",
+          "title": "PostgreSQL Deadlock / Conflict Rate",
           "vizConfig": {
             "group": "timeseries",
             "kind": "VizConfig",
             "spec": {
               "fieldConfig": {
                 "defaults": {
-                  "unit": "s"
+                  "unit": "ops"
                 },
                 "overrides": []
               },
@@ -3673,25 +3576,15 @@
                     "hidden": false,
                     "query": {
                       "datasource": {
-                        "name": "cloudwatch"
+                        "name": "prometheus"
                       },
-                      "group": "cloudwatch",
+                      "group": "prometheus",
                       "kind": "DataQuery",
                       "spec": {
-                        "dimensions": {
-                          "DBInstanceIdentifier": "$rds_instance"
-                        },
-                        "id": "swap_usage",
-                        "label": "SwapUsage",
-                        "matchExact": true,
-                        "metricEditorMode": 0,
-                        "metricName": "SwapUsage",
-                        "metricQueryType": 0,
-                        "namespace": "AWS/RDS",
-                        "period": "auto",
-                        "queryMode": "Metrics",
-                        "region": "$aws_region",
-                        "statistic": "Average"
+                        "editorMode": "code",
+                        "expr": "sum by (mode) (pg_locks_count{job=\"postgres-exporter\", datname=\"umc_product\"})",
+                        "legendFormat": "{{mode}}",
+                        "range": true
                       },
                       "version": "v0"
                     },
@@ -3703,10 +3596,284 @@
               "transformations": []
             }
           },
-          "description": "AWS/RDS SwapUsage 지표입니다. PostgreSQL 인스턴스에서 사용 중인 swap 공간을 표시합니다.",
+          "description": "umc_product 데이터베이스가 현재 보유하거나 대기 중인 lock 수를 lock mode별로 표시합니다.",
           "id": 98,
           "links": [],
-          "title": "RDS Swap Usage",
+          "title": "PostgreSQL Locks",
+          "vizConfig": {
+            "group": "timeseries",
+            "kind": "VizConfig",
+            "spec": {
+              "fieldConfig": {
+                "defaults": {
+                  "unit": "short"
+                },
+                "overrides": []
+              },
+              "options": {
+                "legend": {
+                  "displayMode": "list",
+                  "placement": "bottom",
+                  "showLegend": true
+                },
+                "tooltip": {
+                  "mode": "multi",
+                  "sort": "desc"
+                }
+              }
+            },
+            "version": "13.0.1"
+          }
+        }
+      },
+      "panel-100": {
+        "kind": "Panel",
+        "spec": {
+          "data": {
+            "kind": "QueryGroup",
+            "spec": {
+              "queries": [
+                {
+                  "kind": "PanelQuery",
+                  "spec": {
+                    "hidden": false,
+                    "query": {
+                      "datasource": {
+                        "name": "prometheus"
+                      },
+                      "group": "prometheus",
+                      "kind": "DataQuery",
+                      "spec": {
+                        "editorMode": "code",
+                        "expr": "max(kube_statefulset_status_replicas_ready{namespace=\"db\", statefulset=\"postgres\"})",
+                        "format": "time_series",
+                        "instant": true,
+                        "legendFormat": "Ready replicas",
+                        "range": false
+                      },
+                      "version": "v0"
+                    },
+                    "refId": "A"
+                  }
+                },
+                {
+                  "kind": "PanelQuery",
+                  "spec": {
+                    "hidden": false,
+                    "query": {
+                      "datasource": {
+                        "name": "prometheus"
+                      },
+                      "group": "prometheus",
+                      "kind": "DataQuery",
+                      "spec": {
+                        "editorMode": "code",
+                        "expr": "max(kube_statefulset_replicas{namespace=\"db\", statefulset=\"postgres\"})",
+                        "format": "time_series",
+                        "instant": true,
+                        "legendFormat": "Desired replicas",
+                        "range": false
+                      },
+                      "version": "v0"
+                    },
+                    "refId": "B"
+                  }
+                }
+              ],
+              "queryOptions": {},
+              "transformations": []
+            }
+          },
+          "description": "PostgreSQL StatefulSet의 Ready replica 수와 desired replica 수입니다. 실제 데이터베이스 쿼리 가능 여부는 PostgreSQL Up 패널에서 확인합니다.",
+          "id": 100,
+          "links": [],
+          "title": "PostgreSQL StatefulSet Replicas",
+          "vizConfig": {
+            "group": "stat",
+            "kind": "VizConfig",
+            "spec": {
+              "fieldConfig": {
+                "defaults": {
+                  "color": {
+                    "mode": "thresholds"
+                  },
+                  "thresholds": {
+                    "mode": "absolute",
+                    "steps": [
+                      {
+                        "color": "red"
+                      },
+                      {
+                        "color": "green",
+                        "value": 1
+                      }
+                    ]
+                  },
+                  "unit": "short"
+                },
+                "overrides": []
+              },
+              "options": {
+                "colorMode": "value",
+                "graphMode": "area",
+                "justifyMode": "auto",
+                "orientation": "auto",
+                "reduceOptions": {
+                  "calcs": [
+                    "lastNotNull"
+                  ],
+                  "fields": "",
+                  "values": false
+                },
+                "textMode": "auto"
+              }
+            },
+            "version": "13.0.1"
+          }
+        }
+      },
+      "panel-101": {
+        "kind": "Panel",
+        "spec": {
+          "data": {
+            "kind": "QueryGroup",
+            "spec": {
+              "queries": [
+                {
+                  "kind": "PanelQuery",
+                  "spec": {
+                    "hidden": false,
+                    "query": {
+                      "datasource": {
+                        "name": "prometheus"
+                      },
+                      "group": "prometheus",
+                      "kind": "DataQuery",
+                      "spec": {
+                        "editorMode": "code",
+                        "expr": "sum(kube_pod_container_resource_requests{namespace=\"db\", pod=~\"postgres-.*\", container=\"postgres\", resource=\"cpu\", unit=\"core\"})",
+                        "legendFormat": "CPU request",
+                        "range": true
+                      },
+                      "version": "v0"
+                    },
+                    "refId": "A"
+                  }
+                },
+                {
+                  "kind": "PanelQuery",
+                  "spec": {
+                    "hidden": false,
+                    "query": {
+                      "datasource": {
+                        "name": "prometheus"
+                      },
+                      "group": "prometheus",
+                      "kind": "DataQuery",
+                      "spec": {
+                        "editorMode": "code",
+                        "expr": "sum(kube_pod_container_resource_limits{namespace=\"db\", pod=~\"postgres-.*\", container=\"postgres\", resource=\"cpu\", unit=\"core\"})",
+                        "legendFormat": "CPU limit",
+                        "range": true
+                      },
+                      "version": "v0"
+                    },
+                    "refId": "B"
+                  }
+                }
+              ],
+              "queryOptions": {},
+              "transformations": []
+            }
+          },
+          "description": "PostgreSQL 컨테이너에 설정된 CPU request와 limit입니다. 실제 CPU 사용량이 아니라 스케줄링 예약량과 상한입니다.",
+          "id": 101,
+          "links": [],
+          "title": "PostgreSQL CPU Request / Limit",
+          "vizConfig": {
+            "group": "timeseries",
+            "kind": "VizConfig",
+            "spec": {
+              "fieldConfig": {
+                "defaults": {
+                  "unit": "cores"
+                },
+                "overrides": []
+              },
+              "options": {
+                "legend": {
+                  "displayMode": "list",
+                  "placement": "bottom",
+                  "showLegend": true
+                },
+                "tooltip": {
+                  "mode": "multi",
+                  "sort": "desc"
+                }
+              }
+            },
+            "version": "13.0.1"
+          }
+        }
+      },
+      "panel-102": {
+        "kind": "Panel",
+        "spec": {
+          "data": {
+            "kind": "QueryGroup",
+            "spec": {
+              "queries": [
+                {
+                  "kind": "PanelQuery",
+                  "spec": {
+                    "hidden": false,
+                    "query": {
+                      "datasource": {
+                        "name": "prometheus"
+                      },
+                      "group": "prometheus",
+                      "kind": "DataQuery",
+                      "spec": {
+                        "editorMode": "code",
+                        "expr": "sum(kube_pod_container_resource_requests{namespace=\"db\", pod=~\"postgres-.*\", container=\"postgres\", resource=\"memory\", unit=\"byte\"})",
+                        "legendFormat": "Memory request",
+                        "range": true
+                      },
+                      "version": "v0"
+                    },
+                    "refId": "A"
+                  }
+                },
+                {
+                  "kind": "PanelQuery",
+                  "spec": {
+                    "hidden": false,
+                    "query": {
+                      "datasource": {
+                        "name": "prometheus"
+                      },
+                      "group": "prometheus",
+                      "kind": "DataQuery",
+                      "spec": {
+                        "editorMode": "code",
+                        "expr": "sum(kube_pod_container_resource_limits{namespace=\"db\", pod=~\"postgres-.*\", container=\"postgres\", resource=\"memory\", unit=\"byte\"})",
+                        "legendFormat": "Memory limit",
+                        "range": true
+                      },
+                      "version": "v0"
+                    },
+                    "refId": "B"
+                  }
+                }
+              ],
+              "queryOptions": {},
+              "transformations": []
+            }
+          },
+          "description": "PostgreSQL 컨테이너에 설정된 memory request와 limit입니다. 실제 메모리 사용량이 아니라 스케줄링 예약량과 상한입니다.",
+          "id": 102,
+          "links": [],
+          "title": "PostgreSQL Memory Request / Limit",
           "vizConfig": {
             "group": "timeseries",
             "kind": "VizConfig",
@@ -3727,6 +3894,85 @@
                   "mode": "multi",
                   "sort": "desc"
                 }
+              }
+            },
+            "version": "13.0.1"
+          }
+        }
+      },
+      "panel-103": {
+        "kind": "Panel",
+        "spec": {
+          "data": {
+            "kind": "QueryGroup",
+            "spec": {
+              "queries": [
+                {
+                  "kind": "PanelQuery",
+                  "spec": {
+                    "hidden": false,
+                    "query": {
+                      "datasource": {
+                        "name": "prometheus"
+                      },
+                      "group": "prometheus",
+                      "kind": "DataQuery",
+                      "spec": {
+                        "editorMode": "code",
+                        "expr": "sum(kube_persistentvolumeclaim_resource_requests_storage_bytes{namespace=\"db\", persistentvolumeclaim=~\"data-postgres-.*\"})",
+                        "format": "time_series",
+                        "instant": true,
+                        "legendFormat": "Requested capacity",
+                        "range": false
+                      },
+                      "version": "v0"
+                    },
+                    "refId": "A"
+                  }
+                }
+              ],
+              "queryOptions": {},
+              "transformations": []
+            }
+          },
+          "description": "PostgreSQL PVC에 요청한 스토리지 용량입니다. 실제 디스크 사용량이나 남은 공간이 아니라 Kubernetes에 선언된 요청 용량입니다.",
+          "id": 103,
+          "links": [],
+          "title": "PostgreSQL PVC Requested Capacity",
+          "vizConfig": {
+            "group": "stat",
+            "kind": "VizConfig",
+            "spec": {
+              "fieldConfig": {
+                "defaults": {
+                  "color": {
+                    "mode": "thresholds"
+                  },
+                  "thresholds": {
+                    "mode": "absolute",
+                    "steps": [
+                      {
+                        "color": "green"
+                      }
+                    ]
+                  },
+                  "unit": "bytes"
+                },
+                "overrides": []
+              },
+              "options": {
+                "colorMode": "value",
+                "graphMode": "area",
+                "justifyMode": "auto",
+                "orientation": "auto",
+                "reduceOptions": {
+                  "calcs": [
+                    "lastNotNull"
+                  ],
+                  "fields": "",
+                  "values": false
+                },
+                "textMode": "auto"
               }
             },
             "version": "13.0.1"
@@ -4314,7 +4560,73 @@
                   ]
                 }
               },
-              "title": "☁️ AWS RDS PostgreSQL — CloudWatch"
+              "title": "🐘 PostgreSQL — Exporter Metrics"
+            }
+          },
+          {
+            "kind": "RowsLayoutRow",
+            "spec": {
+              "collapse": false,
+              "layout": {
+                "kind": "GridLayout",
+                "spec": {
+                  "items": [
+                    {
+                      "kind": "GridLayoutItem",
+                      "spec": {
+                        "element": {
+                          "kind": "ElementReference",
+                          "name": "panel-100"
+                        },
+                        "height": 8,
+                        "width": 6,
+                        "x": 0,
+                        "y": 0
+                      }
+                    },
+                    {
+                      "kind": "GridLayoutItem",
+                      "spec": {
+                        "element": {
+                          "kind": "ElementReference",
+                          "name": "panel-101"
+                        },
+                        "height": 8,
+                        "width": 6,
+                        "x": 6,
+                        "y": 0
+                      }
+                    },
+                    {
+                      "kind": "GridLayoutItem",
+                      "spec": {
+                        "element": {
+                          "kind": "ElementReference",
+                          "name": "panel-102"
+                        },
+                        "height": 8,
+                        "width": 6,
+                        "x": 12,
+                        "y": 0
+                      }
+                    },
+                    {
+                      "kind": "GridLayoutItem",
+                      "spec": {
+                        "element": {
+                          "kind": "ElementReference",
+                          "name": "panel-103"
+                        },
+                        "height": 8,
+                        "width": 6,
+                        "x": 18,
+                        "y": 0
+                      }
+                    }
+                  ]
+                }
+              },
+              "title": "☸️ PostgreSQL — Kubernetes Declared Resources"
             }
           }
         ]
@@ -4331,7 +4643,7 @@
         "title": "Source (GitHub)",
         "tooltip": "View source file in repository",
         "type": "link",
-        "url": "https://github.com/UMC-PRODUCT/umc-product-observability/blob/main/monitoring/grafana/config/grafana/dashboards/server-default.json"
+        "url": "https://github.com/UMC-PRODUCT/umc-product-infra/blob/main/observability/dashboards/server-default.json"
       }
     ],
     "liveNow": false,
@@ -4344,9 +4656,8 @@
       "prometheus",
       "loki",
       "otel",
-      "aws",
-      "rds",
-      "cloudwatch"
+      "postgresql",
+      "kubernetes"
     ],
     "timeSettings": {
       "autoRefresh": "30s",
@@ -4494,89 +4805,6 @@
             "spec": {
               "query": "label_values(jvm_memory_used_bytes{application=~\"$service\"}, instance)",
               "refId": "StandardVariableQuery"
-            },
-            "version": "v0"
-          },
-          "refresh": "onDashboardLoad",
-          "regex": "",
-          "regexApplyTo": "value",
-          "skipUrlSync": false,
-          "sort": "alphabeticalAsc"
-        }
-      },
-      {
-        "kind": "QueryVariable",
-        "spec": {
-          "allowCustomValue": false,
-          "current": {
-            "text": "ap-northeast-2",
-            "value": "ap-northeast-2"
-          },
-          "definition": "regions()",
-          "hide": "dontHide",
-          "includeAll": false,
-          "label": "AWS Region",
-          "multi": false,
-          "name": "aws_region",
-          "options": [],
-          "query": {
-            "datasource": {
-              "name": "cloudwatch"
-            },
-            "group": "cloudwatch",
-            "kind": "DataQuery",
-            "spec": {
-              "attributeName": "",
-              "dimensionKey": "",
-              "instanceID": "",
-              "metricName": "",
-              "namespace": "",
-              "queryType": "regions",
-              "refId": "CloudWatchRegionsVariableQuery",
-              "region": "default",
-              "resourceType": ""
-            },
-            "version": "v0"
-          },
-          "refresh": "onDashboardLoad",
-          "regex": "",
-          "regexApplyTo": "value",
-          "skipUrlSync": false,
-          "sort": "alphabeticalAsc"
-        }
-      },
-      {
-        "kind": "QueryVariable",
-        "spec": {
-          "allowCustomValue": false,
-          "current": {
-            "text": "server-rds-prod",
-            "value": "server-rds-prod"
-          },
-          "definition": "dimension_values($aws_region, AWS/RDS, CPUUtilization, DBInstanceIdentifier)",
-          "hide": "dontHide",
-          "includeAll": false,
-          "label": "RDS Instance",
-          "multi": false,
-          "name": "rds_instance",
-          "options": [],
-          "query": {
-            "datasource": {
-              "name": "cloudwatch"
-            },
-            "group": "cloudwatch",
-            "kind": "DataQuery",
-            "spec": {
-              "attributeName": "",
-              "dimensionFilters": {},
-              "dimensionKey": "DBInstanceIdentifier",
-              "instanceID": "",
-              "metricName": "CPUUtilization",
-              "namespace": "AWS/RDS",
-              "queryType": "dimensionValues",
-              "refId": "CloudWatchRdsInstanceVariableQuery",
-              "region": "$aws_region",
-              "resourceType": ""
             },
             "version": "v0"
           },

@@ -27,6 +27,7 @@ DASHBOARD_ALLOWLIST = (
     "cache.json",
     "graphql.json",
     "node-exporter-host.json",
+    "server-default.json",
     "server-logs.json",
 )
 PROMETHEUS_RULE_SOURCE = "prometheus-alerts.yaml"
@@ -45,7 +46,6 @@ K3S_DROPPED_ALERTS = frozenset(
     {
         "ApiServerDown",
         "PrometheusTargetDown",
-        "PostgreSQLDown",
         "RedisDown",
         "RedisMemoryHighUsage",
         "RedisRejectedConnections",
@@ -215,6 +215,37 @@ def canonical_dashboard(filename: str, content: str) -> str:
         raise ValueError(f"UMC dashboard 식별자가 아닙니다: {filename}: {identifier!r}")
     if "umc-product" not in tags:
         raise ValueError(f"UMC dashboard tag가 없습니다: {filename}")
+
+    if filename == "server-default.json":
+        serialized = json.dumps(document, ensure_ascii=False)
+        serialized_lower = serialized.lower()
+        forbidden_dependencies = ("cloudwatch", "aws/rds", "rds_instance", "aws_region")
+        present = [value for value in forbidden_dependencies if value in serialized_lower]
+        if present:
+            raise ValueError(
+                f"server-default.json에 제거되지 않은 RDS/CloudWatch 의존성이 있습니다: {present}"
+            )
+
+        required_metrics = (
+            "pg_up",
+            "pg_stat_activity_count",
+            "pg_settings_max_connections",
+            "pg_database_size_bytes",
+            "pg_stat_database_xact_commit",
+            "pg_stat_database_xact_rollback",
+            "pg_stat_database_blks_hit",
+            "pg_stat_database_deadlocks",
+            "pg_locks_count",
+            "kube_statefulset_status_replicas_ready",
+            "kube_pod_container_resource_requests",
+            "kube_pod_container_resource_limits",
+            "kube_persistentvolumeclaim_resource_requests_storage_bytes",
+        )
+        missing_metrics = [metric for metric in required_metrics if metric not in serialized]
+        if missing_metrics:
+            raise ValueError(
+                f"server-default.json에 필수 PostgreSQL/Kubernetes 패널 지표가 없습니다: {missing_metrics}"
+            )
 
     return json.dumps(document, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
 

@@ -87,7 +87,7 @@ class PayloadTests(unittest.TestCase):
 
         payloads = uploader.build_payloads(values)
 
-        self.assertEqual(len(payloads), 28)
+        self.assertEqual(len(payloads), 29)
         self.assertIn("APPLE_WEB_CLIENT_ID", payloads["/umc-product/prod/app-oauth"])
         self.assertEqual(
             payloads["/umc-product/prod/app-oauth"]["APPLE_WEB_CLIENT_ID"], ""
@@ -102,6 +102,14 @@ class PayloadTests(unittest.TestCase):
         self.assertEqual(
             payloads["/umc-product/prod/backup-s3"]["AWS_ACCESS_KEY_ID"],
             values[".env.prod"]["BACKUP_AWS_ACCESS_KEY_ID"],
+        )
+        self.assertEqual(
+            payloads["/umc-product/prod/postgres-exporter"],
+            {
+                "POSTGRES_EXPORTER_PASSWORD": values[".env.prod"][
+                    "POSTGRES_EXPORTER_PASSWORD"
+                ]
+            },
         )
         self.assertEqual(
             payloads["/umc-product/platform/monitoring/grafana-admin"]["admin-user"],
@@ -152,6 +160,15 @@ class PayloadTests(unittest.TestCase):
                 ]
                 with self.assertRaises(uploader.BootstrapError):
                     uploader.validate_worksheet_values(values, "351284652562")
+
+    def test_rejects_reused_postgres_exporter_password(self) -> None:
+        values = valid_worksheets()
+        values[".env.prod"]["POSTGRES_EXPORTER_PASSWORD"] = values[".env.prod"][
+            "POSTGRES_PASSWORD"
+        ]
+
+        with self.assertRaises(uploader.BootstrapError):
+            uploader.validate_worksheet_values(values, "351284652562")
 
 
 class AwsTransportTests(unittest.TestCase):

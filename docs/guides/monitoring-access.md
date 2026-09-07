@@ -41,12 +41,13 @@ canonical `https://grafana.university.neordinary.com`, domain enforcement, secur
 
 ## Dashboard 사용
 
-초기 dashboard는 다섯 개다.
+서버 운영에 직접 쓰는 초기 dashboard는 여섯 개다.
 
 - API Flow
 - Cache
 - GraphQL
 - Node Exporter Host
+- 서버팀 기본(K3s PostgreSQL 상태·DB 내부 지표 포함)
 - Server Logs
 
 상단 service 변수에는 signal 유입 후 아래 값이 표시된다.
@@ -66,6 +67,15 @@ Loki query 예시다.
 ```
 
 trace ID link는 Tempo datasource를 연다. metrics, logs, traces의 service name은 `SPRING_APPLICATION_NAME`과 일치시킨다.
+
+PostgreSQL 패널은 두 source를 함께 쓴다.
+
+- `postgres-exporter`: 접속 수, 최대 접속, DB 용량, transaction, cache hit, lock 같은 DB 내부 지표
+- `kube-state-metrics`: `db` namespace의 PostgreSQL Pod/StatefulSet 상태, CPU·memory request/limit, PVC 요청 용량
+
+여기서 CPU·memory는 **실제 사용량이 아니라 Kubernetes에 선언한 예약/limit**이다.
+현재 Prometheus는 cluster-wide API token과 cAdvisor scrape를 쓰지 않으므로 Pod의 실제 사용량은
+제공하지 않는다. 실제 사용량이 필요하면 별도 권한·수집 설계를 먼저 검토한다.
 
 ## 팀원 계정
 

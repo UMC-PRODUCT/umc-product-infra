@@ -41,6 +41,13 @@ spec:
               app.kubernetes.io/name: postgres-readonly-role
         - podSelector:
             matchLabels:
+              app.kubernetes.io/name: postgres-exporter-role
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: postgres-exporter
+              app.kubernetes.io/component: metrics
+        - podSelector:
+            matchLabels:
               app.kubernetes.io/name: pg-backup
               app.kubernetes.io/component: backup
       ports:
@@ -84,7 +91,7 @@ spec:
     matchExpressions:
       - key: app.kubernetes.io/name
         operator: In
-        values: [postgres-app-role, postgres-readonly-role]
+        values: [postgres-app-role, postgres-readonly-role, postgres-exporter-role]
   policyTypes: [Egress]
   egress:
     - to:
@@ -94,6 +101,58 @@ spec:
               app.kubernetes.io/component: database
       ports:
         - { protocol: TCP, port: 5432 }
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: postgres-exporter-allow-db-egress
+  namespace: db
+  labels:
+    environment: prod
+  annotations:
+    argocd.argoproj.io/sync-wave: "-2"
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: postgres-exporter
+      app.kubernetes.io/component: metrics
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: postgres
+              app.kubernetes.io/component: database
+      ports:
+        - { protocol: TCP, port: 5432 }
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: postgres-exporter-allow-prometheus-ingress
+  namespace: db
+  labels:
+    environment: prod
+  annotations:
+    argocd.argoproj.io/sync-wave: "-2"
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: postgres-exporter
+      app.kubernetes.io/component: metrics
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: prometheus
+              app.kubernetes.io/instance: prometheus
+              app.kubernetes.io/component: server
+      ports:
+        - { protocol: TCP, port: 9187 }
 ---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy

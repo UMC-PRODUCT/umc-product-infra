@@ -31,6 +31,7 @@ EXPECTED_PROMETHEUS_TARGETS = {
     "loki": ["loki.monitoring.svc.cluster.local:3100"],
     "node-exporter": ["node-exporter.monitoring.svc.cluster.local:9100"],
     "otel-collector": ["otel-collector.monitoring.svc.cluster.local:8888"],
+    "postgres-exporter": ["postgres-exporter.db.svc.cluster.local:9187"],
     "prometheus": ["localhost:9090"],
     "tempo": ["tempo.monitoring.svc.cluster.local:3100"],
 }
@@ -230,6 +231,20 @@ def validate_prometheus(resources: list[dict]) -> str:
         targets == EXPECTED_PROMETHEUS_TARGETS,
         "prometheus: static scrape targets drifted",
     )
+    postgres_exporter = next(
+        job for job in jobs if job.get("job_name") == "postgres-exporter"
+    )
+    require(
+        postgres_exporter.get("scrape_timeout") == "10s"
+        and postgres_exporter.get("static_configs")
+        == [
+            {
+                "targets": ["postgres-exporter.db.svc.cluster.local:9187"],
+                "labels": {"environment": "prod"},
+            }
+        ],
+        "prometheus: PostgreSQL exporter scrape contract",
+    )
     require(
         "kubernetes_sd_configs" not in yaml.safe_dump(config),
         "prometheus: Kubernetes service discovery requires forbidden API credentials",
@@ -328,6 +343,20 @@ def main() -> int:
         (APPLICATION_DIR / "grafana.yaml").read_text(encoding="utf-8")
     )
     grafana_ingress_enabled = validate_grafana_access_contract(grafana_application)
+
+    prometheus_application = yaml.safe_load(
+        (APPLICATION_DIR / "prometheus.yaml").read_text(encoding="utf-8")
+    )
+    state_metrics = prometheus_application["spec"]["source"]["helm"]["valuesObject"][
+        "kube-state-metrics"
+    ]
+    require(
+        state_metrics.get("collectors")
+        == ["cronjobs", "jobs", "pods", "statefulsets", "persistentvolumeclaims"]
+        and state_metrics.get("namespaces") == ["db"]
+        and state_metrics.get("rbac") == {"create": False},
+        "kube-state-metrics: DB-only collectors and external least-privilege RBAC",
+    )
 
     rendered: dict[str, list[dict]] = {}
     pod_labels: list[dict[str, str]] = []

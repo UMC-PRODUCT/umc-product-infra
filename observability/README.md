@@ -27,22 +27,27 @@ manifests/observability/      # 생성 결과와 NetworkPolicy
 
 ## Dashboard 배포 허용 목록
 
-다음 다섯 개만 Grafana sidecar가 읽는 ConfigMap으로 생성한다.
+다음 여섯 개만 Grafana sidecar가 읽는 ConfigMap으로 생성한다.
 
 - `api-flow.json`
 - `cache.json`
 - `graphql.json`
 - `node-exporter-host.json`
+- `server-default.json` — 애플리케이션/JVM/로그와 K3s PostgreSQL exporter·선언 자원
 - `server-logs.json`
 
 다음 원본은 저장소에 보관하지만 초기 배포에서는 제외한다.
 
 - `github.json`
 - `k6-load-test.json`
-- `server-default.json`
 
 전용 plugin, token 또는 현재 K3s에 없는 datasource 의존성을 제거하고 검증한 뒤에만
 [`DASHBOARD_ALLOWLIST`](../scripts/gen-configmaps.py)에 추가한다.
+
+`server-default.json`의 PostgreSQL 구간은 AWS RDS/CloudWatch가 아니라 K3s 내부
+`postgres_exporter`와 `kube-state-metrics`를 사용한다. CPU·memory request/limit와 PVC 요청
+용량은 실제 사용량이 아닌 Kubernetes 선언값이며, 실제 호스트 사용량은 `node-exporter-host.json`에서
+따로 확인한다.
 
 ## Alert rule 변환
 

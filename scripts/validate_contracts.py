@@ -22,6 +22,10 @@ POSTGIS_IMAGE = (
     "postgis/postgis:18-3.6@sha256:"
     "60f6ad1d21ea86a67d47780b9a0d1e1d200500f62b19293fa834d0dea80b8677"
 )
+POSTGRES_EXPORTER_IMAGE = (
+    "quay.io/prometheuscommunity/postgres-exporter:v0.20.1@sha256:"
+    "ac5ec343104fae0e2d84a27bb8d69b38430a11910c5382cad85d478d2bab713e"
+)
 APP_IMAGE = (
     "ghcr.io/umc-product/umc-product-server@sha256:"
     + "a" * 64
@@ -1001,17 +1005,219 @@ def validate_postgres() -> None:
             require("CREATE EXTENSION IF NOT EXISTS postgis;" in script, f"{environment}: postgis")
             require("CREATE EXTENSION IF NOT EXISTS btree_gist;" in script, f"{environment}: btree_gist")
 
+    prod_directory = ROOT / "manifests" / "postgres" / "prod"
+    exporter_role_job = resource(
+        yaml_documents(prod_directory / "postgres-exporter-role-job.yaml"), "Job"
+    )
+    exporter_role_container = exporter_role_job["spec"]["template"]["spec"][
+        "containers"
+    ][0]
+    exporter_role_script = exporter_role_container["args"][0]
+    require(
+        exporter_role_container["image"] == POSTGIS_IMAGE,
+        "prod: exporter role Job image",
+    )
+    require(
+        "GRANT pg_monitor TO umc_product_exporter;" in exporter_role_script
+        and "NOBYPASSRLS" in exporter_role_script
+        and "GRANT SELECT" not in exporter_role_script,
+        "prod: exporter role must be monitoring-only",
+    )
+    exporter_password = next(
+        item
+        for item in exporter_role_container["env"]
+        if item["name"] == "EXPORTER_PASSWORD"
+    )
+    require(
+        exporter_password["valueFrom"]["secretKeyRef"]
+        == {
+            "name": "postgres-exporter",
+            "key": "POSTGRES_EXPORTER_PASSWORD",
+        },
+        "prod: exporter role Secret",
+    )
+
+    exporter_resources = yaml_documents(prod_directory / "postgres-exporter.yaml")
+    exporter_config = resource(exporter_resources, "ConfigMap")
+    exporter_service_account = resource(exporter_resources, "ServiceAccount")
+    exporter_service = resource(exporter_resources, "Service")
+    exporter_deployment = resource(exporter_resources, "Deployment")
+    exporter_pod = exporter_deployment["spec"]["template"]["spec"]
+    exporter_container = exporter_pod["containers"][0]
+    exporter_env = {item["name"]: item["value"] for item in exporter_container["env"]}
+    require(
+        exporter_config.get("data")
+        == {"postgres_exporter.yml": "auth_modules: {}\n"},
+        "prod: exporter config contains no credentials",
+    )
+    require(
+        exporter_service_account.get("automountServiceAccountToken") is False
+        and exporter_pod.get("automountServiceAccountToken") is False,
+        "prod: exporter Kubernetes API token disabled",
+    )
+    require(
+        exporter_container["image"] == POSTGRES_EXPORTER_IMAGE,
+        "prod: postgres-exporter image",
+    )
+    require(
+        exporter_env
+        == {
+            "DATA_SOURCE_URI": (
+                "postgres.db.svc.cluster.local:5432/umc_product?sslmode=disable"
+            ),
+            "DATA_SOURCE_USER": "umc_product_exporter",
+            "DATA_SOURCE_PASS_FILE": (
+                "/var/run/secrets/postgres-exporter/POSTGRES_EXPORTER_PASSWORD"
+            ),
+            "PG_EXPORTER_COLLECTION_TIMEOUT": "8s",
+        },
+        "prod: exporter connection contract",
+    )
+    require(
+        exporter_service["spec"]
+        == {
+            "type": "ClusterIP",
+            "selector": {
+                "app.kubernetes.io/name": "postgres-exporter",
+                "app.kubernetes.io/component": "metrics",
+            },
+            "ports": [
+                {
+                    "name": "metrics",
+                    "port": 9187,
+                    "targetPort": "metrics",
+                    "protocol": "TCP",
+                }
+            ],
+        },
+        "prod: exporter internal-only Service",
+    )
+    require(
+        exporter_container["resources"]
+        == {
+            "requests": {"cpu": "10m", "memory": "32Mi"},
+            "limits": {"memory": "64Mi"},
+        },
+        "prod: exporter resource budget",
+    )
+    require(
+        exporter_pod["securityContext"].get("runAsNonRoot") is True
+        and exporter_container["securityContext"]
+        == {
+            "allowPrivilegeEscalation": False,
+            "readOnlyRootFilesystem": True,
+            "capabilities": {"drop": ["ALL"]},
+        },
+        "prod: exporter restricted security context",
+    )
+
+    policies = {
+        item["metadata"]["name"]: item
+        for item in yaml_documents(prod_directory / "networkpolicy.yaml")
+        if item.get("kind") == "NetworkPolicy"
+    }
+    require(
+        policies["postgres-exporter-allow-db-egress"]["spec"]
+        == {
+            "podSelector": {
+                "matchLabels": {
+                    "app.kubernetes.io/name": "postgres-exporter",
+                    "app.kubernetes.io/component": "metrics",
+                }
+            },
+            "policyTypes": ["Egress"],
+            "egress": [
+                {
+                    "to": [
+                        {
+                            "podSelector": {
+                                "matchLabels": {
+                                    "app.kubernetes.io/name": "postgres",
+                                    "app.kubernetes.io/component": "database",
+                                }
+                            }
+                        }
+                    ],
+                    "ports": [{"protocol": "TCP", "port": 5432}],
+                }
+            ],
+        },
+        "prod: exporter DB-only egress",
+    )
+    prometheus_ingress = policies["postgres-exporter-allow-prometheus-ingress"][
+        "spec"
+    ]
+    require(
+        prometheus_ingress["policyTypes"] == ["Ingress"]
+        and prometheus_ingress["ingress"][0]["ports"]
+        == [{"protocol": "TCP", "port": 9187}]
+        and prometheus_ingress["ingress"][0]["from"]
+        == [
+            {
+                "namespaceSelector": {
+                    "matchLabels": {
+                        "kubernetes.io/metadata.name": "monitoring"
+                    }
+                },
+                "podSelector": {
+                    "matchLabels": {
+                        "app.kubernetes.io/name": "prometheus",
+                        "app.kubernetes.io/instance": "prometheus",
+                        "app.kubernetes.io/component": "server",
+                    }
+                },
+            }
+        ],
+        "prod: exporter metrics ingress restricted to Prometheus",
+    )
+
+    state_metrics_role = resource(
+        yaml_documents(prod_directory / "kube-state-metrics-role.yaml"), "Role"
+    )
+    require(
+        state_metrics_role["rules"]
+        == [
+            {
+                "apiGroups": [""],
+                "resources": ["pods", "persistentvolumeclaims"],
+                "verbs": ["list", "watch"],
+            },
+            {
+                "apiGroups": ["apps"],
+                "resources": ["statefulsets"],
+                "verbs": ["list", "watch"],
+            },
+            {
+                "apiGroups": ["batch"],
+                "resources": ["cronjobs"],
+                "verbs": ["list", "watch"],
+            },
+            {
+                "apiGroups": ["batch"],
+                "resources": ["jobs"],
+                "verbs": ["list", "watch"],
+            },
+        ],
+        "prod: kube-state-metrics least-privilege collectors",
+    )
+
 
 def validate_secrets(path: Path) -> None:
     resources = yaml_documents(path)
     stores = [item for item in resources if item.get("kind") == "SecretStore"]
     external_secrets = [item for item in resources if item.get("kind") == "ExternalSecret"]
     require(len(stores) == 9, f"SecretStore count is {len(stores)}, expected 9")
-    require(len(external_secrets) == 30, f"ExternalSecret count is {len(external_secrets)}, expected 30")
+    require(len(external_secrets) == 31, f"ExternalSecret count is {len(external_secrets)}, expected 31")
 
     expected_names = {
         "app": set(PROD_REQUIRED_SECRETS + ["docs-basic-auth"]),
-        "db": {"app-db", "postgres-secrets", "postgres-readonly", "backup-s3"},
+        "db": {
+            "app-db",
+            "postgres-secrets",
+            "postgres-readonly",
+            "postgres-exporter",
+            "backup-s3",
+        },
         "dev-app": set(BASE_REQUIRED_SECRETS + ["docs-basic-auth"]),
         "dev-db": {"app-db", "postgres-secrets"},
         "preview": set(BASE_REQUIRED_SECRETS + ["postgres-preview-secrets"]),
@@ -1055,6 +1261,7 @@ def validate_secrets(path: Path) -> None:
         "app-storage": {"S3_ACCESS_KEY_ID", "S3_SECRET_ACCESS_KEY"},
         "app-fcm": {"FIREBASE_CONFIGURATION"},
         "docs-basic-auth": {"users"},
+        "postgres-exporter": {"POSTGRES_EXPORTER_PASSWORD"},
     }
     for item in external_secrets:
         name = item["metadata"]["name"]
@@ -1091,7 +1298,7 @@ def validate_secrets(path: Path) -> None:
     )
     iam_sources = set(re.findall(r"secret:(/umc-product/[^\"\n]+)-\?{6}", iam_text))
     require(sources == iam_sources, f"Secrets Manager/IAM paths differ: {sources ^ iam_sources}")
-    require(len(sources) == 28, f"Secrets Manager source count is {len(sources)}, expected 28")
+    require(len(sources) == 29, f"Secrets Manager source count is {len(sources)}, expected 29")
 
     uploader_properties = {
         spec.path: {property_name for property_name, _env_key in spec.properties}
@@ -1102,8 +1309,8 @@ def validate_secrets(path: Path) -> None:
         "secret uploader paths/properties must match rendered ExternalSecrets",
     )
     require(
-        len(SECRET_SPECS) == len(uploader_properties) == 28,
-        "secret uploader must contain 28 unique sources",
+        len(SECRET_SPECS) == len(uploader_properties) == 29,
+        "secret uploader must contain 29 unique sources",
     )
     renamed_properties = {
         "/umc-product/prod/backup-s3": {

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate local worksheets and create the 28 AWS Secrets Manager sources."""
+"""Validate local worksheets and create the 29 AWS Secrets Manager sources."""
 
 from __future__ import annotations
 
@@ -116,6 +116,12 @@ SECRET_SPECS = (
         "/umc-product/prod/postgres-readonly",
         ".env.prod",
         (("RO_PASSWORD", "RO_PASSWORD"),),
+        "prod",
+    ),
+    SecretSpec(
+        "/umc-product/prod/postgres-exporter",
+        ".env.prod",
+        (("POSTGRES_EXPORTER_PASSWORD", "POSTGRES_EXPORTER_PASSWORD"),),
         "prod",
     ),
     SecretSpec(
@@ -319,6 +325,7 @@ def validate_worksheet_values(values: dict[str, dict[str, str]], account_id: str
         for key in ("DATABASE_PASSWORD", "POSTGRES_PASSWORD")
     ]
     database_values.append(values[".env.prod"]["RO_PASSWORD"])
+    database_values.append(values[".env.prod"]["POSTGRES_EXPORTER_PASSWORD"])
     if len(set(database_values)) != len(database_values):
         raise BootstrapError("database passwords must differ by role and environment")
 

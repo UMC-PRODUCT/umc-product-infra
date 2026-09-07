@@ -60,6 +60,15 @@ data:
               summary: "kube-state-metrics scrape를 확인해주세요"
               description: "instance={{ $labels.instance }} 에서 backup Job/CronJob 상태 지표를 3분 이상 받지 못했어요. kube-state-metrics pod와 Service를 확인해주세요."
 
+          - alert: PostgreSQLDown
+            expr: up{job="postgres-exporter"} == 0 or pg_up{job="postgres-exporter"} == 0
+            for: 1m
+            labels:
+              severity: critical
+            annotations:
+              summary: "PostgreSQL 연결을 확인해주세요"
+              description: "PostgreSQL exporter가 database unavailable 상태를 보냈어요. job={{ $labels.job }}, instance={{ $labels.instance }} 의 DB와 exporter를 확인해주세요."
+
           - alert: OTelCollectorDown
             expr: up{job=~".*otel.*|.*collector.*"} == 0
             for: 1m

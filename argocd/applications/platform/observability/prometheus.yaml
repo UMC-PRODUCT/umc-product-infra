@@ -93,6 +93,12 @@ spec:
               - job_name: kube-state-metrics
                 static_configs:
                   - targets: [prometheus-kube-state-metrics.monitoring.svc.cluster.local:8080]
+              - job_name: postgres-exporter
+                scrape_timeout: 10s
+                static_configs:
+                  - targets: [postgres-exporter.db.svc.cluster.local:9187]
+                    labels:
+                      environment: prod
               - job_name: grafana
                 static_configs:
                   - targets: [grafana.monitoring.svc.cluster.local:80]
@@ -178,7 +184,8 @@ spec:
             requests: { cpu: 20m, memory: 32Mi }
             limits: { memory: 64Mi }
         kube-state-metrics:
-          # pg-backup 실패와 마지막 성공 시각을 클러스터 밖으로 알리기 위한 최소 상태 지표.
+          # DB Pod/StatefulSet/PVC의 상태·예약량과 pg-backup 상태만 수집한다.
+          # Secret과 클러스터 전체 리소스는 읽지 않는다.
           enabled: true
           image:
             sha: sha256:37d841299325c23b56e5951176ce8ef317d537447c0f1b2d2437dddbb1f51165
@@ -186,7 +193,7 @@ spec:
             # db Role/RoleBinding은 trusted Git source인 manifests/postgres에 둔다.
             # 외부 monitoring chart에 db destination을 열지 않는다.
             create: false
-          collectors: [cronjobs, jobs]
+          collectors: [cronjobs, jobs, pods, statefulsets, persistentvolumeclaims]
           namespaces: [db]
           resources:
             requests: { cpu: 20m, memory: 64Mi }

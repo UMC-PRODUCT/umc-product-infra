@@ -7,15 +7,20 @@ PostgreSQL 5432는 인터넷에 노출하지 않는다.
 
 ## 계정 경계
 
-| 환경 | database | 앱 role | 관리자 Secret |
-|---|---|---|---|
-| prod | `umc_product` | `umc_product_app` | `db/postgres-secrets` |
-| dev | `umc_product_dev` | `umc_product_dev_app` | `dev-db/postgres-secrets` |
-| preview | `umc_product_pr<N>` | `umc_product_preview_app` 공유 | `preview/postgres-preview-secrets` |
+| 환경 | database | 앱 role | 모니터링 role | 관리자 Secret |
+|---|---|---|---|---|
+| prod | `umc_product` | `umc_product_app` | `umc_product_exporter` | `db/postgres-secrets` |
+| dev | `umc_product_dev` | `umc_product_dev_app` | 없음 | `dev-db/postgres-secrets` |
+| preview | `umc_product_pr<N>` | `umc_product_preview_app` 공유 | 없음 | `preview/postgres-preview-secrets` |
 
 앱 role에는 superuser, createdb, createrole, replication 권한이 없다. 앱 password는 환경별 `app-db` Secret의 `DATABASE_PASSWORD`다.
 앱은 관리자 Secret을 읽지 않는다. prod `umc_product_ro`는 조회 전용이다.
 Git idempotent Job이 role과 grant를 만든다.
+
+`umc_product_exporter`는 사람의 DB 접속용이 아니다. `pg_monitor`로 PostgreSQL 통계만
+읽으며 앱 테이블 SELECT, superuser, createdb, createrole 권한은 없다. 별도
+`postgres-exporter` Deployment가 이 role을 쓰므로 DB StatefulSet은 모니터링 변경 때
+재시작되지 않는다.
 
 ## 접속 원칙
 
@@ -133,10 +138,12 @@ Secret과 실제 role을 바꾸고 Pod를 재시작한다.
 
 ```bash
 sudo -n k3s kubectl get pod -n db -l app.kubernetes.io/name=postgres
-sudo -n k3s kubectl get job -n db postgres-app-role postgres-readonly-role
+sudo -n k3s kubectl get job -n db postgres-app-role postgres-readonly-role postgres-exporter-role
+sudo -n k3s kubectl get deployment,service -n db -l app.kubernetes.io/name=postgres-exporter
 sudo -n k3s kubectl get networkpolicy -n db
 sudo -n k3s kubectl logs -n db job/postgres-app-role
 sudo -n k3s kubectl logs -n db job/postgres-readonly-role
+sudo -n k3s kubectl logs -n db deployment/postgres-exporter
 ```
 
 `Connection refused`가 Job 직후만 나면 NetworkPolicy endpoint 반영 지연일 수 있다.

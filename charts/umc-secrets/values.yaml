@@ -222,6 +222,13 @@ externalSecrets:
     remoteKey: postgres-readonly
     data:
       RO_PASSWORD: RO_PASSWORD
+  - name: postgres-exporter
+    namespace: db
+    store: aws-secretsmanager
+    targetName: postgres-exporter
+    remoteKey: postgres-exporter
+    data:
+      POSTGRES_EXPORTER_PASSWORD: POSTGRES_EXPORTER_PASSWORD
   - name: backup-s3
     namespace: db
     store: aws-secretsmanager
