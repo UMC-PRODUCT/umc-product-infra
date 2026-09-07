@@ -51,6 +51,19 @@
 {{- if ne (lower (get .Values.env "APP_SEED_ENABLED")) "false" -}}
 {{- fail "공유 환경에서는 APP_SEED_ENABLED=false여야 한다" -}}
 {{- end -}}
+{{- $testApiRuntimeEnabled := lower (toString (get .Values.env "APP_TEST_API_ENABLED")) -}}
+{{- if not (has $testApiRuntimeEnabled (list "true" "false")) -}}
+{{- fail "APP_TEST_API_ENABLED는 true 또는 false여야 한다" -}}
+{{- end -}}
+{{- if and .Values.testApi.enabled (ne $environment "dev") -}}
+{{- fail "testApi.enabled=true는 dev 환경에서만 허용된다" -}}
+{{- end -}}
+{{- if and .Values.testApi.enabled (ne $testApiRuntimeEnabled "true") -}}
+{{- fail "testApi.enabled=true이면 APP_TEST_API_ENABLED=true여야 한다" -}}
+{{- end -}}
+{{- if and (not .Values.testApi.enabled) (ne $testApiRuntimeEnabled "false") -}}
+{{- fail "testApi.enabled=false이면 APP_TEST_API_ENABLED=false여야 한다" -}}
+{{- end -}}
 {{- if ne (get .Values.env "MANAGEMENT_SERVER_PORT") "9090" -}}
 {{- fail "MANAGEMENT_SERVER_PORT는 9090이어야 한다" -}}
 {{- end -}}

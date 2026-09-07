@@ -166,6 +166,9 @@ spec:
               hosts: [grafana.university.neordinary.com]
 
         grafana.ini:
+          dashboards:
+            # 로그인 후 전체 현황에서 시작하고 필요할 때 상세 대시보드로 내려간다.
+            default_home_dashboard_path: /tmp/dashboards/system-overview.json
           auth:
             # 로컬 계정 로그인 화면은 팀원 접근 경계이므로 유지한다.
             disable_login_form: false

@@ -56,6 +56,41 @@ helm template umc-product-preview charts/umc-product-server \
   -f charts/umc-product-server/values-preview.yaml \
   >"$validation_dir/preview-desired-state.yaml"
 
+# test API 리소스는 testApi 값만으로 노출되지 않고 Deployment와 Ingress gate를 모두 따른다.
+helm template dev-umc-product-server charts/umc-product-server \
+  --namespace dev-app \
+  -f charts/umc-product-server/values-dev.yaml \
+  --set ingress.enabled=false \
+  >"$validation_dir/dev-test-api-ingress-disabled.yaml"
+helm template dev-umc-product-server charts/umc-product-server \
+  --namespace dev-app \
+  -f charts/umc-product-server/values-dev.yaml \
+  --set deployment.enabled=false \
+  --set ingress.enabled=false \
+  >"$validation_dir/dev-test-api-deployment-disabled.yaml"
+python3 - \
+  "$validation_dir/dev-test-api-ingress-disabled.yaml" \
+  "$validation_dir/dev-test-api-deployment-disabled.yaml" <<'PY'
+import sys
+from pathlib import Path
+
+import yaml
+
+protected_resource_suffixes = ("-test-api", "-test-api-basic-auth")
+for filename in sys.argv[1:]:
+    with Path(filename).open(encoding="utf-8") as stream:
+        names = {
+            document.get("metadata", {}).get("name")
+            for document in yaml.safe_load_all(stream)
+            if isinstance(document, dict)
+        }
+    if any(
+        name and name.endswith(protected_resource_suffixes)
+        for name in names
+    ):
+        raise SystemExit(f"test API resource bypassed deployment/ingress gate: {filename}")
+PY
+
 # 실제 FE origin을 넣지 않으면 workload gate가 열리지 않아야 한다.
 if helm template umc-product-server charts/umc-product-server \
   -f charts/umc-product-server/values-prod.yaml "${common_args[@]}" \
@@ -84,6 +119,27 @@ if helm template dev-umc-product-server charts/umc-product-server \
   -f charts/umc-product-server/values-dev.yaml "${common_args[@]}" \
   --set-string env.FCM_ENABLED=true >/dev/null 2>&1; then
   echo "dev FCM_ENABLED=true unexpectedly passed" >&2
+  exit 1
+fi
+
+# test API의 애플리케이션 gate와 보호 Ingress는 함께 켜지고 dev에서만 허용되어야 한다.
+if helm template dev-umc-product-server charts/umc-product-server \
+  -f charts/umc-product-server/values-dev.yaml "${common_args[@]}" \
+  --set-string env.APP_TEST_API_ENABLED=false >/dev/null 2>&1; then
+  echo "test API Ingress without runtime gate unexpectedly passed" >&2
+  exit 1
+fi
+if helm template dev-umc-product-server charts/umc-product-server \
+  -f charts/umc-product-server/values-dev.yaml "${common_args[@]}" \
+  --set testApi.enabled=false >/dev/null 2>&1; then
+  echo "test API runtime gate without protected Ingress unexpectedly passed" >&2
+  exit 1
+fi
+if helm template umc-product-server charts/umc-product-server \
+  -f charts/umc-product-server/values-prod.yaml "${common_args[@]}" \
+  --set testApi.enabled=true \
+  --set-string env.APP_TEST_API_ENABLED=true >/dev/null 2>&1; then
+  echo "production test API unexpectedly passed" >&2
   exit 1
 fi
 

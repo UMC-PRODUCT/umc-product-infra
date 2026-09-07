@@ -668,8 +668,75 @@ def validate_documentation_ingress_contract(
     )
 
 
+def validate_test_api_ingress_contract(
+    ingress: dict,
+    middleware: dict,
+) -> None:
+    expected_host, expected_tls_secret, expected_service = edge_expectation("dev")
+    middleware_name = f"{expected_service}-test-api-basic-auth"
+
+    require(
+        middleware["metadata"].get("name") == middleware_name
+        and middleware["metadata"].get("annotations")
+        == {"argocd.argoproj.io/sync-wave": "0"}
+        and middleware.get("spec")
+        == {
+            "basicAuth": {
+                "secret": "docs-basic-auth",
+                "removeHeader": True,
+            }
+        },
+        "dev: test API Basic Auth Middleware",
+    )
+    require(
+        ingress["metadata"].get("name") == f"{expected_service}-test-api"
+        and ingress["metadata"].get("annotations")
+        == {
+            "argocd.argoproj.io/sync-wave": "1",
+            "traefik.ingress.kubernetes.io/router.entrypoints": "websecure",
+            "traefik.ingress.kubernetes.io/router.middlewares": (
+                f"dev-app-{middleware_name}@kubernetescrd"
+            ),
+            "traefik.ingress.kubernetes.io/router.priority": "100",
+        },
+        "dev: test API Ingress annotations",
+    )
+    require(
+        ingress["spec"]
+        == {
+            "ingressClassName": "traefik",
+            "rules": [
+                {
+                    "host": expected_host,
+                    "http": {
+                        "paths": [
+                            {
+                                "path": "/test",
+                                "pathType": "Prefix",
+                                "backend": {
+                                    "service": {
+                                        "name": expected_service,
+                                        "port": {"name": "http"},
+                                    }
+                                },
+                            }
+                        ]
+                    },
+                }
+            ],
+            "tls": [
+                {"hosts": [expected_host], "secretName": expected_tls_secret}
+            ],
+        },
+        "dev: protected test API route and TLS",
+    )
+
+
 def validate_render(
-    path: Path, environment: str, ingress_enabled: bool
+    path: Path,
+    environment: str,
+    ingress_enabled: bool,
+    test_api_enabled: bool,
 ) -> None:
     resources = yaml_documents(path)
     deployment = resource(resources, "Deployment")
@@ -761,6 +828,7 @@ def validate_render(
 
     expected_environment = {
         "prod": {
+            "APP_TEST_API_ENABLED": "false",
             "FCM_ENABLED": "true",
             "OPENAPI_ENABLE": "true",
             "SPRING_PROFILES_ACTIVE": "prod",
@@ -780,6 +848,7 @@ def validate_render(
             "DATABASE_URL": "jdbc:postgresql://postgres.db.svc.cluster.local:5432/umc_product",
         },
         "dev": {
+            "APP_TEST_API_ENABLED": "true",
             "FCM_ENABLED": "false",
             "OPENAPI_ENABLE": "true",
             "SPRING_PROFILES_ACTIVE": "dev",
@@ -794,6 +863,7 @@ def validate_render(
             "DATABASE_URL": "jdbc:postgresql://postgres.dev-db.svc.cluster.local:5432/umc_product_dev",
         },
         "preview": {
+            "APP_TEST_API_ENABLED": "false",
             "FCM_ENABLED": "false",
             "SPRING_PROFILES_ACTIVE": "dev",
             "SPRING_APPLICATION_NAME": "preview-umc-product-pr42",
@@ -809,7 +879,7 @@ def validate_render(
     for key, expected in expected_environment.items():
         require(environment_values.get(key) == expected, f"{environment}: env {key}")
 
-    expected_host, expected_secret, _ = edge_expectation(environment)
+    expected_host, expected_secret, expected_service = edge_expectation(environment)
     certificates = [item for item in resources if item.get("kind") == "Certificate"]
     certificate_issuer: str | None = None
     if environment == "preview":
@@ -859,7 +929,9 @@ def validate_render(
     documentation_enabled = environment in {"prod", "dev"}
     ingresses = [item for item in resources if item.get("kind") == "Ingress"]
     expected_ingress_count = (
-        (2 if documentation_enabled else 1) if ingress_enabled else 0
+        (1 + int(documentation_enabled) + int(test_api_enabled))
+        if ingress_enabled
+        else 0
     )
     require(
         len(ingresses) == expected_ingress_count,
@@ -867,8 +939,13 @@ def validate_render(
     )
     middlewares = [item for item in resources if item.get("kind") == "Middleware"]
     require(
-        len(middlewares) == (1 if ingress_enabled and documentation_enabled else 0),
-        f"{environment}: docs Middleware must match source gate",
+        len(middlewares)
+        == (
+            int(documentation_enabled) + int(test_api_enabled)
+            if ingress_enabled
+            else 0
+        ),
+        f"{environment}: protected-route Middleware must match source gates",
     )
     if ingress_enabled:
         if environment != "preview":
@@ -890,11 +967,37 @@ def validate_render(
         )
         validate_ingress_contract(main_ingress, environment, source_target)
         if documentation_enabled:
-            docs_ingress = next(item for item in ingresses if item is not main_ingress)
+            docs_ingress = next(
+                item
+                for item in ingresses
+                if item["metadata"].get("name") == f"{expected_service}-docs"
+            )
+            docs_middleware = next(
+                item
+                for item in middlewares
+                if item["metadata"].get("name")
+                == f"{expected_service}-docs-basic-auth"
+            )
             validate_documentation_ingress_contract(
                 docs_ingress,
-                middlewares[0],
+                docs_middleware,
                 environment,
+            )
+        if test_api_enabled:
+            test_api_ingress = next(
+                item
+                for item in ingresses
+                if item["metadata"].get("name") == f"{expected_service}-test-api"
+            )
+            test_api_middleware = next(
+                item
+                for item in middlewares
+                if item["metadata"].get("name")
+                == f"{expected_service}-test-api-basic-auth"
+            )
+            validate_test_api_ingress_contract(
+                test_api_ingress,
+                test_api_middleware,
             )
 
     policies = [item for item in resources if item.get("kind") == "NetworkPolicy"]
@@ -1557,6 +1660,19 @@ def main() -> int:
     validate_postgres()
     validate_preview_budget()
     validate_reloader_argocd_contract()
+    base_values = yaml.safe_load(
+        (ROOT / "charts" / "umc-product-server" / "values.yaml").read_text(
+            encoding="utf-8"
+        )
+    )
+    require(
+        base_values.get("testApi")
+        == {
+            "enabled": False,
+            "basicAuth": {"existingSecret": "docs-basic-auth"},
+        },
+        "test API base values must be disabled and reuse docs-basic-auth",
+    )
     for environment, filename in zip(("prod", "dev", "preview"), sys.argv[1:4]):
         overlay = yaml.safe_load(
             (
@@ -1571,7 +1687,21 @@ def main() -> int:
             isinstance(ingress_enabled, bool),
             f"{environment}: ingress.enabled must be boolean",
         )
-        validate_render(Path(filename), environment, ingress_enabled)
+        test_api_enabled = overlay.get("testApi", {}).get("enabled", False)
+        require(
+            isinstance(test_api_enabled, bool),
+            f"{environment}: testApi.enabled must be boolean",
+        )
+        require(
+            test_api_enabled is (environment == "dev"),
+            f"{environment}: test API must be enabled only in dev",
+        )
+        validate_render(
+            Path(filename),
+            environment,
+            ingress_enabled,
+            test_api_enabled,
+        )
     validate_secrets(Path(sys.argv[4]))
     validate_active_edge_fixture(Path(sys.argv[5]))
     validate_active_preview_edge_fixture(Path(sys.argv[6]))

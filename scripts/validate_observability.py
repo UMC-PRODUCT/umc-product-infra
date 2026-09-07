@@ -182,6 +182,11 @@ def validate_grafana_access_contract(application: dict) -> bool:
 
     config = values["grafana.ini"]
     require(
+        config.get("dashboards")
+        == {"default_home_dashboard_path": "/tmp/dashboards/system-overview.json"},
+        "grafana: System Overview must be the default home dashboard",
+    )
+    require(
         config.get("server")
         == {
             "protocol": "http",

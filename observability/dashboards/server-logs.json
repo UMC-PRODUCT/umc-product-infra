@@ -117,6 +117,19 @@
         ]
       }
     },
+    "links": [
+      {
+        "asDropdown": false,
+        "icon": "external link",
+        "includeVars": true,
+        "keepTime": true,
+        "tags": [],
+        "targetBlank": false,
+        "title": "System Overview",
+        "type": "link",
+        "url": "/d/umc-product-system-overview"
+      }
+    ],
     "liveNow": false,
     "preload": false,
     "tags": [

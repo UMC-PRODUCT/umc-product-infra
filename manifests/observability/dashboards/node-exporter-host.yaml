@@ -38,7 +38,7 @@ data:
           }
         ],
         "cursorSync": "Crosshair",
-        "description": "node_exporter default collector metrics dashboard for macOS Homebrew exporter and Linux Docker exporter.",
+        "description": "node_exporter default collector dashboard. 실제 운영 Linux target을 기본으로 선택하며, 로컬 macOS Homebrew exporter는 필요할 때 OS 변수에서 선택한다.",
         "editable": true,
         "elements": {
           "panel-1": {
@@ -4822,7 +4822,19 @@ data:
             ]
           }
         },
-        "links": [],
+        "links": [
+          {
+            "asDropdown": false,
+            "icon": "external link",
+            "includeVars": true,
+            "keepTime": true,
+            "tags": [],
+            "targetBlank": false,
+            "title": "System Overview",
+            "type": "link",
+            "url": "/d/umc-product-system-overview"
+          }
+        ],
         "liveNow": false,
         "preload": false,
         "tags": [
@@ -4881,8 +4893,8 @@ data:
               "allowCustomValue": false,
               "current": {
                 "selected": true,
-                "text": "macOS",
-                "value": "macos"
+                "text": "Linux",
+                "value": "linux"
               },
               "hide": "dontHide",
               "includeAll": false,
@@ -4891,12 +4903,12 @@ data:
               "name": "os",
               "options": [
                 {
-                  "selected": true,
+                  "selected": false,
                   "text": "macOS",
                   "value": "macos"
                 },
                 {
-                  "selected": false,
+                  "selected": true,
                   "text": "Linux",
                   "value": "linux"
                 }

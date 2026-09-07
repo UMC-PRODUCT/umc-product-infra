@@ -41,22 +41,33 @@ canonical `https://grafana.university.neordinary.com`, domain enforcement, secur
 
 ## Dashboard 사용
 
-서버 운영에 직접 쓰는 초기 dashboard는 여섯 개다.
+서버 운영에 직접 쓰는 dashboard는 여덟 개다. 로그인 후 기본 홈으로 열리는
+`UMC PRODUCT System Overview`에서 시작하고, 상단 link에서 같은 시간 범위와 변수를 유지한 채
+상세 dashboard로 이동한다.
 
+- UMC PRODUCT System Overview (prod/dev 앱 비교, 운영 PostgreSQL·Linux host 요약)
 - API Flow
 - Cache
 - GraphQL
 - Node Exporter Host
-- 서버팀 기본(K3s PostgreSQL 상태·DB 내부 지표 포함)
+- Application Detail (HTTP RED, JVM, HikariCP, Tomcat, 로그)
+- PostgreSQL Detail — Production Only
 - Server Logs
 
-상단 service 변수에는 signal 유입 후 아래 값이 표시된다.
+Application Detail의 Service 변수는 Loki label 목록이 아니라 Prometheus recording rule
+`umc_product_service_fallback_info`의 `application` label에서 가져온다. 따라서 앱 signal이 잠시
+비어도 기본 prod/dev/local 선택지가 유지된다. Overview는 이 목록에서 prod/dev만 비교한다.
+
+상단 service 변수에는 아래 값이 표시된다.
 
 | 값 | 환경 |
 |---|---|
+| `local-umc-product` | local |
 | `prod-umc-product` | prod |
 | `dev-umc-product` | dev |
-| `preview-umc-product-pr27` | PR 27 preview |
+
+preview 환경은 fallback recording rule의 고정 option이 아니다. 필요할 때 Service 변수의 custom value에
+정확한 `application` 이름을 입력한다.
 
 Loki query 예시다.
 
@@ -68,7 +79,8 @@ Loki query 예시다.
 
 trace ID link는 Tempo datasource를 연다. metrics, logs, traces의 service name은 `SPRING_APPLICATION_NAME`과 일치시킨다.
 
-PostgreSQL 패널은 두 source를 함께 쓴다.
+PostgreSQL Detail은 **production 전용**이며 두 source를 함께 쓴다. dev에는 PostgreSQL exporter와
+해당 Kubernetes DB workload가 없으므로 빈 dev 패널로 해석하지 않는다.
 
 - `postgres-exporter`: 접속 수, 최대 접속, DB 용량, transaction, cache hit, lock 같은 DB 내부 지표
 - `kube-state-metrics`: `db` namespace의 PostgreSQL Pod/StatefulSet 상태, CPU·memory request/limit, PVC 요청 용량
@@ -76,6 +88,9 @@ PostgreSQL 패널은 두 source를 함께 쓴다.
 여기서 CPU·memory는 **실제 사용량이 아니라 Kubernetes에 선언한 예약/limit**이다.
 현재 Prometheus는 cluster-wide API token과 cAdvisor scrape를 쓰지 않으므로 Pod의 실제 사용량은
 제공하지 않는다. 실제 사용량이 필요하면 별도 권한·수집 설계를 먼저 검토한다.
+
+Node Exporter Host의 OS 기본값은 실제 운영 target인 `Linux`다. `macOS`는 로컬 Homebrew
+exporter를 연결해 확인할 때만 선택한다.
 
 ## 팀원 계정
 

@@ -3,6 +3,6 @@ name: umc-product-server
 type: application
 description: UMC Product Spring Boot 서버 (k3s 단일 노드 배포용)
 # 차트 자체 버전 — 차트 파일 수정 시마다 bump
-version: 0.4.10
+version: 0.4.11
 # 앱 버전 — 실제 배포 태그는 values.image.tag가 우선
 appVersion: "bootstrap-required"

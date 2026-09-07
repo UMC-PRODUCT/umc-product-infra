@@ -27,8 +27,10 @@ DASHBOARD_ALLOWLIST = (
     "cache.json",
     "graphql.json",
     "node-exporter-host.json",
+    "postgresql-detail.json",
     "server-default.json",
     "server-logs.json",
+    "system-overview.json",
 )
 PROMETHEUS_RULE_SOURCE = "prometheus-alerts.yaml"
 LOKI_RULE_SOURCE = "loki-alerts.yaml"
@@ -216,16 +218,18 @@ def canonical_dashboard(filename: str, content: str) -> str:
     if "umc-product" not in tags:
         raise ValueError(f"UMC dashboard tag가 없습니다: {filename}")
 
-    if filename == "server-default.json":
+    if filename in {"postgresql-detail.json", "server-default.json"}:
         serialized = json.dumps(document, ensure_ascii=False)
         serialized_lower = serialized.lower()
         forbidden_dependencies = ("cloudwatch", "aws/rds", "rds_instance", "aws_region")
         present = [value for value in forbidden_dependencies if value in serialized_lower]
         if present:
             raise ValueError(
-                f"server-default.json에 제거되지 않은 RDS/CloudWatch 의존성이 있습니다: {present}"
+                f"{filename}에 제거되지 않은 RDS/CloudWatch 의존성이 있습니다: {present}"
             )
 
+    if filename == "postgresql-detail.json":
+        serialized = json.dumps(document, ensure_ascii=False)
         required_metrics = (
             "pg_up",
             "pg_stat_activity_count",
@@ -244,7 +248,7 @@ def canonical_dashboard(filename: str, content: str) -> str:
         missing_metrics = [metric for metric in required_metrics if metric not in serialized]
         if missing_metrics:
             raise ValueError(
-                f"server-default.json에 필수 PostgreSQL/Kubernetes 패널 지표가 없습니다: {missing_metrics}"
+                f"postgresql-detail.json에 필수 PostgreSQL/Kubernetes 패널 지표가 없습니다: {missing_metrics}"
             )
 
     return json.dumps(document, ensure_ascii=False, indent=2, sort_keys=True) + "\n"

@@ -49,6 +49,13 @@ documentation:
   basicAuth:
     existingSecret: docs-basic-auth
 
+# 개발용 test API는 일반 API와 분리된 Ingress에서 Basic Auth로 보호한다.
+# 문서용 htpasswd Secret을 재사용하며 별도 자격증명을 만들지 않는다.
+testApi:
+  enabled: false
+  basicAuth:
+    existingSecret: docs-basic-auth
+
 # prod/dev cert-manager Certificate는 Deployment와 독립적으로 먼저 발급한다. Preview는
 # namespace 공용 와일드카드 Secret을 사용하므로 환경 overlay에서 비활성화한다.
 certificate:
@@ -75,6 +82,7 @@ resources:
 # 모든 환경에 공통인 비밀이 아닌 런타임 설정.
 env:
   APP_SEED_ENABLED: "false"
+  APP_TEST_API_ENABLED: "false"
   FCM_ENABLED: "false"
   MANAGEMENT_ENDPOINT_HEALTH_PROBES_ENABLED: "true"
   MANAGEMENT_SERVER_PORT: "9090"
