@@ -31,6 +31,7 @@ Kubernetes Secret으로 동기화한다. Git에는 값이 아니라 경로, prop
 | namespace별 AWS 읽기 권한 | `cloud/aws/external-secrets-iam.yaml` |
 | 앱·SES·backup·DNS access key 최초 발급 | `scripts/bootstrap_*_access_keys.py` |
 | Pod가 읽는 Secret 이름 | `charts/umc-product-server/templates/deployment.yaml` |
+| API 문서 Basic Auth 적용 | `charts/umc-product-server/templates/documentation-ingress.yaml` |
 
 환경별 AWS 경로는 `/umc-product/prod/`, `/umc-product/dev/`,
 `/umc-product/preview/`, `/umc-product/platform/`으로 분리한다. 정확한 source 개수와
@@ -40,6 +41,8 @@ property 목록은 문서에 복사하지 않고 위 코드에서 확인한다.
 
 - `APPLE_PRIVATE_KEY`는 PEM 개행을 보존한다.
 - `FIREBASE_CONFIGURATION`은 service-account JSON 전체를 문자열로 저장하며 base64로 바꾸지 않는다.
+- `DOCS_BASIC_AUTH_USERS`는 `umc-docs:<bcrypt hash>` 형식의 htpasswd 한 줄이다. 원문
+  비밀번호는 로컬 worksheet에서만 확인하고 AWS·Kubernetes에는 이 해시만 저장한다.
 - prod SES 자격증명은 dev/preview와 공유하지 않는다. dev/preview만 nonprod sender를 공유한다.
 - DB URL·username, bucket 이름, region, Spring profile, issuer URL과 발신 주소는 비밀이 아니므로 Helm values에 둔다.
 
@@ -120,6 +123,19 @@ sudo k3s kubectl wait --for=condition=Ready "externalsecret/$NAME" \
 
 Reloader는 허용된 앱 Secret 변경만 Pod 재시작으로 연결한다. DB와 JWT는 자동 재시작 대상으로
 간주하지 않는다. 실제 허용 목록은 `charts/umc-secrets/values.yaml`이 기준이다.
+
+문서 인증 Secret은 Pod가 아니라 Traefik Middleware가 직접 읽는다. ESO 동기화가 끝나면
+Traefik이 변경을 감지하므로 애플리케이션 Pod를 재시작하지 않는다. 비밀번호를 바꿀 때는
+비밀번호를 명령 인자에 넣지 말고 아래처럼 대화형 입력으로 새 bcrypt htpasswd 값을 만든다.
+
+```bash
+htpasswd -nB -C 12 umc-docs
+```
+
+환경별 `/umc-product/prod/docs-basic-auth` 또는
+`/umc-product/dev/docs-basic-auth`의 `users` property를 갱신하고 해당
+`docs-basic-auth` ExternalSecret을 force-sync한 뒤, 익명 요청은 `401`, 새 자격증명 요청은
+`200`인지 확인한다.
 
 ## 앱 DB 비밀번호 회전
 

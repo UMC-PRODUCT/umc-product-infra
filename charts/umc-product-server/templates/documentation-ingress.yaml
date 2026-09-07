@@ -1,0 +1,57 @@
+{{- if and .Values.deployment.enabled .Values.ingress.enabled .Values.documentation.enabled }}
+{{- if ne (lower (toString (get .Values.env "OPENAPI_ENABLE"))) "true" }}
+{{- fail "documentation.enabled=true이면 env.OPENAPI_ENABLE=true여야 함" }}
+{{- end }}
+{{- $host := required "documentation.enabled=true이면 ingress.host가 필수" .Values.ingress.host }}
+{{- $secretName := required "documentation.basicAuth.existingSecret이 필수" .Values.documentation.basicAuth.existingSecret }}
+{{- $middlewareName := printf "%s-docs-basic-auth" (include "umc-product-server.fullname" .) }}
+---
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: {{ $middlewareName }}
+  labels:
+    {{- include "umc-product-server.labels" . | nindent 4 }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+spec:
+  basicAuth:
+    secret: {{ $secretName | quote }}
+    # 문서용 Basic 자격증명이 백엔드 Authorization 헤더로 전달되지 않게 한다.
+    removeHeader: true
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "umc-product-server.fullname" . }}-docs
+  labels:
+    {{- include "umc-product-server.labels" . | nindent 4 }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    traefik.ingress.kubernetes.io/router.middlewares: {{ printf "%s-%s@kubernetescrd" .Release.Namespace $middlewareName | quote }}
+    # 같은 host의 / 라우터보다 문서 경로 라우터가 항상 먼저 선택되게 한다.
+    traefik.ingress.kubernetes.io/router.priority: "100"
+spec:
+  ingressClassName: {{ .Values.ingress.className | quote }}
+  rules:
+    - host: {{ $host | quote }}
+      http:
+        paths:
+          - path: /docs
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "umc-product-server.fullname" . }}
+                port:
+                  name: http
+          - path: /docs-json
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "umc-product-server.fullname" . }}
+                port:
+                  name: http
+  tls:
+    {{- toYaml .Values.ingress.tls | nindent 4 }}
+{{- end }}

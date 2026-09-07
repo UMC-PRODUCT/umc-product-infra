@@ -27,6 +27,12 @@ def valid_worksheets() -> dict[str, dict[str, str]]:
         values[env_file]["APPLE_PRIVATE_KEY"] = (
             "-----BEGIN PRIVATE KEY-----\\nexample\\n-----END PRIVATE KEY-----"
         )
+    values[".env.prod"]["DOCS_BASIC_AUTH_USERS"] = (
+        "umc-docs:$2y$05$" + "a" * 53
+    )
+    values[".env.dev"]["DOCS_BASIC_AUTH_USERS"] = (
+        "umc-docs:$2y$05$" + "b" * 53
+    )
     shared_ses = ("shared-nonprod-id", "shared-nonprod-secret")
     for env_file in (".env.dev", ".env.preview"):
         values[env_file]["SES_ACCESS_KEY_ID"] = shared_ses[0]
@@ -81,13 +87,17 @@ class PayloadTests(unittest.TestCase):
 
         payloads = uploader.build_payloads(values)
 
-        self.assertEqual(len(payloads), 26)
+        self.assertEqual(len(payloads), 28)
         self.assertIn("APPLE_WEB_CLIENT_ID", payloads["/umc-product/prod/app-oauth"])
         self.assertEqual(
             payloads["/umc-product/prod/app-oauth"]["APPLE_WEB_CLIENT_ID"], ""
         )
         self.assertIsInstance(
             payloads["/umc-product/prod/app-fcm"]["FIREBASE_CONFIGURATION"], str
+        )
+        self.assertEqual(
+            payloads["/umc-product/dev/docs-basic-auth"]["users"],
+            values[".env.dev"]["DOCS_BASIC_AUTH_USERS"],
         )
         self.assertEqual(
             payloads["/umc-product/prod/backup-s3"]["AWS_ACCESS_KEY_ID"],

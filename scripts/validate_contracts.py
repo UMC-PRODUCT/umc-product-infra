@@ -597,6 +597,73 @@ def validate_ingress_contract(
     )
 
 
+def validate_documentation_ingress_contract(
+    ingress: dict,
+    middleware: dict,
+    environment: str,
+) -> None:
+    expected_host, expected_tls_secret, expected_service = edge_expectation(environment)
+    expected_namespace = "app" if environment == "prod" else "dev-app"
+    middleware_name = f"{expected_service}-docs-basic-auth"
+
+    require(
+        middleware["metadata"].get("name") == middleware_name
+        and middleware["metadata"].get("annotations")
+        == {"argocd.argoproj.io/sync-wave": "0"}
+        and middleware.get("spec")
+        == {
+            "basicAuth": {
+                "secret": "docs-basic-auth",
+                "removeHeader": True,
+            }
+        },
+        f"{environment}: docs Basic Auth Middleware",
+    )
+    require(
+        ingress["metadata"].get("name") == f"{expected_service}-docs"
+        and ingress["metadata"].get("annotations")
+        == {
+            "argocd.argoproj.io/sync-wave": "1",
+            "traefik.ingress.kubernetes.io/router.entrypoints": "websecure",
+            "traefik.ingress.kubernetes.io/router.middlewares": (
+                f"{expected_namespace}-{middleware_name}@kubernetescrd"
+            ),
+            "traefik.ingress.kubernetes.io/router.priority": "100",
+        },
+        f"{environment}: docs Ingress annotations",
+    )
+    expected_paths = []
+    for path in ("/docs", "/docs-json"):
+        expected_paths.append(
+            {
+                "path": path,
+                "pathType": "Prefix",
+                "backend": {
+                    "service": {
+                        "name": expected_service,
+                        "port": {"name": "http"},
+                    }
+                },
+            }
+        )
+    require(
+        ingress["spec"]
+        == {
+            "ingressClassName": "traefik",
+            "rules": [
+                {
+                    "host": expected_host,
+                    "http": {"paths": expected_paths},
+                }
+            ],
+            "tls": [
+                {"hosts": [expected_host], "secretName": expected_tls_secret}
+            ],
+        },
+        f"{environment}: docs routes and TLS",
+    )
+
+
 def validate_render(
     path: Path, environment: str, ingress_enabled: bool
 ) -> None:
@@ -691,6 +758,7 @@ def validate_render(
     expected_environment = {
         "prod": {
             "FCM_ENABLED": "true",
+            "OPENAPI_ENABLE": "true",
             "SPRING_PROFILES_ACTIVE": "prod",
             "SPRING_APPLICATION_NAME": "prod-umc-product",
             "APP_ENVIRONMENT": "prod",
@@ -709,6 +777,7 @@ def validate_render(
         },
         "dev": {
             "FCM_ENABLED": "false",
+            "OPENAPI_ENABLE": "true",
             "SPRING_PROFILES_ACTIVE": "dev",
             "SPRING_APPLICATION_NAME": "dev-umc-product",
             "APP_ENVIRONMENT": "dev",
@@ -783,10 +852,19 @@ def validate_render(
             f"{environment}: certificate key contract",
         )
 
+    documentation_enabled = environment in {"prod", "dev"}
     ingresses = [item for item in resources if item.get("kind") == "Ingress"]
+    expected_ingress_count = (
+        (2 if documentation_enabled else 1) if ingress_enabled else 0
+    )
     require(
-        len(ingresses) == (1 if ingress_enabled else 0),
+        len(ingresses) == expected_ingress_count,
         f"{environment}: rendered Ingress must match source gate",
+    )
+    middlewares = [item for item in resources if item.get("kind") == "Middleware"]
+    require(
+        len(middlewares) == (1 if ingress_enabled and documentation_enabled else 0),
+        f"{environment}: docs Middleware must match source gate",
     )
     if ingress_enabled:
         if environment != "preview":
@@ -800,7 +878,20 @@ def validate_render(
             )
         )
         source_target = str(source_values["externalDNS"]["target"])
-        validate_ingress_contract(ingresses[0], environment, source_target)
+        main_ingress = next(
+            item
+            for item in ingresses
+            if "external-dns.kubernetes.io/target"
+            in item["metadata"].get("annotations", {})
+        )
+        validate_ingress_contract(main_ingress, environment, source_target)
+        if documentation_enabled:
+            docs_ingress = next(item for item in ingresses if item is not main_ingress)
+            validate_documentation_ingress_contract(
+                docs_ingress,
+                middlewares[0],
+                environment,
+            )
 
     policies = [item for item in resources if item.get("kind") == "NetworkPolicy"]
     require(len(policies) == (0 if environment == "preview" else 2), f"{environment}: policies")
@@ -826,7 +917,13 @@ def validate_render(
 
 def validate_active_edge_fixture(path: Path) -> None:
     resources = yaml_documents(path)
-    ingress = resource(resources, "Ingress")
+    ingress = next(
+        item
+        for item in resources
+        if item.get("kind") == "Ingress"
+        and "external-dns.kubernetes.io/target"
+        in item["metadata"].get("annotations", {})
+    )
     certificate = resource(resources, "Certificate")
     require(
         certificate["spec"].get("issuerRef")
@@ -910,12 +1007,12 @@ def validate_secrets(path: Path) -> None:
     stores = [item for item in resources if item.get("kind") == "SecretStore"]
     external_secrets = [item for item in resources if item.get("kind") == "ExternalSecret"]
     require(len(stores) == 9, f"SecretStore count is {len(stores)}, expected 9")
-    require(len(external_secrets) == 28, f"ExternalSecret count is {len(external_secrets)}, expected 28")
+    require(len(external_secrets) == 30, f"ExternalSecret count is {len(external_secrets)}, expected 30")
 
     expected_names = {
-        "app": set(PROD_REQUIRED_SECRETS),
+        "app": set(PROD_REQUIRED_SECRETS + ["docs-basic-auth"]),
         "db": {"app-db", "postgres-secrets", "postgres-readonly", "backup-s3"},
-        "dev-app": set(BASE_REQUIRED_SECRETS),
+        "dev-app": set(BASE_REQUIRED_SECRETS + ["docs-basic-auth"]),
         "dev-db": {"app-db", "postgres-secrets"},
         "preview": set(BASE_REQUIRED_SECRETS + ["postgres-preview-secrets"]),
         "monitoring": {"grafana-admin", "alertmanager-discord"},
@@ -957,6 +1054,7 @@ def validate_secrets(path: Path) -> None:
         "app-email": {"SES_ACCESS_KEY_ID", "SES_SECRET_ACCESS_KEY"},
         "app-storage": {"S3_ACCESS_KEY_ID", "S3_SECRET_ACCESS_KEY"},
         "app-fcm": {"FIREBASE_CONFIGURATION"},
+        "docs-basic-auth": {"users"},
     }
     for item in external_secrets:
         name = item["metadata"]["name"]
@@ -993,7 +1091,7 @@ def validate_secrets(path: Path) -> None:
     )
     iam_sources = set(re.findall(r"secret:(/umc-product/[^\"\n]+)-\?{6}", iam_text))
     require(sources == iam_sources, f"Secrets Manager/IAM paths differ: {sources ^ iam_sources}")
-    require(len(sources) == 26, f"Secrets Manager source count is {len(sources)}, expected 26")
+    require(len(sources) == 28, f"Secrets Manager source count is {len(sources)}, expected 28")
 
     uploader_properties = {
         spec.path: {property_name for property_name, _env_key in spec.properties}
@@ -1004,8 +1102,8 @@ def validate_secrets(path: Path) -> None:
         "secret uploader paths/properties must match rendered ExternalSecrets",
     )
     require(
-        len(SECRET_SPECS) == len(uploader_properties) == 26,
-        "secret uploader must contain 26 unique sources",
+        len(SECRET_SPECS) == len(uploader_properties) == 28,
+        "secret uploader must contain 28 unique sources",
     )
     renamed_properties = {
         "/umc-product/prod/backup-s3": {
@@ -1032,6 +1130,12 @@ def validate_secrets(path: Path) -> None:
         "/umc-product/platform/external-dns/route53-credentials": {
             "access-key-id": "EXTERNAL_DNS_ROUTE53_ACCESS_KEY_ID",
             "secret-access-key": "EXTERNAL_DNS_ROUTE53_SECRET_ACCESS_KEY",
+        },
+        "/umc-product/prod/docs-basic-auth": {
+            "users": "DOCS_BASIC_AUTH_USERS",
+        },
+        "/umc-product/dev/docs-basic-auth": {
+            "users": "DOCS_BASIC_AUTH_USERS",
         },
     }
     for spec in SECRET_SPECS:

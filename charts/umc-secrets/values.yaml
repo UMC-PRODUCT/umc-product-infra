@@ -113,6 +113,15 @@ externalSecrets:
     data:
       FIREBASE_CONFIGURATION: FIREBASE_CONFIGURATION
 
+  # Traefik이 Scalar/OpenAPI 문서 경로에 적용하는 htpasswd 사용자 목록이다.
+  - name: docs-basic-auth
+    namespace: app
+    store: aws-secretsmanager
+    targetName: docs-basic-auth
+    remoteKey: docs-basic-auth
+    data: &docsBasicAuthData
+      users: users
+
   # DB bootstrap Job도 같은 app role password를 읽지만 관리자 Secret은 읽지 않는다.
   - name: app-db
     namespace: db
@@ -152,6 +161,12 @@ externalSecrets:
     targetName: app-email
     remoteKey: app-email
     data: *appEmailData
+  - name: docs-basic-auth
+    namespace: dev-app
+    store: aws-secretsmanager
+    targetName: docs-basic-auth
+    remoteKey: docs-basic-auth
+    data: *docsBasicAuthData
   - name: app-db
     namespace: dev-db
     store: aws-secretsmanager

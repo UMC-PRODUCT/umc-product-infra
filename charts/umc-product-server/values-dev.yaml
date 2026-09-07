@@ -38,6 +38,8 @@ env:
   SPRING_PROFILES_ACTIVE: dev
   SPRING_APPLICATION_NAME: dev-umc-product
   APP_ENVIRONMENT: dev
+  # 외부 문서 경로는 별도 Traefik Basic Auth Ingress가 보호한다.
+  OPENAPI_ENABLE: "true"
   # dev 프론트 주소를 확정하기 전까지 공용 프론트를 사용한다. dev QR 플로우 검증 전 교체한다.
   DEMODAY_QR_BASE_URL: https://university.neordinary.com
   SSO_ISSUER: https://api-dev.university.neordinary.com
@@ -52,6 +54,9 @@ env:
   DATABASE_USERNAME: umc_product_dev_app
   MEDIA_STORAGE_PURGE_ENABLED: "false"
   PRIVACY_RETENTION_ENABLED: "false"
+
+documentation:
+  enabled: true
 
 probes:
   startup:

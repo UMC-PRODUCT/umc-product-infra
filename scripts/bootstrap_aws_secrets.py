@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate local worksheets and create the 26 AWS Secrets Manager sources."""
+"""Validate local worksheets and create the 28 AWS Secrets Manager sources."""
 
 from __future__ import annotations
 
@@ -60,6 +60,7 @@ POSTGRES_PROPERTIES = (
     ("POSTGRES_USER", "POSTGRES_USER"),
     ("POSTGRES_PASSWORD", "POSTGRES_PASSWORD"),
 )
+DOCS_BASIC_AUTH_PROPERTIES = (("users", "DOCS_BASIC_AUTH_USERS"),)
 
 
 class BootstrapError(RuntimeError):
@@ -104,6 +105,12 @@ SECRET_SPECS = (
         (("FIREBASE_CONFIGURATION", "FIREBASE_CONFIGURATION"),),
         "prod",
     ),
+    SecretSpec(
+        "/umc-product/prod/docs-basic-auth",
+        ".env.prod",
+        DOCS_BASIC_AUTH_PROPERTIES,
+        "prod",
+    ),
     *environment_specs("prod")[5:],
     SecretSpec(
         "/umc-product/prod/postgres-readonly",
@@ -123,7 +130,14 @@ SECRET_SPECS = (
         ),
         "prod",
     ),
-    *environment_specs("dev"),
+    *environment_specs("dev")[:5],
+    SecretSpec(
+        "/umc-product/dev/docs-basic-auth",
+        ".env.dev",
+        DOCS_BASIC_AUTH_PROPERTIES,
+        "dev",
+    ),
+    *environment_specs("dev")[5:],
     *environment_specs("preview"),
     SecretSpec(
         "/umc-product/platform/monitoring/grafana-admin",
@@ -307,6 +321,20 @@ def validate_worksheet_values(values: dict[str, dict[str, str]], account_id: str
     database_values.append(values[".env.prod"]["RO_PASSWORD"])
     if len(set(database_values)) != len(database_values):
         raise BootstrapError("database passwords must differ by role and environment")
+
+    docs_users = [
+        values[env_file]["DOCS_BASIC_AUTH_USERS"]
+        for env_file in (".env.prod", ".env.dev")
+    ]
+    htpasswd_pattern = re.compile(
+        r"^umc-docs:\$2[aby]\$\d{2}\$[./A-Za-z0-9]{53}$"
+    )
+    if not all(htpasswd_pattern.fullmatch(entry) for entry in docs_users):
+        raise BootstrapError(
+            "docs Basic Auth users must contain an umc-docs bcrypt htpasswd entry"
+        )
+    if len(set(docs_users)) != len(docs_users):
+        raise BootstrapError("docs Basic Auth credentials must differ by environment")
 
     storage_ids = [values[env_file]["S3_ACCESS_KEY_ID"] for env_file in ENV_FILES]
     storage_secrets = [

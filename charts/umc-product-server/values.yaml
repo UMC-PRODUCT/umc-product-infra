@@ -42,6 +42,13 @@ ingress:
   host: api.example.invalid
   tls: []
 
+# Scalar/OpenAPI 문서는 일반 API와 분리된 Ingress에서 Basic Auth로 보호한다.
+# existingSecret은 htpasswd 형식의 users key를 가진 Kubernetes Secret이다.
+documentation:
+  enabled: false
+  basicAuth:
+    existingSecret: docs-basic-auth
+
 # prod/dev cert-manager Certificate는 Deployment와 독립적으로 먼저 발급한다. Preview는
 # namespace 공용 와일드카드 Secret을 사용하므로 환경 overlay에서 비활성화한다.
 certificate:

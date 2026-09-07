@@ -40,6 +40,8 @@ env:
   SPRING_PROFILES_ACTIVE: prod
   SPRING_APPLICATION_NAME: prod-umc-product
   APP_ENVIRONMENT: prod
+  # prod 배포 gate가 열리면 외부 문서 경로를 Traefik Basic Auth 뒤에서 제공한다.
+  OPENAPI_ENABLE: "true"
   FCM_ENABLED: "true"
   DEMODAY_QR_BASE_URL: https://university.neordinary.com
   SSO_ISSUER: https://api.university.neordinary.com
@@ -55,6 +57,9 @@ env:
   DATABASE_USERNAME: umc_product_app
   MEDIA_STORAGE_PURGE_ENABLED: "true"
   PRIVACY_RETENTION_ENABLED: "true"
+
+documentation:
+  enabled: true
 
 # prod만 FCM을 활성화하므로 Firebase 자격증명 Secret을 추가로 주입한다.
 requiredSecrets:
