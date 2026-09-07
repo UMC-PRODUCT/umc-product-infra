@@ -29,8 +29,8 @@ spec:
           tag: 0.152.0 # compose와 동일
           digest: sha256:f41d7995565df3733b7568702073a9c490792f9c6ac60684fe6a4da21a313f8d
         resources:
-          # trace 100% 수집의 초기 예산. 실제 accepted/refused/export 지표로 재조정한다.
-          requests: { cpu: 250m, memory: 512Mi }
+          # 임시 4 vCPU 단일 노드의 저트래픽 운영값이다. accepted/refused/export 지표를 보고 상향한다.
+          requests: { cpu: 100m, memory: 512Mi }
           limits: { memory: 1Gi }
         # 사용하지 않는 receiver port는 Service에서도 닫고, Collector 자체 metrics만
         # Prometheus가 scrape할 수 있게 연다.

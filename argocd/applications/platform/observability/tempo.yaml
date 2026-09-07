@@ -64,7 +64,8 @@ spec:
           # heap/cache에 남긴다. 실제 ingest와 RSS를 본 뒤 조정한다.
           memBallastSizeMbs: 256
           resources:
-            requests: { cpu: 250m, memory: 1Gi }
+            # 임시 4 vCPU 단일 노드의 저트래픽 운영값이다. ingest 지연과 query latency를 보고 상향한다.
+            requests: { cpu: 100m, memory: 1Gi }
             limits: { memory: 2Gi }
         persistence:
           enabled: true

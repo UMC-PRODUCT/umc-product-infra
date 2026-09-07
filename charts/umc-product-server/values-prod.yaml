@@ -27,8 +27,10 @@ certificate:
   enabled: true
 
 resources:
+  # 임시 4 vCPU 단일 노드에서 dev와 관측 스택이 함께 뜰 수 있게 낮춘 초기 예약량이다.
+  # CPU limit은 유지해 여유가 있을 때 버스트하게 하고, 최종 IDC에서는 실측값으로 다시 조정한다.
   requests:
-    cpu: 1000m
+    cpu: 250m
     memory: 4Gi
   limits:
     cpu: 3000m
