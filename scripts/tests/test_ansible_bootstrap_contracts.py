@@ -168,6 +168,18 @@ class TailscaleBootstrapContractTests(unittest.TestCase):
         )
         self.assertIn("pkgs.tailscale.com/stable/ubuntu", defaults["tailscale_apt_key_url"])
 
+    def test_tailscale_ipv4_filter_matches_100_range_addresses(self) -> None:
+        tasks = load_tasks("ansible/roles/tailscale/tasks/main.yml")
+        state = next(
+            task
+            for task in tasks
+            if task.get("name") == "Record the effective Tailscale state"
+        )
+        expression = state["ansible.builtin.set_fact"]["tailscale_primary_ipv4"]
+
+        self.assertIn("select('match', '^100\\.')", expression)
+        self.assertNotIn("select('match', '^100\\\\.')", expression)
+
     def test_ufw_has_only_an_interface_rule_for_tailnet_management(self) -> None:
         common = (
             ROOT / "ansible" / "roles" / "common" / "tasks" / "main.yml"
@@ -240,6 +252,15 @@ class TailscaleBootstrapContractTests(unittest.TestCase):
         )
         self.assertEqual(policy["tests"][0]["accept"], ["tag:umc-idc:22"])
         self.assertEqual(policy["tests"][0]["deny"], ["tag:umc-idc:6443"])
+
+
+class RepositoryValidationContractTests(unittest.TestCase):
+    def test_repository_identity_scan_ignores_local_virtualenvs(self) -> None:
+        validator = (ROOT / "scripts" / "validate_contracts.py").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn('or ".venv" in path.parts', validator)
 
 
 if __name__ == "__main__":

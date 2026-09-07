@@ -242,7 +242,7 @@
     tailscale_status_after_data: "{{ tailscale_status_after.stdout | from_json }}"
     tailscale_primary_ipv4: >-
       {{ (tailscale_status_after.stdout | from_json).ips
-         | select('match', '^100\\.') | first | default('') }}
+         | select('match', '^100\.') | first | default('') }}
 
 - name: Read the security-sensitive Tailscale preferences
   ansible.builtin.command:

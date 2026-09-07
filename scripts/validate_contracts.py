@@ -1183,7 +1183,12 @@ def validate_repository_identity() -> None:
 
     stale: list[str] = []
     for path in ROOT.rglob("*"):
-        if not path.is_file() or ".git" in path.parts or path.suffix.lower() in {".png"}:
+        if (
+            not path.is_file()
+            or ".git" in path.parts
+            or ".venv" in path.parts
+            or path.suffix.lower() in {".png"}
+        ):
             continue
         try:
             content = path.read_text(encoding="utf-8").lower()
