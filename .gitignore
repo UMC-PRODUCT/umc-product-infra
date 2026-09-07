@@ -16,6 +16,10 @@ ansible/**/*.retry
 .env
 .env.*
 
+# 로컬 데이터베이스 덤프
+/*-dump.sql
+/*.dump
+
 # 내려받은 Firebase / Google 자격증명
 google-services*.json
 GoogleService-Info*.plist

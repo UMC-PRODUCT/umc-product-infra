@@ -272,12 +272,12 @@ class TailscaleBootstrapContractTests(unittest.TestCase):
 
 
 class RepositoryValidationContractTests(unittest.TestCase):
-    def test_repository_identity_scan_ignores_local_virtualenvs(self) -> None:
+    def test_repository_identity_scan_respects_gitignore(self) -> None:
         validator = (ROOT / "scripts" / "validate_contracts.py").read_text(
             encoding="utf-8"
         )
 
-        self.assertIn('or ".venv" in path.parts', validator)
+        self.assertIn('"--exclude-standard"', validator)
 
 
 if __name__ == "__main__":

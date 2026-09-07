@@ -4,7 +4,9 @@
 from __future__ import annotations
 
 import ipaddress
+import os
 import re
+import subprocess
 import sys
 from pathlib import Path
 
@@ -76,6 +78,25 @@ def require(condition: bool, message: str) -> None:
 def yaml_documents(path: Path) -> list[dict]:
     with path.open(encoding="utf-8") as stream:
         return [document for document in yaml.safe_load_all(stream) if document]
+
+
+def git_visible_files(root: Path) -> list[Path]:
+    """Return tracked and untracked files that are not excluded by .gitignore."""
+    completed = subprocess.run(
+        ["git", "ls-files", "--cached", "--others", "--exclude-standard", "-z"],
+        cwd=root,
+        capture_output=True,
+        check=False,
+    )
+    require(
+        completed.returncode == 0,
+        f"git file inventory failed: {os.fsdecode(completed.stderr).strip()}",
+    )
+    return sorted(
+        root / os.fsdecode(relative_path)
+        for relative_path in completed.stdout.split(b"\0")
+        if relative_path
+    )
 
 
 def validate_route53_contract() -> None:
@@ -1179,16 +1200,15 @@ def validate_repository_identity() -> None:
     ]
     for directory in required_directories:
         require((ROOT / directory).is_dir(), f"missing directory: {directory}")
-    require(not list(ROOT.rglob("*.tf")), "Terraform files are not allowed")
+    repository_files = git_visible_files(ROOT)
+    require(
+        not [path for path in repository_files if path.suffix == ".tf"],
+        "Terraform files are not allowed",
+    )
 
     stale: list[str] = []
-    for path in ROOT.rglob("*"):
-        if (
-            not path.is_file()
-            or ".git" in path.parts
-            or ".venv" in path.parts
-            or path.suffix.lower() in {".png"}
-        ):
+    for path in repository_files:
+        if not path.is_file() or path.suffix.lower() in {".png"}:
             continue
         try:
             content = path.read_text(encoding="utf-8").lower()
