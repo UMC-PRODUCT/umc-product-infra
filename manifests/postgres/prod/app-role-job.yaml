@@ -58,7 +58,7 @@ spec:
               SELECT format('ALTER ROLE umc_product_app LOGIN PASSWORD %L', :'app_pw') \gexec
               ALTER ROLE umc_product_app NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLICATION NOBYPASSRLS;
 
-              DO $$
+              DO $role_check$
               BEGIN
                 IF EXISTS (
                   SELECT 1 FROM pg_auth_members
@@ -67,7 +67,7 @@ spec:
                   RAISE EXCEPTION 'umc_product_app must not inherit another role';
                 END IF;
               END
-              $$;
+              $role_check$;
 
               ALTER DATABASE :"DBNAME" OWNER TO umc_product_app;
               ALTER SCHEMA public OWNER TO umc_product_app;

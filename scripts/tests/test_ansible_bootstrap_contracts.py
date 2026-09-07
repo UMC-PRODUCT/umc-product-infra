@@ -107,6 +107,22 @@ class KubernetesApplyContractTests(unittest.TestCase):
         self.assertIn("register", controller_check)
 
 
+class PostgresBootstrapContractTests(unittest.TestCase):
+    def test_plpgsql_dollar_quotes_survive_kubernetes_arg_expansion(self) -> None:
+        for relative_path in (
+            "manifests/postgres/prod/app-role-job.yaml",
+            "manifests/postgres/prod/readonly-role-job.yaml",
+            "manifests/postgres/dev/app-role-job.yaml",
+            "manifests/postgres/preview/app-role-job.yaml",
+        ):
+            text = (ROOT / relative_path).read_text(encoding="utf-8")
+
+            self.assertNotRegex(text, r"(?m)^\s*DO \$\$\s*$", relative_path)
+            self.assertNotRegex(text, r"(?m)^\s*\$\$;\s*$", relative_path)
+            self.assertRegex(text, r"(?m)^\s*DO \$role_check\$\s*$", relative_path)
+            self.assertRegex(text, r"(?m)^\s*\$role_check\$;\s*$", relative_path)
+
+
 class TailscaleBootstrapContractTests(unittest.TestCase):
     def test_standard_bootstrap_requires_tailscale_before_common(self) -> None:
         path = ROOT / "ansible" / "playbooks" / "bootstrap.yml"

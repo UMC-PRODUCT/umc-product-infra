@@ -74,7 +74,7 @@ spec:
                 WHERE EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'umc_product_ro') \gexec
               ALTER ROLE umc_product_ro NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLICATION NOBYPASSRLS;
 
-              DO $$
+              DO $role_check$
               BEGIN
                 IF EXISTS (
                   SELECT 1 FROM pg_auth_members
@@ -83,7 +83,7 @@ spec:
                   RAISE EXCEPTION 'umc_product_ro must not inherit another role';
                 END IF;
               END
-              $$;
+              $role_check$;
 
               GRANT CONNECT ON DATABASE :"DBNAME" TO umc_product_ro;  -- DBNAME 은 psql 내장 변수(PGDATABASE)
               GRANT USAGE ON SCHEMA public TO umc_product_ro;
