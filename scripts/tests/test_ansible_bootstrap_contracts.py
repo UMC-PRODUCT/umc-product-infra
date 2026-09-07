@@ -121,6 +121,7 @@ class TailscaleBootstrapContractTests(unittest.TestCase):
         text = path.read_text(encoding="utf-8")
         self.assertIn("tailscale\n          - whois\n          - --json", text)
         self.assertIn("bootstrap_ssh_destination_address", text)
+        self.assertIn(".get('Node', {}).get('ID', '') | string | length > 0", text)
 
     def test_enrollment_does_not_mutate_ufw_or_enable_tailscale_ssh(self) -> None:
         enroll_playbook = (
