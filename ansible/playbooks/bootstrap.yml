@@ -159,6 +159,31 @@
   # root Application은 secret-zero가 생긴 뒤에만 열어 ESO의 순환 의존을 피한다.
   # 자격증명이 바뀌었다면 재시작 핸들러까지 끝낸 뒤 GitOps 수렴을 시작한다.
   post_tasks:
+    # false는 새 서버의 최초 root 생성을 보류할 뿐, 기존 Application을 멈추지 않는다.
+    - name: Inspect applications before declaring a core-only bootstrap
+      ansible.builtin.command:
+        argv:
+          - /usr/local/bin/k3s
+          - kubectl
+          - get
+          - applications,applicationsets
+          - --all-namespaces
+          - -o
+          - name
+      register: bootstrap_existing_applications
+      changed_when: false
+      when: not (bootstrap_root_app_enabled | default(true) | bool)
+
+    - name: Require an empty application inventory for core-only bootstrap
+      ansible.builtin.assert:
+        that:
+          - bootstrap_existing_applications.stdout | trim | length == 0
+        fail_msg: >-
+          bootstrap_root_app_enabled=false only holds the first root creation.
+          Existing Applications or ApplicationSets are still active; this flag
+          does not suspend them. Stop and review the migration runbook.
+      when: not (bootstrap_root_app_enabled | default(true) | bool)
+
     - name: Flush credential rotation handlers before GitOps convergence
       ansible.builtin.meta: flush_handlers
 
@@ -166,3 +191,4 @@
       ansible.builtin.include_role:
         name: argocd
         tasks_from: root_app.yml
+      when: bootstrap_root_app_enabled | default(true) | bool

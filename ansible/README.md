@@ -158,6 +158,9 @@ Ansible 설정 변경이나 중간 실패 복구는 inventory가 계속 Tailscal
 상세한 준비·오류 처리는 [Ansible bootstrap 상세 가이드](../docs/guides/ansible-bootstrap.md),
 AWS key 준비는 [비밀값 관리](../docs/guides/secrets.md)를 따른다.
 
+기존 서버에서 Cafe24로 이전할 때는 [Cafe24 이전 절차](../runbooks/cafe24-migration.md)의
+별도 `inventories/idc-new/hosts.yml`, 단계별 root와 DB·DNS 전환 조건을 따른다.
+
 ## 파일을 읽는 순서
 
 1. [`playbooks/tailscale-enroll.yml`](playbooks/tailscale-enroll.yml): 최초 관리망 등록

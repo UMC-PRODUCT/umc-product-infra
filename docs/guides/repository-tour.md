@@ -266,11 +266,11 @@ Ansible 명령 한 번이 성공했다고 서비스 배포가 끝난 것은 아�
 
 ## 8. 현재 배포 gate 찾기
 
-다음은 오류가 아니라 준비되지 않은 상태에서 외부 노출이나 데이터 생성을 막는 안전장치다.
+현재 values와 새 IDC 준비 단계의 Application 제외 목록을 함께 확인한다.
 
-- prod/dev 앱: `deployment.enabled: false`, image가 `bootstrap-required`
-- prod/dev API Ingress: 환경별 `ingress.enabled: false`
-- DNS: 실제 public IPv4 `172.198.75.88`과 같은 `/32` filter
+- prod/dev 앱: `deployment.enabled: true`, image tag·digest 고정; 새 IDC는 DB 복원 전 Application 생성 보류
+- prod/dev API Ingress: 환경별 `ingress.enabled: true`; 새 IDC는 DNS 전환 전 HTTPS 검증
+- DNS: Cafe24 이관 대상 public IPv4 `1.255.226.166`과 같은 `/32` filter
 - TLS: Let's Encrypt production issuer
 - Grafana: public Ingress 활성
 - backup: `suspend: true`

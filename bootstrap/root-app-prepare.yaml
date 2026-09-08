@@ -1,0 +1,23 @@
+# 새 클러스터 전용 준비 단계. 기존 root에 덮어써도 기존 앱은 중지되지 않는다(prune=false).
+# DB 복원이 끝날 때까지 API/Preview 앱과 ExternalDNS의 생성을 보류한다.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: root
+  namespace: argocd
+spec:
+  project: bootstrap
+  source:
+    repoURL: https://github.com/UMC-PRODUCT/umc-product-infra.git
+    targetRevision: main
+    path: argocd
+    directory:
+      recurse: true
+      exclude: '{applications/prod/server.yaml,applications/dev/server.yaml,applications/preview/applicationset.yaml,applications/platform/external-dns.yaml}'
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd
+  syncPolicy:
+    automated:
+      selfHeal: true
+      prune: false

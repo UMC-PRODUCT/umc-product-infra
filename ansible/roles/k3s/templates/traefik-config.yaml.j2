@@ -5,7 +5,14 @@ metadata:
   namespace: kube-system
 spec:
   valuesContent: |-
+    # ServiceLB·NodePort의 전달 트래픽은 UFW만으로 막히지 않으므로 Service 노출도 제한한다.
+    service:
+      spec:
+        allocateLoadBalancerNodePorts: false
     ports:
+      web:
+        expose:
+          default: false
       websecure:
         forwardedHeaders:
           insecure: false

@@ -150,6 +150,19 @@
   retries: 60
   delay: 5
 
+- name: Wait for the Traefik Deployment to be created
+  ansible.builtin.command:
+    argv:
+      - /usr/local/bin/k3s
+      - kubectl
+      - wait
+      - --for=create
+      - deployment/traefik
+      - -n
+      - kube-system
+      - "--timeout={{ k3s_ready_timeout }}"
+  changed_when: false
+
 - name: Wait for the reconciled Traefik Deployment
   ansible.builtin.command:
     argv:
@@ -162,6 +175,33 @@
       - kube-system
       - "--timeout={{ k3s_ready_timeout }}"
   changed_when: false
+
+# Deployment가 준비돼 있어도 Helm의 Service 변경은 진행 중일 수 있다.
+- name: Wait for the HTTPS-only Traefik Service without NodePorts
+  ansible.builtin.command:
+    argv:
+      - /usr/local/bin/k3s
+      - kubectl
+      - -n
+      - kube-system
+      - get
+      - svc
+      - traefik
+      - -o
+      - json
+  register: k3s_traefik_service
+  changed_when: false
+  until: >-
+    k3s_traefik_service.rc == 0 and
+    k3s_traefik_service.stdout | trim | length > 0 and
+    (k3s_traefik_service.stdout | from_json).get('spec', {}).get('type') == 'LoadBalancer' and
+    (k3s_traefik_service.stdout | from_json).get('spec', {}).get('allocateLoadBalancerNodePorts', true) is false and
+    ((k3s_traefik_service.stdout | from_json).get('spec', {}).get('ports', [])
+    | map(attribute='port') | list) == [443] and
+    ((k3s_traefik_service.stdout | from_json).get('spec', {}).get('ports', [])
+    | selectattr('nodePort', 'defined') | list | length) == 0
+  retries: 60
+  delay: 5
 
 # 설정 파일만 믿지 않고 K3s의 실제 암호화 상태를 bootstrap Secret 주입 전에 확인한다.
 # 비활성 상태에서는 이후 역할로 진행하지 않는다.

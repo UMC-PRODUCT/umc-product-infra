@@ -118,18 +118,23 @@ DNS와 접근 정책은 [도메인/TLS 가이드](docs/guides/domains-tls.md)를
 
 | 영역 | Git desired state | 판단 | 실제 다음 단계 |
 |---|---|---|---|
-| DNS | `172.198.75.88`, ExternalDNS filter `/32` | 설정 완료 | 클러스터 배포 후 A·TXT 레코드 확인 |
+| DNS | Cafe24 `1.255.226.166`, ExternalDNS filter `/32` | 이관 대상 설정 | 전환 gate 검증 후 A·TXT 레코드 확인 |
 | TLS | Let's Encrypt production | 설정 완료 | Certificate의 최신 generation이 `Ready=True`인지 확인 |
 | Grafana | public Ingress 활성 | 배포 후 확인 | HTTPS 접속, 로그인과 팀원 권한 확인 |
-| prod/dev 앱 | `deployment.enabled: false`, image placeholder | 잠금 유지 | 검증된 GHCR tag·digest와 runtime 계약 반영 |
-| prod/dev API | `ingress.enabled: false` | 잠금 유지 | 검증된 첫 image 직접 반영에서 앱 gate와 함께 활성화하고 외부 HTTPS 확인 |
+| prod/dev 앱 | `deployment.enabled: true`, image tag·digest 고정 | Git 활성 | 새 IDC는 DB 복원 뒤 앱 시작·migration·probe 검증 |
+| prod/dev API | `ingress.enabled: true` | Git 활성 | DNS 전환 전에 새 IDC의 인증서·HTTPS·API 인증 확인 |
 | Preview API | Deployment·Ingress 비활성 | 잠금 유지 | 신뢰된 PR 이미지 발행 CI를 만든 뒤 활성화 |
 | DB backup | `suspend: true` | 잠금 유지 | S3 업로드와 클러스터 외부 복원 테스트 성공 |
 | root/cluster 자동 삭제 | `prune: false` | 안전장치 유지 | 첫 운영 안정화와 삭제 복구 절차 검증 후 재검토 |
 
+Cafe24 IP 전환 PR을 merge하면 기존 클러스터의 Argo CD와 ExternalDNS에도 새 target이 반영될 수 있다.
+기존 클러스터의 root·DNS controller가 전환 전 상태를 유지하도록 중지·고정한 것을 먼저 검증하고,
+새 IDC의 검증을 마친 뒤 승인된 전환 순서로 DNS를 갱신한다.
+[Cafe24 이전 runbook](runbooks/cafe24-migration.md)의 준비·DB 복원·검증·DNS 전환 단계를 따른다.
+
 `설정 완료`는 실제 서비스 검증 완료를 뜻하지 않는다. DNS와 TLS controller는 클러스터가
-동작한 뒤 레코드와 Certificate를 만든다. 첫 앱 image는 tag·digest와 활성화된
-Deployment·Ingress를 Helm으로 사전 검증한 뒤 infra `main`에 직접 반영하며, Argo CD는 prod/dev Application 안에서
+동작한 뒤 레코드와 Certificate를 만든다. prod/dev의 현재 values는 Deployment·Ingress가 활성화되어
+있으므로 새 IDC의 준비 단계에서는 해당 Application 생성을 보류해야 한다. Argo CD는 prod/dev Application 안에서
 Certificate → Deployment → Ingress 순서로 기다린다. Preview는 공용 wildcard Certificate가
 `Ready=True`인 것을 확인한 뒤 PR 이미지 발행과 함께 연다.
 

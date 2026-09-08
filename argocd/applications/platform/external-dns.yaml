@@ -42,7 +42,7 @@ spec:
           - --ingress-class=traefik
           - --aws-zone-type=public
           # ExternalDNS가 이 IDC public IPv4 외의 target을 만들지 못하게 제한한다.
-          - --target-net-filter=172.198.75.88/32
+          - --target-net-filter=1.255.226.166/32
         env:
           - name: AWS_DEFAULT_REGION
             value: ap-northeast-2
