@@ -3,7 +3,6 @@
 
 from __future__ import annotations
 
-import base64
 import json
 import re
 import subprocess
@@ -335,7 +334,7 @@ def validate_grafana_access_contract(application: dict) -> bool:
     return ingress.get("enabled") is True
 
 
-def validate_prometheus(resources: list[dict]) -> str:
+def validate_prometheus(resources: list[dict]) -> None:
     prometheus = named_resource(resources, "Prometheus", PROMETHEUS_NAME)
     spec = prometheus["spec"]
     require(spec.get("enableOTLPReceiver") is True,
@@ -361,29 +360,36 @@ def validate_prometheus(resources: list[dict]) -> str:
                         for p in service["spec"].get("ports", [])),
                 f"Service/{name}: internal named HTTP port")
 
+    validate_alertmanager_config(resources)
+
+
+def validate_alertmanager_config(resources: list[dict]) -> None:
     alertmanager = named_resource(resources, "Alertmanager", ALERTMANAGER_NAME)
-    require("alertmanager-discord" in alertmanager["spec"].get("secrets", []),
-            "alertmanager: Discord Secret must be mounted by the operator")
-    secret_name = alertmanager["spec"].get("configSecret", f"alertmanager-{ALERTMANAGER_NAME}")
-    secret = named_resource(resources, "Secret", secret_name)
-    raw_config = secret.get("stringData", {}).get("alertmanager.yaml")
-    if raw_config is None:
-        require("alertmanager.yaml" in secret.get("data", {}),
-                "alertmanager: chart-generated configuration is missing")
-        raw_config = base64.b64decode(secret["data"]["alertmanager.yaml"]).decode()
-    config = yaml.safe_load(raw_config)
+    config_name = alertmanager["spec"].get("alertmanagerConfiguration", {}).get("name")
+    require(config_name,
+            "alertmanager: native Discord configuration must be the global configuration")
+    native = named_resource(resources, "AlertmanagerConfig", config_name)
+    require(native["metadata"].get("namespace") == "monitoring",
+            "alertmanager: global configuration and Discord Secret must share monitoring namespace")
+    config = native["spec"]
+    require(config.get("route", {}).get("receiver") == "discord"
+            and not config["route"].get("matchers"),
+            "alertmanager: global route must deliver all namespaces to Discord")
     discord = [receiver for receiver in config.get("receivers", [])
                if receiver.get("name") == "discord"]
-    require(len(discord) == 1 and len(discord[0].get("discord_configs", [])) == 1,
-            "alertmanager: exactly one Discord receiver is required")
-    discord_config = discord[0]["discord_configs"][0]
-    require(discord_config.get("webhook_url_file") ==
-            "/etc/alertmanager/secrets/alertmanager-discord/discord-webhook"
-            and "webhook_url" not in discord_config,
-            "alertmanager: Discord webhook file must match the operator Secret mount")
-    require(config.get("route", {}).get("receiver") == "discord",
-            "alertmanager: default receiver must deliver to Discord")
-    return raw_config
+    require(len(discord) == 1 and len(discord[0].get("discordConfigs", [])) == 1,
+            "alertmanager: exactly one native Discord receiver is required")
+    require(discord[0]["discordConfigs"][0].get("apiURL") == {
+                "name": "alertmanager-discord", "key": "discord-webhook"},
+            "alertmanager: Discord webhook must use the ESO SecretKeySelector")
+
+    # Operator 0.92.1's base YAML parser predates webhook_url_file support.
+    # The operator alone generates the runtime config from the native resource.
+    secret_name = alertmanager["spec"].get("configSecret", f"alertmanager-{ALERTMANAGER_NAME}")
+    require(not any(resource.get("kind") == "Secret"
+                    and resource.get("metadata", {}).get("name") == secret_name
+                    for resource in resources),
+            "alertmanager: native global configuration must replace the legacy base Secret")
 
 
 def validate_monitor_selection(prometheus: dict, monitors: list[dict], services: list[dict]) -> None:
@@ -469,8 +475,8 @@ def validate_runtime_configs(rendered: dict[str, list[dict]]) -> dict[str, str]:
         require(sources.get(uid, {}).get("url") == f"http://{service}.monitoring.svc.cluster.local:{port}",
                 f"Grafana: stable {uid} datasource UID must reach the operator Service")
 
+    validate_prometheus(rendered["prometheus"])
     return {
-        "alertmanager-config.yaml": validate_prometheus(rendered["prometheus"]),
         "loki-config.yaml": loki_raw,
         "otel-collector-config.yaml": otel_raw,
         "tempo-config.yaml": tempo_raw,

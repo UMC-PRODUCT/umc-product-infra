@@ -227,6 +227,7 @@ python3 scripts/gen-configmaps.py --check
 - Argo CD, cert-manager, ExternalDNS, Reloader chart와 보안 설정
 - kube-prometheus-stack CRD·RBAC·Operator workload, monitor/rule selector와 named Service port
 - Grafana, Loki, Tempo, OpenTelemetry 연결과 설정, 원본·렌더된 모든 Prometheus rule 문법
+- native AlertmanagerConfig의 global 참조·Discord SecretKeySelector (실제 runtime 설정 생성은 live reconcile에서 확인)
 - CloudFormation, Ansible, Kubernetes YAML과 schema
 - 남은 과거 이름, Terraform 파일, placeholder와 운영 gate가 의도한 안전 상태인지
 

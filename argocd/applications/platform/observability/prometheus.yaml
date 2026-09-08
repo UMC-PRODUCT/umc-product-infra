@@ -163,7 +163,12 @@ spec:
               tag: v0.32.1 # 기존 compose/runtime와 동일
               sha: 51a825c2a40acc3e338fdd00d622e01ec090f72be2b3ea46be0839cd47a4d286
             automountServiceAccountToken: false
-            secrets: [alertmanager-discord]
+            # 아래 native 전역 AlertmanagerConfig에서 Operator가 설정 Secret을 생성한다.
+            useExistingSecret: true
+            alertmanagerConfiguration:
+              name: prometheus-discord
+              global:
+                resolveTimeout: 5m
             alertmanagerConfigSelector:
               matchLabels:
                 release: prometheus
@@ -181,54 +186,6 @@ spec:
                   resources:
                     requests:
                       storage: 1Gi
-          # Secret 값은 ESO가 동기화한다. Operator는 Secret 이름별 하위 경로에 마운트한다.
-          config:
-            global:
-              resolve_timeout: 5m
-            route:
-              receiver: discord
-              group_by: [alertname, severity, service_name, application, job, instance]
-              group_wait: 30s
-              group_interval: 5m
-              repeat_interval: 4h
-              routes:
-                - receiver: drop-local
-                  matchers:
-                    - environment="local"
-                  continue: false
-                - receiver: "null"
-                  matchers:
-                    - alertname=~"Watchdog|InfoInhibitor"
-            receivers:
-              - name: drop-local
-              - name: "null"
-              - name: discord
-                discord_configs:
-                  - send_resolved: true
-                    webhook_url_file: /etc/alertmanager/secrets/alertmanager-discord/discord-webhook
-                    title: '{{ $scope := or (index .CommonLabels "environment") (index .CommonLabels "deployment_environment") (index .CommonLabels "service_name") (index .CommonLabels "application") (index .CommonLabels "job") (index .CommonLabels "instance") "unknown" }}[{{ .Status | toUpper }}{{ if eq .Status "firing" }}:{{ .Alerts.Firing | len }}{{ end }}][{{ $scope }}] {{ .CommonLabels.alertname }}'
-                    message: |
-                      {{ range .Alerts }}
-                      {{ $scope := or (index .Labels "environment") (index .Labels "deployment_environment") (index .Labels "service_name") (index .Labels "application") (index .Labels "job") "unknown" }}
-                      {{ $target := or (index .Labels "instance") (index .Labels "pod") (index .Labels "name") "-" }}
-                      • {{ .Annotations.summary }}
-                        환경: {{ $scope }}
-                        severity: {{ .Labels.severity }}
-                        대상: {{ $target }}{{ if index .Labels "pool" }}
-                        pool: {{ index .Labels "pool" }}{{ end }}{{ if index .Labels "uri" }}
-                        route: {{ index .Labels "method" }} {{ index .Labels "uri" }}{{ end }}{{ if .Annotations.description }}
-                        설명: {{ .Annotations.description }}{{ end }}
-                      {{ end }}
-            inhibit_rules:
-              - source_matchers: ['severity="critical"']
-                target_matchers: ['severity="warning"']
-                equal: [alertname, service_name, application, job, instance]
-              - source_matchers: ['alertname=~"PostgreSQLDown|OTelCollectorDown|LokiDown|TempoDown|GrafanaDown"']
-                target_matchers: ['alertname="TargetDown"']
-                equal: [job, namespace, service]
-              - source_matchers: ['alertname="PostgresBackupFailed"']
-                target_matchers: ['alertname="KubeJobFailed"']
-                equal: [namespace, job_name]
         nodeExporter:
           operatingSystems:
             aix:
@@ -293,6 +250,73 @@ spec:
             requests: { cpu: 30m, memory: 96Mi }
             limits: { memory: 192Mi }
         extraManifests:
+          # 전역 설정으로 참조하므로 namespace=monitoring matcher가 주입되지 않는다.
+          # webhook은 ESO SecretKeySelector로만 참조하며 Operator가 비공개 설정에 넣는다.
+          - apiVersion: monitoring.coreos.com/v1alpha1
+            kind: AlertmanagerConfig
+            metadata:
+              name: prometheus-discord
+              namespace: monitoring
+              labels:
+                release: prometheus
+            spec:
+              route:
+                receiver: discord
+                groupBy: [alertname, severity, service_name, application, job, instance]
+                groupWait: 30s
+                groupInterval: 5m
+                repeatInterval: 4h
+                routes:
+                  - receiver: drop-local
+                    matchers:
+                      - name: environment
+                        matchType: "="
+                        value: local
+                    continue: false
+                  - receiver: "null"
+                    matchers:
+                      - name: alertname
+                        matchType: "=~"
+                        value: Watchdog|InfoInhibitor
+              receivers:
+                - name: drop-local
+                - name: "null"
+                - name: discord
+                  discordConfigs:
+                    - sendResolved: true
+                      apiURL:
+                        name: alertmanager-discord
+                        key: discord-webhook
+                      # Helm tpl을 한 번 통과한 뒤 Alertmanager가 실행할 템플릿이다.
+                      title: '{{`{{ $scope := or (index .CommonLabels "environment") (index .CommonLabels "deployment_environment") (index .CommonLabels "service_name") (index .CommonLabels "application") (index .CommonLabels "job") (index .CommonLabels "instance") "unknown" }}[{{ .Status | toUpper }}{{ if eq .Status "firing" }}:{{ .Alerts.Firing | len }}{{ end }}][{{ $scope }}] {{ .CommonLabels.alertname }}`}}'
+                      message: |
+                        {{`{{ range .Alerts }}
+                        {{ $scope := or (index .Labels "environment") (index .Labels "deployment_environment") (index .Labels "service_name") (index .Labels "application") (index .Labels "job") "unknown" }}
+                        {{ $target := or (index .Labels "instance") (index .Labels "pod") (index .Labels "name") "-" }}
+                        • {{ .Annotations.summary }}
+                          환경: {{ $scope }}
+                          severity: {{ .Labels.severity }}
+                          대상: {{ $target }}{{ if index .Labels "pool" }}
+                          pool: {{ index .Labels "pool" }}{{ end }}{{ if index .Labels "uri" }}
+                          route: {{ index .Labels "method" }} {{ index .Labels "uri" }}{{ end }}{{ if .Annotations.description }}
+                          설명: {{ .Annotations.description }}{{ end }}
+                        {{ end }}`}}
+              inhibitRules:
+                - sourceMatch:
+                    - { name: severity, matchType: "=", value: critical }
+                  targetMatch:
+                    - { name: severity, matchType: "=", value: warning }
+                  equal: [alertname, service_name, application, job, instance]
+                - sourceMatch:
+                    - { name: alertname, matchType: "=~", value: "PostgreSQLDown|OTelCollectorDown|LokiDown|TempoDown|GrafanaDown" }
+                  targetMatch:
+                    - { name: alertname, matchType: "=", value: TargetDown }
+                  equal: [job, namespace, service]
+                - sourceMatch:
+                    - { name: alertname, matchType: "=", value: PostgresBackupFailed }
+                  targetMatch:
+                    - { name: alertname, matchType: "=", value: KubeJobFailed }
+                  equal: [namespace, job_name]
           - apiVersion: rbac.authorization.k8s.io/v1
             kind: Role
             metadata:

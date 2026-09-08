@@ -29,8 +29,10 @@ Loki·Tempo PVC는 재사용한다. 사전 점검에서 대상 cluster·namespac
 4. 기존 Grafana datasource와 Collector가 새 `prometheus-kube-prometheus-prometheus:9090`을
    참조하는지 확인한다. Loki ruler의 Alertmanager 주소는
    `prometheus-kube-prometheus-alertmanager:9093`이다. Targets에서 custom exporter, kubelet,
-   cAdvisor, CoreDNS와 kube-state-metrics를 확인하고 rule evaluation 오류, Collector export 오류,
-   Alertmanager 설정·Secret 파일 mount 오류가 없는지 확인한다. `UMC Product`와 `Kubernetes`
+   cAdvisor, CoreDNS와 kube-state-metrics를 확인하고 rule evaluation 오류와 Collector export 오류가
+   없는지 확인한다. Operator가 native `AlertmanagerConfig`의 SecretKeySelector를 읽어 설정을
+   생성하고 Alertmanager가 Reconciled·Ready가 되는지 확인한다. 설정 Secret의 내용은 출력하지 않는다.
+   `UMC Product`와 `Kubernetes`
    folder가 함께 보이며 기본 홈이 System Overview인지 확인한다.
 5. Argo CD 자동 sync를 복원하고 Healthy/Synced와 실제 rollout 상태를 다시 확인한다. 이전
    Prometheus PVC는 prune될 수 있으며 이전 Alertmanager PVC가 남으면 새 workload Ready와
@@ -46,6 +48,11 @@ sudo -n k3s kubectl -n monitoring port-forward service/prometheus-kube-prometheu
 
 설치 확인을 위해 Discord 테스트 알림을 보내지는 않는다. 실제 알림 전달 시험은 별도 요청과
 운영 일정에 따라 수행한다.
+
+Alertmanager의 `useExistingSecret: true`는 chart 기본 설정 Secret 생성을 끈다. global
+`alertmanagerConfiguration`이 native 설정을 참조하므로 수동 Secret 작성이나 webhook 파일
+mount가 필요 없다. 정적 검증은 native CRD schema와 SecretKeySelector 계약을 검사하며,
+실제 생성된 설정은 위 Operator reconcile·Alertmanager readiness로 확인한다.
 
 ## 실패 시 복구
 

@@ -361,14 +361,9 @@ else
   echo "promtool not installed; Prometheus rule validation skipped"
 fi
 
-# 실제 배포 image 자체로 각 관측 backend의 최종 병합 config를 검증한다. digest를
-# 고정해 CI validator와 runtime parser가 같은 버전이 되도록 한다.
+# 실제 배포 image로 backend config를 검증한다. Alertmanager config는 Operator가
+# 생성하므로 native CRD schema와 live reconcile/readiness로 별도 확인한다.
 if command -v docker >/dev/null; then
-  docker run --rm --network none \
-    -v "$validation_dir:/validation:ro" \
-    --entrypoint /bin/amtool \
-    quay.io/prometheus/alertmanager@sha256:51a825c2a40acc3e338fdd00d622e01ec090f72be2b3ea46be0839cd47a4d286 \
-    check-config /validation/alertmanager-config.yaml
   docker run --rm --network none \
     -v "$validation_dir:/validation:ro" \
     --entrypoint /usr/bin/loki \

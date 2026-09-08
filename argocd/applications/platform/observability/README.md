@@ -53,6 +53,12 @@ Operator의 쓰기 권한은 `monitoring` Role에만 있고 cluster 권한은 no
 조회뿐이다. Prometheus와 kube-state-metrics의 cluster 권한도 명시적인 읽기 전용 목록을 쓴다.
 AppProject는 CRD·ClusterRole·ClusterRoleBinding 세 종류만 허용하며 admission webhook은 끈다.
 
+Discord 라우팅은 같은 Application의 `AlertmanagerConfig/prometheus-discord`가 소유한다.
+`alertmanagerConfiguration`이 이를 global configuration으로 참조하므로 앱·DB namespace의
+알림도 함께 처리한다. Operator는 `alertmanager-discord` Secret의 `discord-webhook` key를
+SecretKeySelector로 읽어 runtime 설정을 생성한다. `useExistingSecret: true`는 이 native 구성과
+충돌하는 chart 기본 설정 Secret 생성을 끄는 값이며, 별도 수동 설정 Secret을 만들라는 뜻이 아니다.
+
 ## Application과 보존 기간
 
 | Application | 역할 | 보존 |

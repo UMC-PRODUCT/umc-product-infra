@@ -14,9 +14,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from validate_observability import (
     PROMETHEUS_NAME,
+    ALERTMANAGER_NAME,
     ManifestLoader,
     pod_spec,
     selector_matches,
+    validate_alertmanager_config,
     validate_cluster_resource,
     validate_monitor_selection,
     validate_monitoring_rbac,
@@ -106,6 +108,42 @@ class OperatorContractsTest(unittest.TestCase):
                     "rules": [{"apiGroups": [""], "resources": resources, "verbs": verbs}]}
             with self.subTest(resources=resources, verbs=verbs), self.assertRaises(SystemExit):
                 validate_monitoring_rbac([role])
+
+
+class AlertmanagerNativeConfigTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self.resources = [
+            {"kind": "Alertmanager", "metadata": {"name": ALERTMANAGER_NAME},
+             "spec": {"alertmanagerConfiguration": {"name": "prometheus-discord"}}},
+            {"apiVersion": "monitoring.coreos.com/v1alpha1", "kind": "AlertmanagerConfig",
+             "metadata": {"name": "prometheus-discord", "namespace": "monitoring"},
+             "spec": {"route": {"receiver": "discord"}, "receivers": [
+                 {"name": "discord", "discordConfigs": [{"apiURL": {
+                     "name": "alertmanager-discord", "key": "discord-webhook"}}]}]}},
+        ]
+
+    def test_global_config_uses_secret_reference_without_legacy_base_yaml(self) -> None:
+        validate_alertmanager_config(self.resources)
+
+    def test_namespace_selected_config_is_not_a_global_route(self) -> None:
+        self.resources[0]["spec"] = {"alertmanagerConfigSelector": {"matchLabels": {"release": "prometheus"}}}
+        with self.assertRaisesRegex(SystemExit, "must be the global configuration"):
+            validate_alertmanager_config(self.resources)
+
+    def test_wrong_secret_key_and_plaintext_webhook_are_rejected(self) -> None:
+        discord = self.resources[1]["spec"]["receivers"][0]["discordConfigs"][0]
+        for value in ({"name": "alertmanager-discord", "key": "wrong-key"},
+                      "https://example.invalid/synthetic-webhook"):
+            discord["apiURL"] = value
+            with self.subTest(value=value), self.assertRaisesRegex(SystemExit, "SecretKeySelector"):
+                validate_alertmanager_config(self.resources)
+
+    def test_legacy_base_yaml_cannot_return_alongside_native_config(self) -> None:
+        self.resources.append({"kind": "Secret", "metadata": {
+            "name": f"alertmanager-{ALERTMANAGER_NAME}"}, "stringData": {
+                "alertmanager.yaml": "receivers: [{name: discord, discord_configs: [{webhook_url_file: /old-path}]}]"}})
+        with self.assertRaisesRegex(SystemExit, "replace the legacy base Secret"):
+            validate_alertmanager_config(self.resources)
 
 
 if __name__ == "__main__":
