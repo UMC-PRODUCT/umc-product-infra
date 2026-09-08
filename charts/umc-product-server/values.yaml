@@ -65,10 +65,10 @@ certificate:
     name: letsencrypt-production
     kind: ClusterIssuer
 
-# 모든 환경이 사용하는 고정 IDC public IPv4.
+# 모든 환경이 사용하는 고정 Cafe24 IDC public IPv4.
 # ExternalDNS의 --target-net-filter 값과 반드시 같은 IP여야 한다.
 externalDNS:
-  target: "172.198.75.88"
+  target: "1.255.226.166"
 
 # 환경 overlay가 모두 덮어쓴다. base만 렌더링해도 과도한 자원을 예약하지 않는 안전한 값이다.
 resources:

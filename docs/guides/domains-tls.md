@@ -56,15 +56,18 @@ cert-manager는 `preview` namespace에 `Certificate/preview-wildcard` 하나를 
 ExternalDNS의 `--target-net-filter=<IDC IPv4>/32`도 같은 값으로 제한한다.
 Hosted Zone ID와 고정 public IPv4는 cert-manager, ExternalDNS와 Ingress 설정에 반영되어 있다.
 
-- application chart `externalDNS.target`: `172.198.75.88`
-- ExternalDNS controller `--target-net-filter`: `172.198.75.88/32`
-- Grafana Ingress `external-dns.kubernetes.io/target`: `172.198.75.88`
+- application chart `externalDNS.target`: `1.255.226.166`
+- ExternalDNS controller `--target-net-filter`: `1.255.226.166/32`
+- Grafana Ingress `external-dns.kubernetes.io/target`: `1.255.226.166`
+
+이 값은 새 Cafe24 IDC의 이관 대상이다. Git 설정만으로 실제 DNS 전환이나 외부 접속 검증이
+완료된 것은 아니며, 전환 gate를 통과한 뒤 live A/TXT record와 HTTPS를 확인한다.
 
 Hosted Zone ID와 public IPv4는 비밀값이 아니라 Git에 둔다. IP를 미리 넣어도 Ingress가 없으면
 ExternalDNS가 A record를 만들지 않는다. `203.0.113.10` 같은 TEST-NET 주소는 CI의 합성 렌더
 fixture에서만 사용하며 실제 desired state로 허용하지 않는다.
 
-Route 53은 origin proxy가 아니므로 UFW와 Azure NSG/최종 IDC 상위 방화벽에서 public
+Route 53은 origin proxy가 아니므로 UFW와 Cafe24 IDC 상위 방화벽에서 public
 `443/tcp`를 인터넷에 허용해야 한다. DNS-01을 쓰므로 Let's Encrypt용 public
 `80/tcp`는 필요하지 않다. 별도 upstream proxy가 없는 구조에서 Traefik은 외부가
 임의로 보낸 `X-Forwarded-*`를 신뢰하지 않아야 한다.

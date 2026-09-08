@@ -1,0 +1,23 @@
+# 기존 앱 writer 중지와 새 DB 복원 확인 후 사용한다.
+# API/Preview 앱은 실행하되 ExternalDNS는 아직 시작하지 않아 DNS 전환 전 검증이 가능하다.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: root
+  namespace: argocd
+spec:
+  project: bootstrap
+  source:
+    repoURL: https://github.com/UMC-PRODUCT/umc-product-infra.git
+    targetRevision: main
+    path: argocd
+    directory:
+      recurse: true
+      exclude: applications/platform/external-dns.yaml
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd
+  syncPolicy:
+    automated:
+      selfHeal: true
+      prune: false

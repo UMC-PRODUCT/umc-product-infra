@@ -119,7 +119,7 @@ Route53은 hostname을 IDC public IPv4로 해석할 뿐 proxy, WAF, 사용자 �
 사용자 인증은 Grafana가 담당한다. Grafana Ingress는 API Ingress와 독립적으로 켜고 끌 수 있다.
 아래 항목을 순서대로 확인한다.
 
-1. Grafana target annotation과 ExternalDNS `--target-net-filter`가 `172.198.75.88`과 같은 `/32`인지 확인한다.
+1. Grafana target annotation이 Cafe24 IDC `1.255.226.166`이고 ExternalDNS `--target-net-filter`가 `1.255.226.166/32`인지 확인한다.
 2. `monitoring` namespace의 `grafana.university.neordinary.com` production Certificate가 최신 generation에서 `Ready=True`인지 확인한다.
 3. `root_url`, domain enforcement, secure cookie, basic auth, 익명 접근 off와 회원가입 off를 확인한다.
 4. Ingress와 ExternalDNS의 exact A record 및 TXT ownership을 확인한다.

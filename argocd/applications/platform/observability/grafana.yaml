@@ -54,8 +54,8 @@ spec:
             tag: 2.10.3
             sha: e8fb0c4fa3c5a22d9d0eabd9c13cf5df9ce65cba6a062272f2a762f7a78284d6
           resources:
-            # 임시 4 vCPU 단일 노드에서는 ConfigMap 감시용 CPU만 작게 예약한다.
-            requests: { cpu: 20m, memory: 64Mi }
+            # Cafe24 8코어 기준으로 임시 축소 전 ConfigMap 감시 CPU 예약량을 복원한다.
+            requests: { cpu: 50m, memory: 64Mi }
             limits: { cpu: 100m, memory: 128Mi }
           dashboards:
             enabled: true
@@ -170,7 +170,7 @@ spec:
           annotations:
             argocd.argoproj.io/sync-wave: "1"
             external-dns.kubernetes.io/managed-by: umc-infra
-            external-dns.kubernetes.io/target: "172.198.75.88"
+            external-dns.kubernetes.io/target: "1.255.226.166"
             traefik.ingress.kubernetes.io/router.entrypoints: websecure
           hosts: [grafana.university.neordinary.com]
           path: /

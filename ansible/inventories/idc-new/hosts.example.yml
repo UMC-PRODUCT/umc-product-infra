@@ -1,0 +1,19 @@
+---
+# Cafe24: 8 cores / RAM 32 GB / SSD 500 GB. mount와 실제 여유 용량은 별도 확인한다.
+# hosts.yml로 복사한다. 기존 inventories/idc/hosts.yml은 이전 완료까지 보존한다.
+all:
+  children:
+    k3s_servers:
+      hosts:
+        umc-cafe24-01:
+          # 등록 성공 후 반드시 새 Tailscale 100.x 주소/MagicDNS로 교체한다.
+          ansible_host: 1.255.226.166
+          ansible_user: CHANGE_ME_SSH_USER
+          tailscale_hostname: umc-cafe24-01
+      vars:
+        tailscale_enroll_confirm: false
+        tailscale_initial_admin_cidrs:
+          - CHANGE_ME_CURRENT_ADMIN_PUBLIC_IP/32
+        bootstrap_confirm: false
+        # 첫 설치는 K3s/Argo CD/secret-zero까지만. DB 이전 전 앱과 DNS가 뜨면 안 된다.
+        bootstrap_root_app_enabled: false
