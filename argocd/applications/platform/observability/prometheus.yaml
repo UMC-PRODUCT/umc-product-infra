@@ -1,6 +1,5 @@
-# Prometheus + Alertmanager + node-exporter — UMC 단일 k3s 관측성 스택
-# 버전·retention·알림 라우팅은 이 Application이 소유한다.
-# 수신 2경로 유지: ① 앱 metrics는 OTel의 OTLP push ② 플랫폼 metrics는 명시적 scrape
+# kube-prometheus-stack — 현재 단일 SQLite k3s 관측성 스택
+# 앱 metrics의 OTel OTLP push와 플랫폼 ServiceMonitor 수집을 함께 유지한다.
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
@@ -14,129 +13,175 @@ spec:
   project: monitoring
   source:
     repoURL: https://prometheus-community.github.io/helm-charts
-    chart: prometheus
-    # upgrade는 chart version과 아래 image 설정, CI render contract을 같은 PR에서 바꾼다.
-    targetRevision: 27.3.0
+    chart: kube-prometheus-stack
+    # Chart·Operator·CRD·image digest와 render contract을 함께 검증한다.
+    # upstream tgz SHA256: 05eae98df0ff6c21877a26a4400780e4bbff248bc3b88694ef8d08b273ed6815
+    targetRevision: 87.21.0
     helm:
+      releaseName: prometheus
       valuesObject:
-        # 모든 scrape target을 아래 static_configs로 명시한다. Prometheus server가
-        # Kubernetes API를 조회할 이유가 없으므로 cluster-wide RBAC와 토큰을 끈다.
-        rbac:
-          create: false
-        serviceAccounts:
-          server:
-            automountServiceAccountToken: false
-        configmapReload:
-          prometheus:
+        fullnameOverride: prometheus-kube-prometheus
+        # upstream Operator ClusterRole의 wildcard/전역 Secret 권한은 아래
+        # extraManifests의 monitoring Role과 읽기 전용 ClusterRole로 대체한다.
+        global:
+          rbac:
+            create: false
+        crds:
+          enabled: true
+          upgradeJob:
+            enabled: false
+        grafana:
+          enabled: false
+          forceDeployDashboards: true
+          forceDeployDatasources: false
+          sidecar:
+            dashboards:
+              label: grafana_dashboard
+              labelValue: "1"
+              annotations:
+                grafana_folder: /tmp/dashboards/Kubernetes
+            datasources:
+              uid: prometheus
+        defaultRules:
+          rules:
+            # 현재 k3s는 SQLite이며 아래 control-plane endpoints는 노출하지 않는다.
+            etcd: false
+            kubeControllerManager: false
+            kubeProxy: false
+            kubeSchedulerAlerting: false
+            kubeSchedulerRecording: false
+        kubeControllerManager:
+          enabled: false
+        kubeEtcd:
+          enabled: false
+        kubeProxy:
+          enabled: false
+        kubeScheduler:
+          enabled: false
+        coreDns:
+          service:
+            enabled: false
+          serviceMonitor:
+            port: metrics
+            selector:
+              matchLabels:
+                k8s-app: kube-dns
+        kubelet:
+          # Operator가 만드는 node-address Service도 monitoring 안에서 관리한다.
+          namespace: monitoring
+          serviceMonitor:
+            insecureSkipVerify: false
+            cAdvisor: true
+            cAdvisorInterval: 30s
+        prometheusOperator:
+          admissionWebhooks:
+            enabled: false
+          tls:
+            enabled: false
+          namespaces:
+            releaseNamespace: true
+          prometheusInstanceNamespaces: [monitoring]
+          alertmanagerInstanceNamespaces: [monitoring]
+          alertmanagerConfigNamespaces: [monitoring]
+          thanosRulerInstanceNamespaces: [monitoring]
+          kubeletService:
+            namespace: monitoring
+          kubeletEndpointsEnabled: false
+          kubeletEndpointSliceEnabled: true
+          image:
+            tag: v0.92.1
+            sha: 7d9247d2351480fc74587e24681578f815f387bafb2ee7b86a852a94c4cd3774
+          resources:
+            requests: { cpu: 50m, memory: 128Mi }
+            limits: { memory: 256Mi }
+          prometheusConfigReloader:
             image:
-              digest: sha256:193280a33bc1acad9bc1956c5d986e3da6950882bda89311bac317998dcebf30
+              tag: v0.92.1
+              sha: 74550ba3e8bf93f47bc574231090d340ae9c01d25cd11ff74799e65f9fdb9a48
+            enableProbe: true
             resources:
               requests: { cpu: 10m, memory: 32Mi }
               limits: { memory: 64Mi }
-        server:
-          automountServiceAccountToken: false
-          image:
-            tag: v3.11.3 # compose와 동일
-            digest: sha256:c0b857aead0d5793aa566adb8f49a9983d6f6031652098759d521a330cfa050f
-          retention: 14d # compose --storage.tsdb.retention.time=14d
-          extraFlags:
-            - web.enable-lifecycle
-            - web.enable-otlp-receiver # otel-collector의 메트릭 push 경로
-          global:
-            scrape_interval: 30s
-            evaluation_interval: 30s
-          # ServiceAccount token과 Kubernetes API 권한을 쓰지 않으므로 Alertmanager도
-          # pod discovery 대신 고정된 cluster-local Service로 전달한다.
-          alertmanagers:
-            - static_configs:
-                - targets:
-                    - prometheus-alertmanager.monitoring.svc.cluster.local:9093
-          persistentVolume:
-            enabled: true
-            storageClass: local-path
-            size: 10Gi
-          resources:
-            requests: { cpu: 100m, memory: 768Mi }
-            limits: { memory: 1Gi }
-          # 알림 규칙은 ConfigMap(manifests/observability/prometheus-alert-rules.yaml)로 마운트
-          extraConfigmapMounts:
-            - name: alert-rules
-              configMap: prometheus-alert-rules
-              mountPath: /etc/config/rules-extra
-              readOnly: true
-        serverFiles:
-          prometheus.yml:
-            rule_files:
-              - /etc/config/rules-extra/default-alerts.yml
-            # chart 기본 Kubernetes service discovery를 완전히 덮어쓴다. 아래 target만
-            # 수집하므로 Prometheus에 cluster-wide API token/RBAC가 필요하지 않다.
-            # 앱 metrics는 scrape가 아니라 OTel Collector가 OTLP receiver로 push한다.
-            scrape_configs:
-              - job_name: prometheus
-                static_configs:
-                  - targets: [localhost:9090]
-              - job_name: node-exporter
-                static_configs:
-                  - targets: [node-exporter.monitoring.svc.cluster.local:9100]
-                    labels:
-                      os: linux # node-exporter-host 대시보드의 OS 드롭다운이 참조
-              - job_name: loki
-                static_configs:
-                  - targets: [loki.monitoring.svc.cluster.local:3100]
-              - job_name: tempo
-                static_configs:
-                  # tempo chart 1.18.0의 tempo-prom-metrics Service port
-                  - targets: [tempo.monitoring.svc.cluster.local:3100]
-              - job_name: otel-collector
-                static_configs:
-                  - targets: [otel-collector.monitoring.svc.cluster.local:8888]
-              - job_name: kube-state-metrics
-                static_configs:
-                  - targets: [prometheus-kube-state-metrics.monitoring.svc.cluster.local:8080]
-              - job_name: postgres-exporter
-                scrape_timeout: 10s
-                static_configs:
-                  - targets: [postgres-exporter.db.svc.cluster.local:9187]
-                    labels:
-                      environment: prod
-              - job_name: grafana
-                static_configs:
-                  - targets: [grafana.monitoring.svc.cluster.local:80]
-              - job_name: alertmanager
-                static_configs:
-                  - targets: [prometheus-alertmanager.monitoring.svc.cluster.local:9093]
-              - job_name: cert-manager
-                static_configs:
-                  - targets: [cert-manager.cert-manager.svc.cluster.local:9402]
-              - job_name: cert-manager-webhook
-                static_configs:
-                  - targets: [cert-manager-webhook.cert-manager.svc.cluster.local:9402]
-              - job_name: cert-manager-cainjector
-                static_configs:
-                  - targets: [cert-manager-cainjector.cert-manager.svc.cluster.local:9402]
-              - job_name: external-dns
-                static_configs:
-                  - targets: [external-dns.external-dns.svc.cluster.local:7979]
+        prometheus:
+          prometheusSpec:
+            image:
+              tag: v3.11.3 # 기존 compose/runtime와 동일
+              sha: c0b857aead0d5793aa566adb8f49a9983d6f6031652098759d521a330cfa050f
+            enableOTLPReceiver: true
+            serviceDiscoveryRole: EndpointSlice
+            scrapeInterval: 30s
+            evaluationInterval: 30s
+            retention: 14d
+            # local-path는 볼륨 quota를 강제하지 않는다. 작은 현재 root disk를 보호한다.
+            retentionSize: 4GB
+            resources:
+              requests: { cpu: 250m, memory: 1Gi }
+              limits: { memory: 2Gi }
+            storageSpec:
+              volumeClaimTemplate:
+                spec:
+                  storageClassName: local-path
+                  accessModes: [ReadWriteOnce]
+                  resources:
+                    requests:
+                      storage: 10Gi
+            serviceMonitorSelector:
+              matchLabels:
+                release: prometheus
+            serviceMonitorNamespaceSelector:
+              matchLabels:
+                kubernetes.io/metadata.name: monitoring
+            podMonitorSelector:
+              matchLabels:
+                release: prometheus
+            podMonitorNamespaceSelector:
+              matchLabels:
+                kubernetes.io/metadata.name: monitoring
+            ruleSelector:
+              matchLabels:
+                release: prometheus
+            ruleNamespaceSelector:
+              matchLabels:
+                kubernetes.io/metadata.name: monitoring
+            probeSelector:
+              matchLabels:
+                release: prometheus
+            probeNamespaceSelector:
+              matchLabels:
+                kubernetes.io/metadata.name: monitoring
+            scrapeConfigSelector:
+              matchLabels:
+                release: prometheus
+            scrapeConfigNamespaceSelector:
+              matchLabels:
+                kubernetes.io/metadata.name: monitoring
         alertmanager:
-          enabled: true
-          automountServiceAccountToken: false
-          image:
-            repository: quay.io/prometheus/alertmanager
-            tag: v0.32.1@sha256:51a825c2a40acc3e338fdd00d622e01ec090f72be2b3ea46be0839cd47a4d286 # compose와 동일
-          persistence:
-            enabled: true
-            storageClass: local-path
-            size: 1Gi
-          resources:
-            requests: { cpu: 20m, memory: 64Mi }
-            limits: { memory: 128Mi }
-          # Discord webhook URL은 Secrets Manager에서 동기화한 Secret(alertmanager-discord)에서 마운트
-          extraSecretMounts:
-            - name: discord-webhook
-              secretName: alertmanager-discord
-              mountPath: /etc/alertmanager/secrets
-              readOnly: true
-          # UMC 공용 Discord 라우팅. webhook 값은 Secret에서만 읽는다.
+          serviceAccount:
+            automountServiceAccountToken: false
+          alertmanagerSpec:
+            image:
+              tag: v0.32.1 # 기존 compose/runtime와 동일
+              sha: 51a825c2a40acc3e338fdd00d622e01ec090f72be2b3ea46be0839cd47a4d286
+            automountServiceAccountToken: false
+            secrets: [alertmanager-discord]
+            alertmanagerConfigSelector:
+              matchLabels:
+                release: prometheus
+            alertmanagerConfigNamespaceSelector:
+              matchLabels:
+                kubernetes.io/metadata.name: monitoring
+            resources:
+              requests: { cpu: 20m, memory: 64Mi }
+              limits: { memory: 128Mi }
+            storage:
+              volumeClaimTemplate:
+                spec:
+                  storageClassName: local-path
+                  accessModes: [ReadWriteOnce]
+                  resources:
+                    requests:
+                      storage: 1Gi
+          # Secret 값은 ESO가 동기화한다. Operator는 Secret 이름별 하위 경로에 마운트한다.
           config:
             global:
               resolve_timeout: 5m
@@ -151,12 +196,16 @@ spec:
                   matchers:
                     - environment="local"
                   continue: false
+                - receiver: "null"
+                  matchers:
+                    - alertname=~"Watchdog|InfoInhibitor"
             receivers:
               - name: drop-local
+              - name: "null"
               - name: discord
                 discord_configs:
                   - send_resolved: true
-                    webhook_url_file: /etc/alertmanager/secrets/discord-webhook
+                    webhook_url_file: /etc/alertmanager/secrets/alertmanager-discord/discord-webhook
                     title: '{{ $scope := or (index .CommonLabels "environment") (index .CommonLabels "deployment_environment") (index .CommonLabels "service_name") (index .CommonLabels "application") (index .CommonLabels "job") (index .CommonLabels "instance") "unknown" }}[{{ .Status | toUpper }}{{ if eq .Status "firing" }}:{{ .Alerts.Firing | len }}{{ end }}][{{ $scope }}] {{ .CommonLabels.alertname }}'
                     message: |
                       {{ range .Alerts }}
@@ -174,32 +223,193 @@ spec:
               - source_matchers: ['severity="critical"']
                 target_matchers: ['severity="warning"']
                 equal: [alertname, service_name, application, job, instance]
+              - source_matchers: ['alertname=~"PostgreSQLDown|OTelCollectorDown|LokiDown|TempoDown|GrafanaDown"']
+                target_matchers: ['alertname="TargetDown"']
+                equal: [job, namespace, service]
+              - source_matchers: ['alertname="PostgresBackupFailed"']
+                target_matchers: ['alertname="KubeJobFailed"']
+                equal: [namespace, job_name]
+        nodeExporter:
+          operatingSystems:
+            aix:
+              enabled: false
+            darwin:
+              enabled: false
         prometheus-node-exporter:
-          enabled: true
-          fullnameOverride: node-exporter # extraScrapeConfigs의 타깃 이름과 일치
+          # 기존 DaemonSet 이름/selector를 유지해 host port 9100 중복 배치를 피한다.
+          fullnameOverride: node-exporter
           image:
-            tag: v1.11.1 # compose와 동일
+            tag: v1.11.1
+            distroless: false
             digest: sha256:0f422f62c15f154af8d8572b23d623aebfb10cec73a5c654d18f911f3f9df241
+          securityContext:
+            seccompProfile:
+              type: RuntimeDefault
+          containerSecurityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+            readOnlyRootFilesystem: true
           resources:
             requests: { cpu: 20m, memory: 32Mi }
             limits: { memory: 64Mi }
+          prometheus:
+            monitor:
+              relabelings:
+                - targetLabel: os
+                  replacement: linux
         kube-state-metrics:
-          # DB Pod/StatefulSet/PVC의 상태·예약량과 pg-backup 상태만 수집한다.
-          # Secret과 클러스터 전체 리소스는 읽지 않는다.
-          enabled: true
           image:
-            sha: sha256:37d841299325c23b56e5951176ce8ef317d537447c0f1b2d2437dddbb1f51165
+            tag: v2.19.1
+            sha: sha256:85108987d044b18a098126732f98602df408888c0f7d456241f5abefb9744bc1
           rbac:
-            # db Role/RoleBinding은 trusted Git source인 manifests/postgres에 둔다.
-            # 외부 monitoring chart에 db destination을 열지 않는다.
-            create: false
-          collectors: [cronjobs, jobs, pods, statefulsets, persistentvolumeclaims]
-          namespaces: [db]
+            create: true
+            useClusterRole: true
+          # 모든 namespace의 workload/node/storage 상태를 읽되 Secret/ConfigMap은 읽지 않는다.
+          namespaces: ""
+          collectors:
+            - cronjobs
+            - daemonsets
+            - deployments
+            - endpointslices
+            - horizontalpodautoscalers
+            - ingresses
+            - jobs
+            - namespaces
+            - networkpolicies
+            - nodes
+            - persistentvolumeclaims
+            - persistentvolumes
+            - poddisruptionbudgets
+            - pods
+            - replicasets
+            - replicationcontrollers
+            - resourcequotas
+            - services
+            - statefulsets
+            - storageclasses
+            - volumeattachments
           resources:
-            requests: { cpu: 20m, memory: 64Mi }
-            limits: { memory: 128Mi }
-        prometheus-pushgateway:
-          enabled: false
+            requests: { cpu: 30m, memory: 96Mi }
+            limits: { memory: 192Mi }
+        extraManifests:
+          - apiVersion: rbac.authorization.k8s.io/v1
+            kind: Role
+            metadata:
+              name: prometheus-kube-prometheus-operator
+              namespace: monitoring
+            rules:
+              - apiGroups: [monitoring.coreos.com]
+                resources:
+                  - alertmanagers
+                  - alertmanagers/finalizers
+                  - alertmanagers/status
+                  - alertmanagerconfigs
+                  - prometheuses
+                  - prometheuses/finalizers
+                  - prometheuses/status
+                  - prometheusagents
+                  - prometheusagents/finalizers
+                  - prometheusagents/status
+                  - thanosrulers
+                  - thanosrulers/finalizers
+                  - thanosrulers/status
+                  - scrapeconfigs
+                  - scrapeconfigs/status
+                  - servicemonitors
+                  - servicemonitors/status
+                  - podmonitors
+                  - podmonitors/status
+                  - probes
+                  - probes/status
+                  - prometheusrules
+                  - prometheusrules/status
+                verbs: [get, list, watch, create, update, patch, delete]
+              - apiGroups: [apps]
+                resources: [statefulsets]
+                verbs: [get, list, watch, create, update, patch, delete]
+              - apiGroups: [""]
+                resources: [configmaps, secrets]
+                verbs: [get, list, watch, create, update, patch, delete]
+              - apiGroups: [""]
+                resources: [pods]
+                verbs: [list, delete]
+              - apiGroups: [""]
+                resources: [services, services/finalizers, endpoints]
+                verbs: [get, create, update, delete]
+              - apiGroups: [discovery.k8s.io]
+                resources: [endpointslices]
+                verbs: [get, list, watch, create, update, delete]
+              - apiGroups: ["", events.k8s.io]
+                resources: [events]
+                verbs: [patch, create]
+              - apiGroups: [networking.k8s.io]
+                resources: [ingresses]
+                verbs: [get, list, watch]
+          - apiVersion: rbac.authorization.k8s.io/v1
+            kind: RoleBinding
+            metadata:
+              name: prometheus-kube-prometheus-operator
+              namespace: monitoring
+            roleRef:
+              apiGroup: rbac.authorization.k8s.io
+              kind: Role
+              name: prometheus-kube-prometheus-operator
+            subjects:
+              - kind: ServiceAccount
+                name: prometheus-kube-prometheus-operator
+                namespace: monitoring
+          - apiVersion: rbac.authorization.k8s.io/v1
+            kind: ClusterRole
+            metadata:
+              name: prometheus-kube-prometheus-operator
+            rules:
+              - apiGroups: [""]
+                resources: [nodes]
+                verbs: [list, watch]
+              - apiGroups: [""]
+                resources: [namespaces]
+                verbs: [get, list, watch]
+              - apiGroups: [storage.k8s.io]
+                resources: [storageclasses]
+                verbs: [get]
+          - apiVersion: rbac.authorization.k8s.io/v1
+            kind: ClusterRoleBinding
+            metadata:
+              name: prometheus-kube-prometheus-operator
+            roleRef:
+              apiGroup: rbac.authorization.k8s.io
+              kind: ClusterRole
+              name: prometheus-kube-prometheus-operator
+            subjects:
+              - kind: ServiceAccount
+                name: prometheus-kube-prometheus-operator
+                namespace: monitoring
+          - apiVersion: rbac.authorization.k8s.io/v1
+            kind: ClusterRole
+            metadata:
+              name: prometheus-kube-prometheus-prometheus
+            rules:
+              - apiGroups: [""]
+                resources: [nodes, nodes/metrics, services, endpoints, pods]
+                verbs: [get, list, watch]
+              - apiGroups: [discovery.k8s.io]
+                resources: [endpointslices]
+                verbs: [get, list, watch]
+              - nonResourceURLs: [/metrics, /metrics/cadvisor, /metrics/probes, /metrics/resource]
+                verbs: [get]
+          - apiVersion: rbac.authorization.k8s.io/v1
+            kind: ClusterRoleBinding
+            metadata:
+              name: prometheus-kube-prometheus-prometheus
+            roleRef:
+              apiGroup: rbac.authorization.k8s.io
+              kind: ClusterRole
+              name: prometheus-kube-prometheus-prometheus
+            subjects:
+              - kind: ServiceAccount
+                name: prometheus-kube-prometheus-prometheus
+                namespace: monitoring
   destination:
     server: https://kubernetes.default.svc
     namespace: monitoring
@@ -207,3 +417,7 @@ spec:
     automated:
       selfHeal: true
       prune: true
+    syncOptions:
+      - ServerSideApply=true
+      - SkipDryRunOnMissingResource=true
+      - PruneLast=true

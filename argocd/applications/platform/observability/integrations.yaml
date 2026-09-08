@@ -1,0 +1,33 @@
+# root Application의 health gate가 kube-prometheus-stack(wave 2)의 CRD/controller를
+# 기다린 뒤 ServiceMonitor와 PrometheusRule을 적용한다. 기본 정책·ConfigMap은
+# monitoring-config(wave 1)에 두어 CRD 부재가 stack 설치를 막지 않게 한다.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: monitoring-integrations
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "3"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: monitoring
+  source:
+    repoURL: https://github.com/UMC-PRODUCT/umc-product-infra.git
+    targetRevision: main
+    path: manifests/observability-integrations
+    directory:
+      recurse: true
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: monitoring
+  syncPolicy:
+    automated:
+      selfHeal: true
+      prune: true
+    retry:
+      limit: 5
+      backoff:
+        duration: 10s
+        factor: 2
+        maxDuration: 3m

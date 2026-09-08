@@ -1,6 +1,7 @@
-# 모니터링 설정 리소스 — 대시보드 + Prometheus/Loki 알림 규칙 + NetworkPolicy
+# 모니터링 기본 설정 — 대시보드 + Loki 알림 규칙 + NetworkPolicy
 # 원본은 observability/, 변환은 scripts/gen-configmaps.py
 # wave 1: Ingress가 포함될 수 있는 Grafana 등 wave 2 workload보다 정책·설정을 먼저 준비한다.
+# monitoring.coreos.com CR은 CRD가 준비된 뒤 monitoring-integrations(wave 3)가 소유한다.
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:

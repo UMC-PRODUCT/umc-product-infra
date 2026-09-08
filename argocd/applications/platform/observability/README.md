@@ -27,23 +27,40 @@ Collector에는 별도 sampler를 두지 않는다. 애플리케이션이 보낸
 
 ## 파일을 읽는 순서
 
-1. [`config.yaml`](config.yaml): NetworkPolicy와 생성된 dashboard·rule ConfigMap
-2. [`otel-collector.yaml`](otel-collector.yaml): 앱 신호를 받는 입구와 exporter
-3. [`prometheus.yaml`](prometheus.yaml): metrics, alert rule, Alertmanager와 node 상태
-4. [`loki.yaml`](loki.yaml): log 저장과 Loki ruler
-5. [`tempo.yaml`](tempo.yaml): trace 저장
-6. [`grafana.yaml`](grafana.yaml): datasource, dashboard와 외부 접근 gate
+1. [`prometheus.yaml`](prometheus.yaml): kube-prometheus-stack 버전, Operator·CRD, 수집·알림·권한
+2. [`integrations.yaml`](integrations.yaml): UMC ServiceMonitor와 생성된 PrometheusRule
+3. [`config.yaml`](config.yaml): NetworkPolicy, UMC dashboard와 Loki rule ConfigMap
+4. [`otel-collector.yaml`](otel-collector.yaml): 앱 신호를 받는 입구와 exporter
+5. [`loki.yaml`](loki.yaml), [`tempo.yaml`](tempo.yaml): log와 trace 저장
+6. [`grafana.yaml`](grafana.yaml): 기존 Grafana의 datasource, dashboard와 외부 접근
 
-`monitoring-config`는 sync wave 1에서 정책과 설정을 먼저 만들고, 나머지 workload는 wave 2에서
-배포한다.
+`monitoring-config`는 wave 1, 관측 chart는 wave 2, `monitoring-integrations`는 wave 3이다.
+CRD와 Operator가 먼저 준비된 다음 ServiceMonitor·PrometheusRule을 적용한다. 기존 standalone
+Prometheus 전환은 [마이그레이션 runbook](../../../../runbooks/monitoring-operator-migration.md)을 따른다.
+
+`prometheus` Application은 `kube-prometheus-stack` chart 하나로 Prometheus Operator, CRD,
+Prometheus, Alertmanager, node-exporter, kube-state-metrics와 Kubernetes 기본 dashboard·rule을
+설치한다. Grafana chart는 여기서 끄고 기존 `grafana` Application을 유지한다. 기본 dashboard는
+`Kubernetes`, UMC dashboard는 `UMC Product` folder에 표시한다.
+
+Operator가 `monitoring` 안의 Prometheus·Alertmanager custom resource를 읽어 StatefulSet을 만든다.
+Prometheus는 같은 namespace의 `release: prometheus` monitor·rule만 선택하며 ServiceMonitor가
+대상 namespace의 Service label과 이름 있는 port를 선택한다. kubelet/cAdvisor와 kube-state-metrics로
+클러스터 workload 사용량과 상태를 수집한다. SQLite K3s에 없는 etcd·scheduler·controller-manager·
+kube-proxy 독립 endpoint와 관련 rule은 끈다.
+
+Operator의 쓰기 권한은 `monitoring` Role에만 있고 cluster 권한은 node·namespace·storageclass
+조회뿐이다. Prometheus와 kube-state-metrics의 cluster 권한도 명시적인 읽기 전용 목록을 쓴다.
+AppProject는 CRD·ClusterRole·ClusterRoleBinding 세 종류만 허용하며 admission webhook은 끈다.
 
 ## Application과 보존 기간
 
 | Application | 역할 | 보존 |
 |---|---|---|
-| `monitoring-config` | NetworkPolicy, dashboard와 rule ConfigMap | 해당 없음 |
+| `monitoring-config` | NetworkPolicy, UMC dashboard와 Loki rule ConfigMap | 해당 없음 |
+| `monitoring-integrations` | UMC ServiceMonitor·PrometheusRule | 해당 없음 |
 | `otel-collector` | 중앙 OTLP gateway | 저장하지 않음 |
-| `prometheus` | metrics, Alertmanager, node-exporter, kube-state-metrics | 14일 |
+| `prometheus` | Operator·CRD, metrics, Alertmanager, node-exporter, kube-state-metrics | 14일 / 4GB 중 먼저 도달하는 조건 |
 | `loki` | logs와 Loki ruler | 90일 (`2160h`) |
 | `tempo` | traces | 7일 (`168h`) |
 | `grafana` | datasource와 dashboard 조회 | Git에서 dashboard 복원 |
@@ -58,7 +75,8 @@ Collector에는 별도 sampler를 두지 않는다. 애플리케이션이 보낸
 | Tempo | 50Gi | traces |
 | Grafana | 1Gi | local user와 Grafana 내부 DB |
 
-모든 PVC는 단일 노드의 `local-path`를 사용한다. Node나 disk를 잃으면 telemetry와 Grafana local
+`local-path`는 PVC 요청량을 실제 disk quota로 강제하지 않으므로 Prometheus는 별도 4GB retention
+상한을 둔다. 모든 PVC는 단일 노드의 `local-path`를 사용한다. Node나 disk를 잃으면 telemetry와 Grafana local
 user 상태를 잃을 수 있다. Dashboard와 datasource는 Git에서 복원하지만 이 저장소는 PostgreSQL
 backup을 대신하지 않는다.
 

@@ -279,8 +279,8 @@ python3 scripts/validate_argocd.py "$validation_dir"
 
 # Argo CD에 인라인으로 둔 valuesObject를 그대로 사용해 외부 관측 chart도 렌더한다.
 # chart 기본값 deep-merge나 label 변경이 운영에서 처음 드러나지 않게 CI에서 고정한다.
-python3 scripts/validate_observability.py "$validation_dir"
 python3 scripts/validate_edge_platform.py "$validation_dir"
+python3 scripts/validate_observability.py "$validation_dir"
 
 python3 scripts/validate_contracts.py \
   "$validation_dir/prod.yaml" \
@@ -335,23 +335,28 @@ if command -v kubeconform >/dev/null; then
     "$validation_dir/argocd.yaml" \
     "$validation_dir"/observability-*.yaml \
     "$validation_dir"/platform-*.yaml
+  # New Operator custom resources must pass their pinned CRD schemas, without
+  # ignore-missing-schemas. Admission/CEL checks still require server dry-run.
+  kubeconform -strict -summary \
+    -schema-location "$validation_dir/monitoring-schemas/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json" \
+    "$validation_dir/monitoring-resources.yaml"
 else
   echo "kubeconform not installed; Kubernetes schema validation skipped"
 fi
 
 if command -v promtool >/dev/null; then
-  promtool check rules observability/rules/prometheus-alerts.yaml
-  python3 - "$validation_dir/generated-prometheus-rules.yaml" <<'PY'
-import sys
-from pathlib import Path
-import yaml
-
-with Path("manifests/observability/prometheus-alert-rules.yaml").open(encoding="utf-8") as stream:
-    configmap = yaml.safe_load(stream)
-Path(sys.argv[1]).write_text(configmap["data"]["default-alerts.yml"], encoding="utf-8")
-PY
-  promtool check rules "$validation_dir/generated-prometheus-rules.yaml"
-  promtool check config --syntax-only "$validation_dir/prometheus-config.yaml"
+  promtool check rules --lint-fatal observability/rules/prometheus-alerts.yaml
+  # The operator compiles Prometheus config at runtime. Validate every rendered
+  # PrometheusRule now, including the chart's default alert/recording rules.
+  for rule_file in "$validation_dir"/prometheus-rules-*.yaml; do
+    if [[ "${rule_file##*/}" == prometheus-rules-prometheus-alert-rules.yaml ]]; then
+      promtool check rules --lint-fatal "$rule_file"
+    else
+      # Upstream availability rules record disjoint code ranges under one name;
+      # retain promtool's default nonfatal lint while enforcing syntax errors.
+      promtool check rules "$rule_file"
+    fi
+  done
 else
   echo "promtool not installed; Prometheus rule validation skipped"
 fi

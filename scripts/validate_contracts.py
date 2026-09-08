@@ -1265,8 +1265,7 @@ def validate_postgres() -> None:
                 "podSelector": {
                     "matchLabels": {
                         "app.kubernetes.io/name": "prometheus",
-                        "app.kubernetes.io/instance": "prometheus",
-                        "app.kubernetes.io/component": "server",
+                        "operator.prometheus.io/name": "prometheus-kube-prometheus-prometheus",
                     }
                 },
             }
@@ -1274,35 +1273,8 @@ def validate_postgres() -> None:
         "prod: exporter metrics ingress restricted to Prometheus",
     )
 
-    state_metrics_role = resource(
-        yaml_documents(prod_directory / "kube-state-metrics-role.yaml"), "Role"
-    )
-    require(
-        state_metrics_role["rules"]
-        == [
-            {
-                "apiGroups": [""],
-                "resources": ["pods", "persistentvolumeclaims"],
-                "verbs": ["list", "watch"],
-            },
-            {
-                "apiGroups": ["apps"],
-                "resources": ["statefulsets"],
-                "verbs": ["list", "watch"],
-            },
-            {
-                "apiGroups": ["batch"],
-                "resources": ["cronjobs"],
-                "verbs": ["list", "watch"],
-            },
-            {
-                "apiGroups": ["batch"],
-                "resources": ["jobs"],
-                "verbs": ["list", "watch"],
-            },
-        ],
-        "prod: kube-state-metrics least-privilege collectors",
-    )
+    require(not (prod_directory / "kube-state-metrics-role.yaml").exists(),
+            "prod: kube-state-metrics RBAC is owned by kube-prometheus-stack")
 
 
 def validate_secrets(path: Path) -> None:

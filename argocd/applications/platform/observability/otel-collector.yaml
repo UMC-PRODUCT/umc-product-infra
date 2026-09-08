@@ -68,7 +68,7 @@ spec:
             # chart 기본 debug exporter는 어느 pipeline에서도 쓰지 않으며 제거한다.
             debug: null
             otlphttp/prometheus:
-              endpoint: http://prometheus-server.monitoring.svc.cluster.local:80/api/v1/otlp
+              endpoint: http://prometheus-kube-prometheus-prometheus.monitoring.svc.cluster.local:9090/api/v1/otlp
               tls: { insecure: true }
             otlphttp/tempo:
               endpoint: http://tempo.monitoring.svc.cluster.local:4318

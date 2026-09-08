@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-"""관측성 원본을 Kubernetes ConfigMap으로 결정적으로 변환한다.
+"""관측성 원본을 Kubernetes ConfigMap/PrometheusRule로 결정적으로 변환한다.
 
 원본은 이 저장소의 ``observability/``가 소유한다. 배포가 검증된 초기 허용
-목록만 ``manifests/observability/``에 생성하며, 허용 목록에서 빠진 원본은
-보관하더라도 Grafana sidecar에 전달하지 않는다.
+목록만 ``manifests/observability/``에 생성하며, PrometheusRule은 CRD 이후
+적용할 ``manifests/observability-integrations/``에 생성한다. 허용 목록에서
+빠진 dashboard 원본은 보관하더라도 Grafana sidecar에 전달하지 않는다.
 
     python3 scripts/gen-configmaps.py
     python3 scripts/gen-configmaps.py --check
@@ -20,7 +21,8 @@ import sys
 
 HERE = pathlib.Path(__file__).resolve().parent
 ROOT = HERE.parent
-OUTPUT = ROOT / "manifests" / "observability"
+OUTPUT = ROOT / "manifests"
+DASHBOARD_DIRECTORY = pathlib.Path("observability/dashboards")
 
 DASHBOARD_ALLOWLIST = (
     "api-flow.json",
@@ -34,7 +36,6 @@ DASHBOARD_ALLOWLIST = (
 )
 PROMETHEUS_RULE_SOURCE = "prometheus-alerts.yaml"
 LOKI_RULE_SOURCE = "loki-alerts.yaml"
-PROMETHEUS_RULE_KEY = "default-alerts.yml"
 LOKI_RULE_KEY = "default-log-alerts.yml"
 
 ALERT_START = re.compile(r"^(?P<indent> *)- alert: (?P<name>[^ ]+)\s*$")
@@ -42,7 +43,7 @@ GROUP_NAME = re.compile(r"^  - name: (?P<name>\S+)\s*$", re.MULTILINE)
 AVAILABILITY_MARKER = "  - name: umc-product.availability\n    rules:\n"
 OBSERVABILITY_MARKER = "  - name: umc-product.observability\n    rules:\n"
 
-# 현재 k3s scrape topology에 target이 없거나 아래 전용 규칙과 중복된다.
+# 현재 k3s에 target이 없거나 kube-prometheus-stack 기본 규칙과 중복된다.
 # 원본 변경으로 이름이 사라지면 조용히 건너뛰지 않고 생성 단계가 실패한다.
 K3S_DROPPED_ALERTS = frozenset(
     {
@@ -54,6 +55,15 @@ K3S_DROPPED_ALERTS = frozenset(
         "SSLCertificateExpiresSoon",
         "ExternalHttpHealthCheckFailed",
         "ApiHealthCheckFailed",
+        # KPS TargetDown와 Prometheus/Alertmanager 기본 규칙이 담당한다.
+        "PrometheusDown",
+        "AlertmanagerDown",
+        # KPS node-exporter/Kubernetes 규칙이 담당한다. local-path 노드의
+        # 절대 여유 용량(10Gi) 경보인 LowDiskFreeSpace는 별도로 유지한다.
+        "HighCpuUsage",
+        "HighMemoryUsage",
+        "HighDiskUsage",
+        "ContainerRestarted",
     }
 )
 COMMENTED_NODE_EXPORTER_ALERT = """\
@@ -68,16 +78,7 @@ COMMENTED_NODE_EXPORTER_ALERT = """\
 
 """
 K3S_STATIC_ALERTS = """\
-      # k3s에서 실제로 scrape하는 Service와 port를 기준으로 한다.
-      - alert: NodeExporterDown
-        expr: up{job="node-exporter"} == 0
-        for: 3m
-        labels:
-          severity: warning
-        annotations:
-          summary: "Node exporter scrape를 확인해주세요"
-          description: "instance={{ $labels.instance }} 의 exporter 또는 cluster 내부 scrape 경로가 3분 이상 응답하지 않아요. 전체 node/cluster 장애 탐지는 외부 모니터가 별도로 필요해요."
-
+      # 기존 Tempo 전용 경보를 유지한다. node-exporter/KSM은 KPS TargetDown이 담당한다.
       - alert: TempoDown
         expr: up{job="tempo"} == 0
         for: 3m
@@ -86,15 +87,6 @@ K3S_STATIC_ALERTS = """\
         annotations:
           summary: "Tempo metrics endpoint를 확인해주세요"
           description: "instance={{ $labels.instance }} 의 Tempo metrics endpoint를 3분 이상 scrape하지 못했어요. Tempo pod, Service와 storage 상태를 확인해주세요."
-
-      - alert: KubeStateMetricsDown
-        expr: up{job="kube-state-metrics"} == 0
-        for: 3m
-        labels:
-          severity: warning
-        annotations:
-          summary: "kube-state-metrics scrape를 확인해주세요"
-          description: "instance={{ $labels.instance }} 에서 backup Job/CronJob 상태 지표를 3분 이상 받지 못했어요. kube-state-metrics pod와 Service를 확인해주세요."
 
 """
 K3S_OBSERVABILITY_ALERTS = """\
@@ -184,6 +176,11 @@ def block_scalar(text: str, indent: int) -> str:
 
 def configmap(name: str, filename: str, content: str, *, dashboard: bool = False) -> str:
     dashboard_label = '    grafana_dashboard: "1"\n' if dashboard else ""
+    dashboard_folder = (
+        "  annotations:\n"
+        "    grafana_folder: /tmp/dashboards/UMC Product\n"
+        if dashboard else ""
+    )
     return (
         "# 자동 생성 — observability/ 원본은 직접 수정하고 scripts/gen-configmaps.py를 재실행하세요.\n"
         "apiVersion: v1\n"
@@ -194,9 +191,26 @@ def configmap(name: str, filename: str, content: str, *, dashboard: bool = False
         "  labels:\n"
         "    app.kubernetes.io/managed-by: umc-infra\n"
         f"{dashboard_label}"
+        f"{dashboard_folder}"
         "data:\n"
         f"  {filename}: |\n"
         f"{block_scalar(content, 4)}\n"
+    )
+
+
+def prometheus_rule(content: str) -> str:
+    return (
+        "# 자동 생성 — observability/ 원본은 직접 수정하고 scripts/gen-configmaps.py를 재실행하세요.\n"
+        "apiVersion: monitoring.coreos.com/v1\n"
+        "kind: PrometheusRule\n"
+        "metadata:\n"
+        "  name: prometheus-alert-rules\n"
+        "  namespace: monitoring\n"
+        "  labels:\n"
+        "    app.kubernetes.io/managed-by: umc-infra\n"
+        "    release: prometheus\n"
+        "spec:\n"
+        f"{block_scalar(content, 2)}\n"
     )
 
 
@@ -342,7 +356,7 @@ def desired_outputs(source_root: pathlib.Path) -> dict[pathlib.Path, str]:
     for filename in DASHBOARD_ALLOWLIST:
         source = dashboard_source / filename
         dashboard = canonical_dashboard(filename, read_text(source))
-        relative_output = pathlib.Path("dashboards") / pathlib.Path(filename).with_suffix(".yaml")
+        relative_output = DASHBOARD_DIRECTORY / pathlib.Path(filename).with_suffix(".yaml")
         desired[relative_output] = configmap(
             f"dashboard-{pathlib.Path(filename).stem.replace('_', '-')}",
             filename,
@@ -351,13 +365,13 @@ def desired_outputs(source_root: pathlib.Path) -> dict[pathlib.Path, str]:
         )
 
     prometheus = k3s_prometheus_rules(read_text(rule_source / PROMETHEUS_RULE_SOURCE))
-    desired[pathlib.Path("prometheus-alert-rules.yaml")] = configmap(
-        "prometheus-alert-rules", PROMETHEUS_RULE_KEY, prometheus
+    desired[pathlib.Path("observability-integrations/prometheus-alert-rules.yaml")] = (
+        prometheus_rule(prometheus)
     )
 
     loki = read_text(rule_source / LOKI_RULE_SOURCE)
     validate_rule_groups(loki, {"umc-product.logs"}, LOKI_RULE_SOURCE)
-    desired[pathlib.Path("loki-alert-rules.yaml")] = configmap(
+    desired[pathlib.Path("observability/loki-alert-rules.yaml")] = configmap(
         "loki-alert-rules", LOKI_RULE_KEY, loki.rstrip() + "\n"
     )
     return desired
@@ -381,12 +395,14 @@ def main() -> int:
     source, check = parse_arguments()
     desired = desired_outputs(source)
     expected_dashboards = {
-        path.name for path in desired if path.parent == pathlib.Path("dashboards")
+        path.name for path in desired if path.parent == DASHBOARD_DIRECTORY
     }
-    dashboard_output = OUTPUT / "dashboards"
+    dashboard_output = OUTPUT / DASHBOARD_DIRECTORY
 
     if check:
         drift: list[str] = []
+        if (OUTPUT / "observability/prometheus-alert-rules.yaml").exists():
+            drift.append("stale: observability/prometheus-alert-rules.yaml (legacy ConfigMap)")
         actual_dashboards = {
             path.name for path in dashboard_output.glob("*.yaml") if path.is_file()
         }

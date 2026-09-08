@@ -94,8 +94,7 @@ spec:
         - podSelector:
             matchLabels:
               app.kubernetes.io/name: prometheus
-              app.kubernetes.io/instance: prometheus
-              app.kubernetes.io/component: server
+              operator.prometheus.io/name: prometheus-kube-prometheus-prometheus
       ports:
         - { protocol: TCP, port: 8888 }
 ---

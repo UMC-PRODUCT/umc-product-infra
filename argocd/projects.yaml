@@ -216,7 +216,7 @@ metadata:
   finalizers:
     - resources-finalizer.argocd.argoproj.io
 spec:
-  description: Observability workloads confined to monitoring
+  description: Observability workloads in monitoring, monitoring CRDs and explicit read-only cluster discovery
   sourceRepos:
     - https://github.com/UMC-PRODUCT/umc-product-infra.git
     - https://grafana-community.github.io/helm-charts
@@ -226,7 +226,13 @@ spec:
   destinations:
     - server: https://kubernetes.default.svc
       namespace: monitoring
-  clusterResourceWhitelist: []
+  clusterResourceWhitelist:
+    - group: apiextensions.k8s.io
+      kind: CustomResourceDefinition
+    - group: rbac.authorization.k8s.io
+      kind: ClusterRole
+    - group: rbac.authorization.k8s.io
+      kind: ClusterRoleBinding
 ---
 apiVersion: argoproj.io/v1alpha1
 kind: AppProject

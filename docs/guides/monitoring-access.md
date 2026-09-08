@@ -41,7 +41,8 @@ canonical `https://grafana.university.neordinary.com`, domain enforcement, secur
 
 ## Dashboard 사용
 
-서버 운영에 직접 쓰는 dashboard는 여덟 개다. 로그인 후 기본 홈으로 열리는
+직접 관리하는 UMC dashboard 여덟 개는 `UMC Product` folder에 있다. `Kubernetes` folder에는
+kube-prometheus-stack의 node·namespace·workload 기본 dashboard가 있다. 로그인 후 기본 홈으로 열리는
 `UMC PRODUCT System Overview`에서 시작하고, 상단 link에서 같은 시간 범위와 변수를 유지한 채
 상세 dashboard로 이동한다.
 
@@ -85,9 +86,10 @@ PostgreSQL Detail은 **production 전용**이며 두 source를 함께 쓴다. de
 - `postgres-exporter`: 접속 수, 최대 접속, DB 용량, transaction, cache hit, lock 같은 DB 내부 지표
 - `kube-state-metrics`: `db` namespace의 PostgreSQL Pod/StatefulSet 상태, CPU·memory request/limit, PVC 요청 용량
 
-여기서 CPU·memory는 **실제 사용량이 아니라 Kubernetes에 선언한 예약/limit**이다.
-현재 Prometheus는 cluster-wide API token과 cAdvisor scrape를 쓰지 않으므로 Pod의 실제 사용량은
-제공하지 않는다. 실제 사용량이 필요하면 별도 권한·수집 설계를 먼저 검토한다.
+이 PostgreSQL Detail 패널의 CPU·memory는 **Kubernetes에 선언한 예약/limit**이다.
+Pod의 실제 CPU·memory 사용량은 kubelet/cAdvisor를 수집하는 `Kubernetes` folder의 workload
+dashboard에서 namespace `db`로 조회한다. kube-state-metrics는 cluster 상태를 읽지만 Secret과
+ConfigMap 내용은 수집하지 않는다.
 
 Node Exporter Host의 OS 기본값은 실제 운영 target인 `Linux`다. `macOS`는 로컬 Homebrew
 exporter를 연결해 확인할 때만 선택한다.
@@ -138,7 +140,7 @@ key와 AWS access key도 Git에 저장하지 않는다. DNS와 인증서 절차�
 - Grafana Ingress는 API Ingress와 독립적으로 관리한다. `kube-system`의 Traefik Pod에서 오는
   `3000/TCP`만 별도 허용한다.
 - Actuator 9090은 application Service나 Ingress에 노출하지 않는다.
-- Prometheus 14일, Tempo 7일, Loki 90일 retention을 사용한다.
+- Prometheus 14일 / 4GB 중 먼저 도달하는 조건, Tempo 7일, Loki 90일 retention을 사용한다.
 - 단일 노드 local-path storage라서 node loss 시 telemetry가 유실될 수 있다.
 - 같은 노드의 Alertmanager는 node/power/network 전체 장애를 알릴 수 없다. 운영 전 IDC 밖에 uptime monitor를 둔다.
 

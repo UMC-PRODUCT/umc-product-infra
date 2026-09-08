@@ -48,14 +48,14 @@ spec:
           compactor:
             retention_enabled: true
             delete_request_store: filesystem
-          # 로그 알림 규칙 → prometheus 차트의 alertmanager로 발화 (로컬 스택과 동일 경로)
+          # 로그 알림 규칙 → kube-prometheus-stack의 Alertmanager로 전달
           rulerConfig:
             storage:
               type: local
               local:
                 directory: /rules
             rule_path: /tmp/loki-rules
-            alertmanager_url: http://prometheus-alertmanager.monitoring.svc.cluster.local:9093
+            alertmanager_url: http://prometheus-kube-prometheus-alertmanager.monitoring.svc.cluster.local:9093
             enable_api: true
         singleBinary:
           replicas: 1
