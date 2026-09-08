@@ -46,6 +46,70 @@ class K3sInstallerContractTests(unittest.TestCase):
         )
 
 
+class K3sReadinessContractTests(unittest.TestCase):
+    def test_traefik_creation_wait_precedes_the_bounded_rollout_wait(self) -> None:
+        tasks = load_tasks("ansible/roles/k3s/tasks/main.yml")
+        rollout_index = next(
+            index
+            for index, task in enumerate(tasks)
+            if "rollout" in command_argv(task)
+            and "deployment/traefik" in command_argv(task)
+        )
+
+        self.assertGreater(rollout_index, 0)
+        creation_wait = tasks[rollout_index - 1]
+        self.assertEqual(
+            command_argv(creation_wait),
+            [
+                "/usr/local/bin/k3s",
+                "kubectl",
+                "wait",
+                "--for=create",
+                "deployment/traefik",
+                "-n",
+                "kube-system",
+                "--timeout={{ k3s_ready_timeout }}",
+            ],
+        )
+        self.assertFalse(creation_wait["changed_when"])
+        self.assertIn(
+            "--timeout={{ k3s_ready_timeout }}", command_argv(tasks[rollout_index])
+        )
+
+    def test_traefik_service_validation_is_bounded_and_follows_rollout(self) -> None:
+        tasks = load_tasks("ansible/roles/k3s/tasks/main.yml")
+        service_wait = next(
+            task for task in tasks if task.get("register") == "k3s_traefik_service"
+        )
+        previous = tasks[tasks.index(service_wait) - 1]
+        self.assertIn("rollout", command_argv(previous))
+        self.assertIn("deployment/traefik", command_argv(previous))
+        self.assertEqual(
+            command_argv(service_wait),
+            [
+                "/usr/local/bin/k3s", "kubectl", "-n", "kube-system",
+                "get", "svc", "traefik", "-o", "json",
+            ],
+        )
+        self.assertFalse(service_wait["changed_when"])
+        self.assertEqual(service_wait["retries"], 60)
+        self.assertEqual(service_wait["delay"], 5)
+        condition = " ".join(service_wait["until"].split())
+        self.assertTrue(
+            condition.startswith(
+                "k3s_traefik_service.rc == 0 and "
+                "k3s_traefik_service.stdout | trim | length > 0 and "
+            )
+        )
+        for required in (
+            "get('type') == 'LoadBalancer'",
+            "get('allocateLoadBalancerNodePorts', true) is false",
+            "| map(attribute='port') | list) == [443]",
+            "| selectattr('nodePort', 'defined') | list | length) == 0",
+        ):
+            self.assertIn(required, condition)
+
+
 class KubernetesApplyContractTests(unittest.TestCase):
     def test_bootstrap_namespace_apply_uses_server_side_ownership(self) -> None:
         for relative_path in (
@@ -231,6 +295,10 @@ class TailscaleBootstrapContractTests(unittest.TestCase):
         self.assertEqual(common_defaults["common_public_tcp_ports"], [443])
         self.assertIn("umc-public-https", common_tasks)
         traefik_values = yaml.safe_load(traefik_config["spec"]["valuesContent"])
+        self.assertIs(traefik_values["ports"]["web"]["expose"]["default"], False)
+        self.assertIs(
+            traefik_values["service"]["spec"]["allocateLoadBalancerNodePorts"], False
+        )
         forwarded_headers = traefik_values["ports"]["websecure"][
             "forwardedHeaders"
         ]
