@@ -273,7 +273,7 @@ Ansible 명령 한 번이 성공했다고 서비스 배포가 끝난 것은 아�
 - DNS: Cafe24 이관 대상 public IPv4 `1.255.226.166`과 같은 `/32` filter
 - TLS: Let's Encrypt production issuer
 - Grafana: public Ingress 활성
-- backup: `suspend: true`
+- backup: 외부 S3 업로드·복원 검증 후 `suspend: false`, 매일 03:00 KST 실행
 - root: 초기 이관 중 child Application 오삭제를 막는 `prune: false`
 
 각 gate는 독립적으로 관리한다. prod/dev는 검증된 image tag·digest가 준비되면 해당 환경의

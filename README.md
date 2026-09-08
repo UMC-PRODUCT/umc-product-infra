@@ -124,7 +124,7 @@ DNS와 접근 정책은 [도메인/TLS 가이드](docs/guides/domains-tls.md)를
 | prod/dev 앱 | `deployment.enabled: true`, image tag·digest 고정 | Git 활성 | 새 IDC는 DB 복원 뒤 앱 시작·migration·probe 검증 |
 | prod/dev API | `ingress.enabled: true` | Git 활성 | DNS 전환 전에 새 IDC의 인증서·HTTPS·API 인증 확인 |
 | Preview API | Deployment·Ingress 비활성 | 잠금 유지 | 신뢰된 PR 이미지 발행 CI를 만든 뒤 활성화 |
-| DB backup | `suspend: true` | 잠금 유지 | S3 업로드와 클러스터 외부 복원 테스트 성공 |
+| DB backup | `suspend: false`, 매일 03:00 KST | 예약 실행 | 최초 S3 업로드·클러스터 외부 복원 검증 후 활성화; 정규 실행의 marker와 복원 가능성을 계속 확인 |
 | root/cluster 자동 삭제 | `prune: false` | 안전장치 유지 | 첫 운영 안정화와 삭제 복구 절차 검증 후 재검토 |
 
 Cafe24 IP 전환 PR을 merge하면 기존 클러스터의 Argo CD와 ExternalDNS에도 새 target이 반영될 수 있다.
