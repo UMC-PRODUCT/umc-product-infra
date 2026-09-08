@@ -1,4 +1,4 @@
-# app-of-apps의 sync wave가 자식 Application, ESO와 cert-manager 리소스의 최신 준비 상태를 기다리게 한다.
+# app-of-apps의 sync wave가 자식 Application, ESO, cert-manager와 Alertmanager 준비 상태를 기다리게 한다.
 # Ansible이 root app보다 먼저 적용하고, 이후 cluster Application이 동일 파일을 관리한다.
 apiVersion: v1
 kind: ConfigMap
@@ -21,6 +21,51 @@ data:
       end
     end
 
+    return hs
+
+  # Argo CD 3.5는 Prometheus health를 제공하지만 Alertmanager는 평가하지 않는다.
+  resource.customizations.health.monitoring.coreos.com_Alertmanager: |
+    hs = {}
+    hs.status = "Progressing"
+    hs.message = "Waiting for Alertmanager reconciliation"
+
+    if obj.status == nil or obj.status.conditions == nil then
+      return hs
+    end
+
+    local conditions = {}
+    for _, condition in ipairs(obj.status.conditions) do
+      conditions[condition.type] = condition
+    end
+
+    for _, conditionType in ipairs({"Reconciled", "Available"}) do
+      local condition = conditions[conditionType]
+      if condition == nil or obj.metadata == nil or obj.metadata.generation == nil or condition.observedGeneration == nil or condition.observedGeneration ~= obj.metadata.generation then
+        hs.message = "Waiting for Alertmanager " .. conditionType .. " status from the current generation"
+        return hs
+      end
+
+      if condition.status ~= "True" then
+        if conditionType == "Reconciled" and condition.status == "False" then
+          hs.status = "Degraded"
+        elseif conditionType == "Available" and (condition.status == "False" or condition.status == "Degraded") then
+          if condition.reason ~= "StatefulSetNotFound" and condition.reason ~= "NoPodReady" and condition.reason ~= "SomePodsNotReady" then
+            hs.status = "Degraded"
+          end
+        end
+
+        hs.message = "Waiting for Alertmanager " .. conditionType
+        if condition.message ~= nil and condition.message ~= "" then
+          hs.message = condition.message
+        elseif condition.reason ~= nil and condition.reason ~= "" then
+          hs.message = condition.reason
+        end
+        return hs
+      end
+    end
+
+    hs.status = "Healthy"
+    hs.message = "Alertmanager is reconciled and available for the current generation"
     return hs
 
   resource.customizations.health.external-secrets.io_SecretStore: |

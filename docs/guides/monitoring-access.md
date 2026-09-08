@@ -91,6 +91,11 @@ Pod의 실제 CPU·memory 사용량은 kubelet/cAdvisor를 수집하는 `Kuberne
 dashboard에서 namespace `db`로 조회한다. kube-state-metrics는 cluster 상태를 읽지만 Secret과
 ConfigMap 내용은 수집하지 않는다.
 
+`Kubernetes / Persistent Volumes`의 사용량 패널은 현재 `local-path`에서 각 PVC가 놓인
+공용 파일시스템의 capacity·used·available 값을 보여준다. 여러 PVC에 비슷한 값이 표시될 수
+있으며, 개별 PVC 디렉터리의 실제 점유량이나 요청 용량 대비 quota로 해석하지 않는다.
+PVC의 선언된 요청 용량은 PostgreSQL Detail에서, 노드 전체 디스크 여유는 Node Exporter Host에서 확인한다.
+
 Node Exporter Host의 OS 기본값은 실제 운영 target인 `Linux`다. `macOS`는 로컬 Homebrew
 exporter를 연결해 확인할 때만 선택한다.
 

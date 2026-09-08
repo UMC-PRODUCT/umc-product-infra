@@ -59,6 +59,19 @@ spec:
             limits: { cpu: 100m, memory: 128Mi }
           dashboards:
             enabled: true
+            # Grafana의 home watcher보다 파일을 먼저 준비한다. WATCH는 종료하지
+            # 않으므로 native sidecar로 시작하고 파일 생성 후 Grafana를 실행한다.
+            initDashboards: true
+            restartPolicy: Always
+            startupProbe:
+              exec:
+                command:
+                  - python
+                  - -c
+                  - 'import pathlib, sys; sys.exit(not pathlib.Path("/tmp/dashboards/UMC Product/system-overview.json").is_file())'
+              periodSeconds: 2
+              timeoutSeconds: 1
+              failureThreshold: 60
             label: grafana_dashboard
             labelValue: "1"
             searchNamespace: monitoring

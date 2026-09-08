@@ -213,7 +213,8 @@ spec:
           prometheus:
             monitor:
               relabelings:
-                - targetLabel: os
+                - action: replace # CRD 기본값도 명시해 Argo CD의 반복 OutOfSync를 막는다.
+                  targetLabel: os
                   replacement: linux
         kube-state-metrics:
           image:

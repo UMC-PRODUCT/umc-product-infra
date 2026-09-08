@@ -271,6 +271,9 @@ def render_application(path: Path, output_dir: Path) -> tuple[str, list[dict]]:
 
 def validate_grafana_access_contract(application: dict) -> bool:
     values = application["spec"]["source"]["helm"]["valuesObject"]
+    dashboards = values["sidecar"]["dashboards"]
+    require(dashboards.get("initDashboards") is True,
+            "grafana: dashboards must be provisioned before Grafana starts")
     ingress = values["ingress"]
     require(
         ingress.get("ingressClassName") == "traefik"
@@ -332,6 +335,43 @@ def validate_grafana_access_contract(application: dict) -> bool:
         "grafana: public login security settings",
     )
     return ingress.get("enabled") is True
+
+
+def validate_grafana_dashboard_startup(resources: list[dict]) -> None:
+    workload = pod_spec(named_resource(resources, "Deployment", "grafana"))
+    initializers = [container for container in workload.get("initContainers", [])
+                    if container.get("name") == "grafana-init-sc-dashboard"]
+    require(len(initializers) == 1, "grafana: exactly one dashboard startup sidecar is required")
+    sidecar = initializers[0]
+    environment = {item["name"]: item.get("value") for item in sidecar.get("env", [])}
+    require(sidecar.get("restartPolicy") == "Always" and environment.get("METHOD") == "WATCH",
+            "grafana: dashboard WATCH must be a native sidecar, not a blocking init container")
+    require(sidecar.get("startupProbe", {}).get("exec", {}).get("command") == [
+                "python", "-c", 'import pathlib, sys; sys.exit(not pathlib.Path("/tmp/dashboards/UMC Product/system-overview.json").is_file())'],
+            "grafana: startup must wait for the required System Overview dashboard file")
+    grafana = next(container for container in workload["containers"] if container["name"] == "grafana")
+    for container in (sidecar, grafana):
+        require(any(mount.get("name") == "sc-dashboard-volume"
+                    and mount.get("mountPath") == "/tmp/dashboards"
+                    for mount in container.get("volumeMounts", [])),
+                "grafana: startup sidecar and server must share the dashboard directory")
+    require(not any(container.get("name") == "grafana-sc-dashboard"
+                    for container in workload["containers"]),
+            "grafana: only one dashboard watcher may run")
+
+
+def validate_alertmanager_health_gate() -> None:
+    config = yaml.safe_load((ROOT / "manifests/cluster/argocd-health.yaml").read_text())
+    health = config.get("data", {}).get("resource.customizations.health.monitoring.coreos.com_Alertmanager", "")
+    generation_guard = health.find("condition.observedGeneration ~= obj.metadata.generation")
+    healthy = health.find('hs.status = "Healthy"')
+    require('ipairs({"Reconciled", "Available"})' in health
+            and "condition.observedGeneration == nil" in health
+            and generation_guard >= 0 and healthy > generation_guard
+            and 'hs.status = "Degraded"' in health,
+            "Alertmanager health must require current-generation Reconciled and Available conditions")
+    require("resource.customizations.health.monitoring.coreos.com_Prometheus" not in config.get("data", {}),
+            "Prometheus must retain Argo CD's built-in health check")
 
 
 def validate_prometheus(resources: list[dict]) -> None:
@@ -503,6 +543,7 @@ def main() -> int:
         (APPLICATION_DIR / "grafana.yaml").read_text(encoding="utf-8")
     )
     grafana_ingress_enabled = validate_grafana_access_contract(grafana_application)
+    validate_alertmanager_health_gate()
 
     prometheus_application = yaml.safe_load(
         (APPLICATION_DIR / "prometheus.yaml").read_text(encoding="utf-8")
@@ -586,6 +627,7 @@ def main() -> int:
             )
 
     prometheus_resources = rendered["prometheus"]
+    validate_grafana_dashboard_startup(rendered["grafana"])
     validate_monitoring_rbac(prometheus_resources)
     arguments = operator_arguments(prometheus_resources)
     require(arguments.get("namespaces") == "monitoring",

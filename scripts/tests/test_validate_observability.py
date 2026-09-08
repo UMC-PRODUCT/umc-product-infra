@@ -19,6 +19,7 @@ from validate_observability import (
     pod_spec,
     selector_matches,
     validate_alertmanager_config,
+    validate_grafana_dashboard_startup,
     validate_cluster_resource,
     validate_monitor_selection,
     validate_monitoring_rbac,
@@ -144,6 +145,15 @@ class AlertmanagerNativeConfigTest(unittest.TestCase):
                 "alertmanager.yaml": "receivers: [{name: discord, discord_configs: [{webhook_url_file: /old-path}]}]"}})
         with self.assertRaisesRegex(SystemExit, "replace the legacy base Secret"):
             validate_alertmanager_config(self.resources)
+
+
+class GrafanaStartupTest(unittest.TestCase):
+    def test_dashboard_watch_cannot_block_as_a_regular_init_container(self) -> None:
+        resources = [{"kind": "Deployment", "metadata": {"name": "grafana"}, "spec": {
+            "template": {"spec": {"initContainers": [{"name": "grafana-init-sc-dashboard",
+                "env": [{"name": "METHOD", "value": "WATCH"}]}]}}}}]
+        with self.assertRaisesRegex(SystemExit, "not a blocking init container"):
+            validate_grafana_dashboard_startup(resources)
 
 
 if __name__ == "__main__":
