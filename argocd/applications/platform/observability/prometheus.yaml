@@ -115,7 +115,9 @@ spec:
             # local-path는 볼륨 quota를 강제하지 않는다. 작은 현재 root disk를 보호한다.
             retentionSize: 4GB
             resources:
-              requests: { cpu: 250m, memory: 1Gi }
+              # 현재 3 CPU allocatable 임시 노드에서 Preview DB 예약 공간을 남긴다.
+              # 기존 Prometheus와 같은 예약량이며 CPU limit은 없어 필요하면 더 쓸 수 있다.
+              requests: { cpu: 100m, memory: 1Gi }
               limits: { memory: 2Gi }
             storageSpec:
               volumeClaimTemplate:
