@@ -41,19 +41,12 @@ canonical `https://grafana.university.neordinary.com`, domain enforcement, secur
 
 ## Dashboard 사용
 
+어떤 화면을 열지 모르겠다면 [상황별 안내와 전체 대시보드 목록](../../observability/README.md#어떤-상황에-어떤-대시보드를-볼까)을 먼저 본다.
+
 직접 관리하는 UMC dashboard 여덟 개는 `UMC Product` folder에 있다. `Kubernetes` folder에는
 kube-prometheus-stack의 node·namespace·workload 기본 dashboard가 있다. 로그인 후 기본 홈으로 열리는
 `UMC PRODUCT System Overview`에서 시작하고, 상단 link에서 같은 시간 범위와 변수를 유지한 채
 상세 dashboard로 이동한다.
-
-- UMC PRODUCT System Overview (prod/dev 앱 비교, 운영 PostgreSQL·Linux host 요약)
-- API Flow
-- Cache
-- GraphQL
-- Node Exporter Host
-- Application Detail (HTTP RED, JVM, HikariCP, Tomcat, 로그)
-- PostgreSQL Detail — Production Only
-- Server Logs
 
 Application Detail의 Service 변수는 Loki label 목록이 아니라 Prometheus recording rule
 `umc_product_service_fallback_info`의 `application` label에서 가져온다. 따라서 앱 signal이 잠시

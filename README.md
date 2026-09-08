@@ -3,6 +3,10 @@
 UMC Product의 단일 노드 K3s 클러스터를 선언적으로 운영하는 GitOps 저장소다.
 서버 초기 구성부터 앱·DB·DNS/TLS·관측·AWS 외부 자원의 계약을 관리한다.
 
+모니터링을 보려면 [Grafana](https://grafana.university.neordinary.com)에 로그인한다.
+처음에는 [어떤 상황에 어떤 대시보드를 볼까?](observability/README.md#어떤-상황에-어떤-대시보드를-볼까)에서
+시작한다. 대시보드 목록과 CPU·메모리 수치를 읽을 때의 주의점도 함께 정리했다.
+
 > [!IMPORTANT]
 > prod/dev/preview 앱과 API Ingress, 예약 backup은 아직 안전장치가 닫혀 있다.
 > Grafana 외부 접속 설정은 Git에 선언됐지만 실제 Certificate·DNS·HTTPS 준비 상태는 배포 후 확인해야 한다.
@@ -58,6 +62,7 @@ Argo CD root Application부터 환경과 platform workload까지의 동기화 �
 | 빈 서버에 처음 설치하거나 Ansible을 재실행 | [Ansible README](ansible/README.md) |
 | Secret을 추가·변경·회전 | [비밀값 관리](docs/guides/secrets.md) |
 | DNS·TLS·Route 53을 변경 | [도메인과 TLS](docs/guides/domains-tls.md) |
+| 장애·느린 API·서버 자원 사용량 확인 | [상황별 대시보드 안내](observability/README.md#어떤-상황에-어떤-대시보드를-볼까) |
 | backup을 처음 활성화 | [Backup activation runbook](runbooks/backup-activation.md) |
 | 구조와 용어가 낯섦 | [저장소 처음 읽는 가이드](docs/guides/repository-tour.md) |
 | 이 구조를 선택한 이유를 확인 | [K3s 아키텍처 결정 기록](docs/architecture/k3s.md) |
