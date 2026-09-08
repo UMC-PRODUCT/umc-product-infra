@@ -69,8 +69,8 @@ spec:
                   - python
                   - -c
                   - 'import pathlib, sys; sys.exit(not pathlib.Path("/tmp/dashboards/UMC Product/system-overview.json").is_file())'
-              periodSeconds: 2
-              timeoutSeconds: 1
+              periodSeconds: 5
+              timeoutSeconds: 5
               failureThreshold: 60
             label: grafana_dashboard
             labelValue: "1"
