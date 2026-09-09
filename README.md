@@ -8,8 +8,9 @@ UMC Product의 단일 노드 K3s 클러스터를 선언적으로 운영하는 Gi
 시작한다. 대시보드 목록과 CPU·메모리 수치를 읽을 때의 주의점도 함께 정리했다.
 
 > [!IMPORTANT]
-> prod/dev/preview 앱과 API Ingress, 예약 backup은 아직 안전장치가 닫혀 있다.
-> Grafana 외부 접속 설정은 Git에 선언됐지만 실제 Certificate·DNS·HTTPS 준비 상태는 배포 후 확인해야 한다.
+> 현재 values에서 prod/dev 앱과 API Ingress는 활성화되어 있다. 새 서버는 DB 복원 전에 앱을 시작하지 않도록
+> [이전 runbook](runbooks/cafe24-migration.md)의 준비 단계를 따른다. Preview 앱·API와 예약 backup은 비활성 상태다.
+> 공개 주소의 실제 Certificate·DNS·HTTPS 준비 상태는 배포 후 별도로 확인한다.
 
 ## 인프라 다이어그램
 
@@ -61,6 +62,7 @@ Argo CD root Application부터 환경과 platform workload까지의 동기화 �
 |---|---|
 | 빈 서버에 처음 설치하거나 Ansible을 재실행 | [Ansible README](ansible/README.md) |
 | Secret을 추가·변경·회전 | [비밀값 관리](docs/guides/secrets.md) |
+| DataGrip으로 dev/prod DB에 접속 | [DataGrip SSH 연결](docs/guides/db-access.md#datagrip에서-ssh로-접속) |
 | DNS·TLS·Route 53을 변경 | [도메인과 TLS](docs/guides/domains-tls.md) |
 | 장애·느린 API·서버 자원 사용량 확인 | [상황별 대시보드 안내](observability/README.md#어떤-상황에-어떤-대시보드를-볼까) |
 | backup을 처음 활성화 | [Backup activation runbook](runbooks/backup-activation.md) |

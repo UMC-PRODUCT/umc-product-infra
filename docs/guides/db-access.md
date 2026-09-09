@@ -28,8 +28,86 @@ Git idempotent Job이 role과 grant를 만든다.
 OpenSSH+public key/PEM으로 접속한다. Tailscale SSH는 사용하지 않는다.
 root-only kubeconfig는 복사하지 않고 IDC SSH 후 `sudo -n k3s kubectl`을 쓴다.
 Kubernetes API `6443/tcp`는 공인 또는 tailnet 접속용으로 열지 않는다.
-password는 승인된 비밀 관리 도구에서 가져와 psql prompt로 입력한다.
+password는 승인된 비밀 관리 도구에서 가져와 psql prompt 또는 DataGrip의 Password 필드에 입력한다.
 Secret 값을 `k3s kubectl get -o yaml`, 셸 인자, history, 채팅에 출력하지 않는다.
+
+## DataGrip에서 SSH로 접속
+
+이미 IDC 관리 권한과 개인 SSH 키가 있는 관리자용 절차다. 일반 팀원에게 root 계정이나
+관리자의 개인 키를 공유하는 방법이 아니다. PC와 서버 모두 Tailscale에 연결되어 있어야 한다.
+
+DataGrip의 내장 SSH tunnel은 IDC 노드에서 PostgreSQL Service의 내부 IP로 연결한다.
+노드에서 해당 Service에 접근할 수 있으면 별도 `ssh -L`이나 `kubectl port-forward` 터미널을
+유지할 필요가 없다. 인터넷이나 tailnet에 PostgreSQL `5432/tcp`를 새로 열지 않는다.
+
+### 1. DB 내부 주소 확인
+
+승인된 Tailscale OpenSSH 세션으로 IDC에 접속한 뒤 아래 명령을 실행한다. Secret은 조회하지 않는다.
+
+```bash
+# prod DB Host
+sudo -n k3s kubectl -n db get service postgres -o jsonpath='{.spec.clusterIP}{"\n"}'
+
+# dev DB Host
+sudo -n k3s kubectl -n dev-db get service postgres -o jsonpath='{.spec.clusterIP}{"\n"}'
+```
+
+출력된 주소는 **DB Host**이며 서버의 공인 IP 또는 Tailscale IP와 다르다. Service의 ClusterIP는
+Pod 재시작에는 유지되지만 Service 재생성이나 새 클러스터 설치 후에는 달라질 수 있으므로
+고정 주소로 문서에 복사하지 않는다. 클러스터 Service DNS도 노드의 OS에서는 해석되지 않을 수 있다.
+
+### 2. DataGrip SSH 구성
+
+PostgreSQL Data Source를 만들고 `SSH/SSL` 탭에서 `Use SSH tunnel`을 켠다.
+SSH 구성을 다음과 같이 등록하며 dev/prod 연결에 같은 구성을 사용한다.
+
+| SSH 항목 | 값 |
+|---|---|
+| Host | 실제 inventory의 Tailscale IP 또는 MagicDNS 이름 |
+| Port | `22` |
+| User name | 승인된 IDC SSH 사용자 |
+| Authentication type | `Key pair (OpenSSH or PuTTY)` |
+| Private key file | 본인 개인 키 경로 (`.pub` 파일이 아님) |
+| Passphrase | 개인 키에 설정된 경우에만 입력 |
+| Local port | 자동 할당 유지 |
+
+엄격한 호스트 키 검사를 활성화하고 최초 연결 지문은 신뢰된 console 또는 기존 검증된 SSH
+세션에서 얻은 서버 공개키 지문과 비교한다. 키 불일치 경고를 무시하지 않는다.
+SSH `Test Connection` 성공은 서버 로그인 확인이며, DB 로그인 성공과는 별개다.
+
+### 3. 환경별 General 설정
+
+| 항목 | dev | prod |
+|---|---|---|
+| Name | `UMC DEV` | `UMC PROD 읽기전용` |
+| Host | 1단계의 `dev-db/postgres` ClusterIP | 1단계의 `db/postgres` ClusterIP |
+| Port | `5432` | `5432` |
+| Authentication | `User & Password` | `User & Password` |
+| User | `umc_product_dev_app` | `umc_product_ro` |
+| Database | `umc_product_dev` | `umc_product` |
+| Password 원본 | `/umc-product/dev/app-db`의 `DATABASE_PASSWORD` | `/umc-product/prod/postgres-readonly`의 `RO_PASSWORD` |
+
+운영자가 로컬 원장을 최신으로 유지했다면 각각 `.env.dev`의 `DATABASE_PASSWORD`,
+`.env.prod`의 `RO_PASSWORD`를 사용할 수 있다. 파일 전체를 공유하거나 비밀번호를 JDBC URL에 넣지 않는다.
+현재 PostgreSQL 구성은 별도 DB TLS를 사용하지 않으므로 `Use SSL`은 끈다.
+원격 접속 구간은 SSH와 Tailscale로 암호화한다.
+
+드라이버가 없으면 `Download missing driver files`를 누른 뒤 DB `Test Connection`을 실행한다.
+연결 후 SQL console에서 다음 조회로 환경을 확인한다. 테이블이 보이지 않으면 `Schemas`에서 `public`을 선택한다.
+
+```sql
+SELECT current_database(), current_user;
+```
+
+prod는 DB 권한 자체가 조회 전용이다. dev 앱 계정은 데이터 변경이 가능하므로 작업 환경을 먼저 확인한다.
+SSH는 성공하지만 DB 연결이 거부되면 Service IP와 Pod 상태, 노드에서 해당 IP의 `5432/tcp` 접근,
+SSH TCP forwarding 허용 여부를 확인한다. 공인 DB port나 추가 접근 권한을 열어 해결하지 않는다.
+아래 터미널 방식과 달리 DataGrip 내장 tunnel에서는 General Host에 `127.0.0.1`을 넣지 않는다.
+
+UI 항목은 [DataGrip PostgreSQL 연결](https://www.jetbrains.com/help/datagrip/postgresql.html)과
+[내장 SSH tunnel 안내](https://www.jetbrains.com/help/datagrip/configuring-ssh-and-ssl.html#connect-to-a-database-with-ssh)를 참고한다.
+
+## 터미널에서 SSH와 port-forward로 접속
 
 로컬 psql이 필요하면 노드 루프백에만 Kubernetes port-forward를 열고, 관리자 PC의
 루프백까지 SSH tunnel로 이어 준다. 아래 `IDC_NODE_HOST`는 Tailscale MagicDNS 이름 또는
