@@ -817,7 +817,6 @@ def validate_render(
     )
     environment_values = {item["name"]: item.get("value") for item in container["env"]}
     common = {
-        "APP_SEED_ENABLED": "false",
         "MANAGEMENT_ENDPOINT_HEALTH_PROBES_ENABLED": "true",
         "MANAGEMENT_SERVER_PORT": "9090",
         "OTEL_URL": "http://otel-collector.monitoring.svc.cluster.local:4318",
@@ -831,6 +830,7 @@ def validate_render(
 
     expected_environment = {
         "prod": {
+            "APP_SEED_ENABLED": "false",
             "APP_TEST_API_ENABLED": "false",
             "FCM_ENABLED": "true",
             "OPENAPI_ENABLE": "true",
@@ -851,6 +851,7 @@ def validate_render(
             "DATABASE_URL": "jdbc:postgresql://postgres.db.svc.cluster.local:5432/umc_product",
         },
         "dev": {
+            "APP_SEED_ENABLED": "true",
             "APP_TEST_API_ENABLED": "true",
             "FCM_ENABLED": "false",
             "OPENAPI_ENABLE": "true",
@@ -866,6 +867,7 @@ def validate_render(
             "DATABASE_URL": "jdbc:postgresql://postgres.dev-db.svc.cluster.local:5432/umc_product_dev",
         },
         "preview": {
+            "APP_SEED_ENABLED": "false",
             "APP_TEST_API_ENABLED": "false",
             "FCM_ENABLED": "false",
             "SPRING_PROFILES_ACTIVE": "dev",

@@ -48,8 +48,12 @@
 {{- fail "preview의 application/environment/database 계약이 일치하지 않는다" -}}
 {{- end -}}
 {{- end -}}
-{{- if ne (lower (get .Values.env "APP_SEED_ENABLED")) "false" -}}
-{{- fail "공유 환경에서는 APP_SEED_ENABLED=false여야 한다" -}}
+{{- $seedApiRuntimeEnabled := lower (toString (get .Values.env "APP_SEED_ENABLED")) -}}
+{{- if not (has $seedApiRuntimeEnabled (list "true" "false")) -}}
+{{- fail "APP_SEED_ENABLED는 true 또는 false여야 한다" -}}
+{{- end -}}
+{{- if and (eq $seedApiRuntimeEnabled "true") (or (ne $environment "dev") (not .Values.testApi.enabled)) -}}
+{{- fail "APP_SEED_ENABLED=true는 보호된 test API Ingress를 사용하는 dev 환경에서만 허용된다" -}}
 {{- end -}}
 {{- $testApiRuntimeEnabled := lower (toString (get .Values.env "APP_TEST_API_ENABLED")) -}}
 {{- if not (has $testApiRuntimeEnabled (list "true" "false")) -}}
