@@ -28,6 +28,31 @@ spec:
 apiVersion: argoproj.io/v1alpha1
 kind: AppProject
 metadata:
+  name: argocd-access
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "-100"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  description: Argo CD public HTTPS certificate, ingress, and server network boundary
+  sourceRepos:
+    - https://github.com/UMC-PRODUCT/umc-product-infra.git
+  destinations:
+    - server: https://kubernetes.default.svc
+      namespace: argocd
+  clusterResourceWhitelist: []
+  namespaceResourceWhitelist:
+    - group: cert-manager.io
+      kind: Certificate
+    - group: networking.k8s.io
+      kind: Ingress
+    - group: networking.k8s.io
+      kind: NetworkPolicy
+---
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
   name: platform
   namespace: argocd
   annotations:

@@ -1,0 +1,29 @@
+# server HTTP만 ingress 격리한다. 다른 Argo CD Pod와 server의 외부 API 연결은 유지한다.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: argocd-server-allow-required-ingress
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "-2"
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: argocd-server
+      app.kubernetes.io/instance: argocd
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: traefik
+        # namespaceSelector를 생략해 같은 namespace의 Argo CD 구성요소만 허용한다.
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/part-of: argocd
+              app.kubernetes.io/instance: argocd
+      ports:
+        - { protocol: TCP, port: 8080 }

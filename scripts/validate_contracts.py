@@ -200,6 +200,7 @@ def validate_route53_contract() -> None:
                             "_acme-challenge.api.${DnsZoneName}",
                             "_acme-challenge.api-dev.${DnsZoneName}",
                             "_acme-challenge.grafana.${DnsZoneName}",
+                            "_acme-challenge.argo.${DnsZoneName}",
                         ],
                         "route53:ChangeResourceRecordSetsRecordTypes": ["TXT"],
                     }
@@ -259,10 +260,12 @@ def validate_route53_contract() -> None:
                             "api-dev.${DnsZoneName}",
                             "api-pr-*.${DnsZoneName}",
                             "grafana.${DnsZoneName}",
+                            "argo.${DnsZoneName}",
                             "_external-dns.a-api.${DnsZoneName}",
                             "_external-dns.a-api-dev.${DnsZoneName}",
                             "_external-dns.a-api-pr-*.${DnsZoneName}",
                             "_external-dns.a-grafana.${DnsZoneName}",
+                            "_external-dns.a-argo.${DnsZoneName}",
                         ]
                     },
                 },

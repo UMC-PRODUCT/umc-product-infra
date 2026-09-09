@@ -269,7 +269,8 @@ Tailscale 주소로 새 OpenSSH 세션을 열어 접속이 계속 되는지 확�
 Argo CD core 계정·권한은 [bootstrap Helm values](../../ansible/roles/argocd/files/argo-cd-values.yaml)에서
 관리한다. `admin`은 운영자만 사용하고 공유하지 않는다. 팀 공용 `umc-viewer`는 로그인과
 `role:readonly` 조회만 허용하며, 배포·설정 변경 권한과 API token 발급 권한은 주지 않는다.
-익명 접근과 로그인 사용자의 기본 권한은 끈다. 이 설정은 공개 Ingress를 만들지 않는다.
+익명 접근과 로그인 사용자의 기본 권한은 끈다. 공개 Ingress는 core chart가 아니라 별도
+`argocd-access` Application이 [DNS·TLS 계약](domains-tls.md#argo-cd-공개-https)에 따라 관리한다.
 
 로컬 계정에는 MFA나 GitHub 팀 연동이 없다. 공유 계정은 사용자를 개인별로 구분하거나 회수할 수
 없고, 조회 전용이어도 자기 비밀번호는 변경할 수 있다. 공유 대상 변경·유출 시 운영자가 비밀번호를
@@ -283,6 +284,33 @@ Argo CD core 계정·권한은 [bootstrap Helm values](../../ansible/roles/argoc
 반영 전 고정 chart의 렌더와 diff를 검토하고, 반영 후 admin 로그인, viewer의 조회 성공과
 변경 권한 거부, 기존 health gate 보존을 확인한다. 계정만 바꾸기 위해 전체 bootstrap을 재실행하거나
 runtime Secret을 Git manifest로 덮어쓰지 않는다.
+
+### Argo CD 공개 접속과 복구
+
+일반 접속은 `https://argo.university.neordinary.com`을 사용한다. 공용 조회 계정으로 CLI에
+로그인할 때는 `argocd login argo.university.neordinary.com --grpc-web --username umc-viewer`를
+실행하고 비밀번호를 대화형으로 입력한다. TLS는 Traefik에서 종료하며 외부 `80/tcp`는 열지 않는다.
+
+DNS·Ingress 장애 시 운영자는 Tailscale 경유 SSH로 IDC에 접속해 loopback에만 HTTP를 연다.
+core의 `server.insecure=true` 적용 후에는 backend가 HTTP이므로 이 복구 경로에 HTTPS를 쓰지 않는다.
+
+```bash
+# IDC의 SSH 세션에서 유지한다.
+sudo k3s kubectl -n argocd port-forward --address 127.0.0.1 service/argocd-server 18080:80
+```
+
+관리자 PC의 별도 terminal에서 같은 IDC로 SSH tunnel을 유지한다. 아래 두 변수에는 승인된
+SSH 사용자와 Tailscale 주소를 사용한다.
+
+```bash
+ssh -N -L 127.0.0.1:18080:127.0.0.1:18080 "$IDC_SSH_USER@$IDC_NODE_HOST"
+```
+
+다른 관리자 PC terminal에서 `argocd login 127.0.0.1:18080 --plaintext --username admin`으로
+복구 작업을 수행한다. `--plaintext`는 SSH로 암호화된 이 loopback 경로에만 사용한다.
+복구 후 port-forward와 tunnel을 종료한다. 공인 SSH, Kubernetes API나 `--address 0.0.0.0`을
+열어 우회하지 않는다. Helm 배포 성공만으로 인증 검증이 끝나지는 않으므로 공개 로그인과
+viewer의 변경 권한 거부를 다시 확인한다.
 
 ### 재실행
 

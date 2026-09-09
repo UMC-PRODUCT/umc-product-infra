@@ -47,5 +47,5 @@ URL, checksum, 다운로드 경로와 Git manifest 경로는 `defaults/main.yml`
 - 이 역할은 `k3s`와 root 전용 kubeconfig에 의존하며 제어 노드에는 `kubernetes.core` collection이 필요하다.
 - namespace와 release 이름은 Git manifest와 rollout 대상 이름에도 쓰이므로 이 역할에서만 override할 수 없다.
 - Helm, 차트, Argo CD 버전과 checksum, values는 호환성을 확인해 한 묶음으로 갱신한다.
-- 현재 values는 Argo CD ingress를 만들지 않고 `argocd.invalid`를 사용한다. 외부 공개는 별도 TLS·인증·접근 정책을 설계한 뒤 해야 한다.
+- core values는 `argo.university.neordinary.com` URL과 내부 HTTP backend를 설정한다. 공개 Certificate·Ingress·server NetworkPolicy는 별도 `argocd-access` Application이 관리하며, [공개 접속 순서](../../../docs/guides/domains-tls.md#argo-cd-공개-https)에 따라 적용한다.
 - 기존 raw manifest 설치를 Helm이 바로 인수하는 마이그레이션은 다루지 않는다. 새 클러스터 bootstrap을 전제로 한다.

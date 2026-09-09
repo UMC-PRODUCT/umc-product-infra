@@ -21,7 +21,7 @@ Hosted Zone 자체는 생성하거나 삭제하지 않는다. NS·SOA authoritat
 수렴하기 전에 ExternalDNS, cert-manager, Ingress를 활성화하지 않는다.
 
 apex frontend와 `admin`, `tech`처럼 Kubernetes가 소유하지 않는 record는 별도로 관리한다.
-ExternalDNS는 API와 Grafana record만 소유한다.
+ExternalDNS는 API, Grafana와 Argo CD record만 소유한다.
 
 ## Host와 접근 경계
 
@@ -31,17 +31,20 @@ ExternalDNS는 API와 Grafana record만 소유한다.
 | dev API | `api-dev.university.neordinary.com` | Route 53 A record → public direct HTTPS, API 인증 |
 | PR preview API | `api-pr-<PR>.university.neordinary.com` | Route 53 exact A record → public direct HTTPS, API 인증 |
 | Grafana | `grafana.university.neordinary.com` | Route 53 A record → public direct HTTPS, Grafana 로그인 필수 |
+| Argo CD | `argo.university.neordinary.com` | Route 53 A record → public direct HTTPS, Argo CD 로그인 필수 |
 
 prod/dev/preview API는 모바일 앱이 직접 호출한다. Route 53은 요청을 대신 차단하지
 않으므로 abuse 방어는 앱 인증, Traefik rate limit, 상위 방화벽과 로그 감시로
 별도 구성한다. Grafana도 public HTTPS로 열지만 익명 접근과 회원가입은 끄고 운영자가
 발급한 사람별 Grafana 계정만 사용한다. 기본 Organization role은 `Viewer`다.
+Argo CD는 비공유 `admin`과 공용 조회 계정 `umc-viewer`를 사용한다. 익명 접근은 끄며,
+로컬 계정에는 MFA나 GitHub 팀 제한이 없다. 계정 관리는 [Argo CD 로컬 계정](ansible-bootstrap.md#argo-cd-로컬-계정)을 따른다.
 
 ## 책임 분리
 
 - DNS 운영자: Route 53 public hosted zone, registrar 또는 상위 zone의 NS 위임, 선택적 DNSSEC
 - ExternalDNS: `external-dns.kubernetes.io/managed-by=umc-infra` annotation이 붙은 Ingress의 exact A record와 TXT ownership record
-- cert-manager: prod/dev host별 TLS Secret, Preview 공용 wildcard TLS Secret, Let's Encrypt 갱신
+- cert-manager: API·Grafana·Argo CD host별 TLS Secret, Preview 공용 wildcard TLS Secret, Let's Encrypt 갱신
 - Argo CD: controller, ClusterIssuer, Certificate, Ingress desired state
 - 제공업체 방화벽과 UFW: public `443/tcp`만 외부에 허용하고 `22/tcp`, `6443/tcp`는 차단
 
@@ -59,6 +62,7 @@ Hosted Zone ID와 고정 public IPv4는 cert-manager, ExternalDNS와 Ingress 설
 - application chart `externalDNS.target`: `1.255.226.166`
 - ExternalDNS controller `--target-net-filter`: `1.255.226.166/32`
 - Grafana Ingress `external-dns.kubernetes.io/target`: `1.255.226.166`
+- Argo CD Ingress `external-dns.kubernetes.io/target`: `1.255.226.166`
 
 이 값은 새 Cafe24 IDC의 이관 대상이다. Git 설정만으로 실제 DNS 전환이나 외부 접속 검증이
 완료된 것은 아니며, 전환 gate를 통과한 뒤 live A/TXT record와 HTTPS를 확인한다.
@@ -93,7 +97,7 @@ challenge TXT 작성과 변경 상태 조회, ExternalDNS에는 exact A/TXT reco
 2. 외부 resolver에서 NS·SOA가 Route 53으로 수렴했는지 확인한다.
 3. 기존 Hosted Zone ID를 전달해 `umc-product-route53-dns` IAM stack을 배포한다.
 4. cert-manager·ExternalDNS 전용 IAM 자격증명을 만들고 각 Secrets Manager source에 저장한다.
-5. ExternalDNS와 ClusterIssuer에 같은 Hosted Zone ID를 넣고, 세 public IPv4 target과 `/32` filter가 일치하는지 확인한다.
+5. ExternalDNS와 ClusterIssuer에 같은 Hosted Zone ID를 넣고, 모든 public IPv4 target과 `/32` filter가 일치하는지 확인한다.
 6. `route53-credentials` ExternalSecret 두 개와 controller rollout을 확인한다.
 7. production Certificate를 적용한다. 같은 Application의 Ingress도 함께 활성화했다면 Argo CD가
    Certificate의 최신 generation `Ready=True`를 기다린 뒤 다음 sync wave를 적용한다.
@@ -119,6 +123,30 @@ kubectl logs -n external-dns deployment/external-dns --since=10m
 
 Secret 값은 출력하지 않는다. ClusterIssuer 실패는 cert-manager Challenge·event에서,
 DNS 불일치는 ExternalDNS log, Ingress status, domain/zone filter, TXT owner에서 확인한다.
+
+## Argo CD 공개 HTTPS
+
+Argo CD core의 URL·HTTP backend·계정은 Ansible Helm release가 소유한다. 별도
+`argocd-access` Application은 `argocd` namespace의 Certificate, Ingress와 server NetworkPolicy만
+관리하며, 좁은 AppProject 권한으로 core ConfigMap이나 Secret을 수정하지 않는다.
+
+1. Route 53 IAM에 `argo.university.neordinary.com` A record,
+   `_external-dns.a-argo.university.neordinary.com` ownership TXT와
+   `_acme-challenge.argo.university.neordinary.com` DNS-01 TXT의 exact 권한을 반영한다.
+2. 기존 계정 로그인과 SSH 복구 경로를 확인한다. server NetworkPolicy가 먼저 생성된 것을 확인한 뒤
+   검토한 core Helm values를 적용한다.
+   다른 구성요소의 기존 NetworkPolicy는 유지한다. chart의 server 전체 허용 정책을 함께 남기면
+   정책이 합집합으로 적용되어 좁은 허용 범위가 무력화되므로 제거되어야 한다.
+3. `argocd-access` 안에서 Certificate와 NetworkPolicy는 wave `-2`, Ingress는 wave `1`이다.
+   Certificate의 최신 generation이 `Ready=True`가 된 뒤에만 Ingress가 생성된다.
+4. 외부 DNS가 `1.255.226.166`인지, HTTPS 인증서 체인과 admin/viewer 권한이 정상인지 확인한다.
+   TLS는 Traefik의 `websecure`에서 종료하고, backend는 ClusterIP Service의 `http` port를 거쳐
+   server `8080/TCP`로 연결한다. `server.insecure=true`는 이 내부 구간에만 해당하며 public HTTP를 열지 않는다.
+
+공개 CLI 접속은 `argocd login argo.university.neordinary.com --grpc-web --username umc-viewer`를
+사용하고 비밀번호는 대화형으로 입력한다. 공개 주소에 `--plaintext`나 인증서 검증 생략 옵션을 쓰지 않는다.
+접속 중단 시 [SSH를 통한 복구 경로](ansible-bootstrap.md#argo-cd-공개-접속과-복구)를 사용한다.
+긴급 공개 차단은 Git에서 Ingress만 제거하고, Certificate·NetworkPolicy·계정 Secret은 보존한다.
 
 ## 변경과 복구
 

@@ -1,0 +1,28 @@
+# 표준 Ingress의 HTTP backend를 사용한다. Argo CD CLI는 --grpc-web을 사용한다.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: argocd-server
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+    external-dns.kubernetes.io/managed-by: umc-infra
+    external-dns.kubernetes.io/target: "1.255.226.166"
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+spec:
+  ingressClassName: traefik
+  rules:
+    - host: argo.university.neordinary.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: argocd-server
+                port:
+                  name: http
+  tls:
+    - hosts:
+        - argo.university.neordinary.com
+      secretName: argo-university-neordinary-com-tls

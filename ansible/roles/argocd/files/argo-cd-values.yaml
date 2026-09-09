@@ -2,8 +2,11 @@
 # 단일 노드 bootstrap용 Argo CD core 값이다. 외부 앱과 platform controller는
 # root Application 이후에도 계속 Argo CD가 관리한다.
 global:
-  # Argo CD ingress는 만들지 않는다. 공개 전까지 예약된 비해결 도메인을 쓴다.
-  domain: argocd.invalid
+  domain: argo.university.neordinary.com
+  networkPolicy:
+    # chart의 server 기본 정책(ingress: [{}])과 합쳐지면 좁은 허용 정책이 무력화된다.
+    # 다른 구성요소의 기존 정책은 아래에서 개별 유지한다.
+    create: false
   image:
     tag: v3.5.0
 
@@ -12,9 +15,8 @@ crds:
   keep: true
 
 configs:
-  # 공개 URL은 ingress, TLS와 접근 정책을 함께 설계할 때만 설정한다.
   cm:
-    url: ""
+    url: https://argo.university.neordinary.com
     # admin은 운영자 전용, 공유 계정은 로그인과 조회만 허용한다.
     # 비밀번호는 runtime Secret에서 별도 관리하며 values에 넣지 않는다.
     admin.enabled: true
@@ -25,8 +27,13 @@ configs:
     policy.default: ""
     policy.csv: |
       g, umc-viewer, role:readonly
+  params:
+    # 외부 TLS는 Traefik이 종료한다. 내부 HTTP는 argocd-access의 NetworkPolicy로 제한한다.
+    server.insecure: true
 
 controller:
+  networkPolicy:
+    create: true
   resources:
     requests:
       cpu: 100m
@@ -36,6 +43,8 @@ controller:
       memory: 1Gi
 
 applicationSet:
+  networkPolicy:
+    create: true
   resources:
     requests:
       cpu: 50m
@@ -45,6 +54,8 @@ applicationSet:
       memory: 256Mi
 
 dex:
+  networkPolicy:
+    create: true
   initImage:
     resources:
       requests:
@@ -66,6 +77,8 @@ notifications:
   enabled: false
 
 redis:
+  networkPolicy:
+    create: true
   # 비밀번호 생성은 별도 hook Job이 하므로 Redis Pod는 Kubernetes API가 필요 없다.
   automountServiceAccountToken: false
   resources:
@@ -86,6 +99,8 @@ redisSecretInit:
       memory: 64Mi
 
 repoServer:
+  networkPolicy:
+    create: true
   automountServiceAccountToken: false
   serviceAccount:
     automountServiceAccountToken: false
@@ -106,6 +121,11 @@ repoServer:
       memory: 512Mi
 
 server:
+  service:
+    type: ClusterIP
+  ingress:
+    # Certificate → Ingress 순서는 별도 argocd-access Application이 관리한다.
+    enabled: false
   resources:
     requests:
       cpu: 50m
