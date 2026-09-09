@@ -264,6 +264,26 @@ Tailscale 주소로 새 OpenSSH 세션을 열어 접속이 계속 되는지 확�
 
 ## 8. 운영과 문제 해결
 
+### Argo CD 로컬 계정
+
+Argo CD core 계정·권한은 [bootstrap Helm values](../../ansible/roles/argocd/files/argo-cd-values.yaml)에서
+관리한다. `admin`은 운영자만 사용하고 공유하지 않는다. 팀 공용 `umc-viewer`는 로그인과
+`role:readonly` 조회만 허용하며, 배포·설정 변경 권한과 API token 발급 권한은 주지 않는다.
+익명 접근과 로그인 사용자의 기본 권한은 끈다. 이 설정은 공개 Ingress를 만들지 않는다.
+
+로컬 계정에는 MFA나 GitHub 팀 연동이 없다. 공유 계정은 사용자를 개인별로 구분하거나 회수할 수
+없고, 조회 전용이어도 자기 비밀번호는 변경할 수 있다. 공유 대상 변경·유출 시 운영자가 비밀번호를
+회전하고 승인된 비밀 전달 수단으로 다시 전달한다. 기존 admin은 계정·권한 검증과 복구에 사용한다.
+
+계정 정의와 RBAC만 Git에 저장한다. 비밀번호는 runtime `argocd-secret`에서 별도 관리하며
+평문·해시 모두 values, Git, shell 인자, 로그에 넣지 않는다. 로그인한 운영자는 Argo CD CLI의
+대화형 입력으로 `argocd account update-password --account umc-viewer`를 실행할 수 있다.
+현재 비밀번호 질문에는 로그인한 운영자 계정의 비밀번호를 입력한다.
+
+반영 전 고정 chart의 렌더와 diff를 검토하고, 반영 후 admin 로그인, viewer의 조회 성공과
+변경 권한 거부, 기존 health gate 보존을 확인한다. 계정만 바꾸기 위해 전체 bootstrap을 재실행하거나
+runtime Secret을 Git manifest로 덮어쓰지 않는다.
+
 ### 재실행
 
 Ansible 설정 변경이나 중간 실패 복구는 inventory가 Tailscale 주소를 가리키는 상태에서

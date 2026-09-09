@@ -15,6 +15,16 @@ configs:
   # 공개 URL은 ingress, TLS와 접근 정책을 함께 설계할 때만 설정한다.
   cm:
     url: ""
+    # admin은 운영자 전용, 공유 계정은 로그인과 조회만 허용한다.
+    # 비밀번호는 runtime Secret에서 별도 관리하며 values에 넣지 않는다.
+    admin.enabled: true
+    users.anonymous.enabled: false
+    accounts.umc-viewer: login
+    accounts.umc-viewer.enabled: true
+  rbac:
+    policy.default: ""
+    policy.csv: |
+      g, umc-viewer, role:readonly
 
 controller:
   resources:

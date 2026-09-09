@@ -77,6 +77,15 @@ def main(output_dir: Path) -> None:
         values["global"]["domain"] == "argocd.invalid",
         "the non-public bootstrap must not use the chart example domain",
     )
+    secret_values = values.get("configs", {}).get("secret", {})
+    require(
+        not secret_values.get("argocdServerAdminPassword")
+        and not any(
+            key.endswith((".password", ".passwordMtime"))
+            for key in secret_values.get("extra", {})
+        ),
+        "account passwords must remain runtime-managed, not chart values",
+    )
     actual_helm_version = run(["helm", "version", "--short"]).stdout.strip()
     require(
         actual_helm_version == helm_version
@@ -127,6 +136,30 @@ def main(output_dir: Path) -> None:
     require(
         "argocd.example.com" not in rendered_path.read_text(encoding="utf-8"),
         "chart example domain leaked into rendered resources",
+    )
+    config_maps = {
+        item.get("metadata", {}).get("name"): item.get("data", {})
+        for item in documents
+        if item.get("kind") == "ConfigMap"
+    }
+    config = config_maps.get("argocd-cm", {})
+    require(
+        config.get("admin.enabled") == "true"
+        and config.get("users.anonymous.enabled") == "false",
+        "private admin login must remain enabled and anonymous access disabled",
+    )
+    require(
+        {key: value for key, value in config.items() if key.startswith("accounts.")}
+        == {"accounts.umc-viewer": "login", "accounts.umc-viewer.enabled": "true"},
+        "the shared viewer must have login only, without apiKey capability",
+    )
+    rbac = config_maps.get("argocd-rbac-cm", {})
+    require(
+        rbac.get("policy.default") == ""
+        and rbac.get("policy.csv", "").strip() == "g, umc-viewer, role:readonly"
+        and {key for key in rbac if key.startswith("policy.") and key.endswith(".csv")}
+        == {"policy.csv"},
+        "only the shared viewer may receive readonly, with no default permissions",
     )
     workloads = {
         (item.get("kind"), item.get("metadata", {}).get("name")): item
