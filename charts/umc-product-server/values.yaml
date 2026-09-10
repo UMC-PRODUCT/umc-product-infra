@@ -94,6 +94,7 @@ env:
   CERTIFICATE_VERIFICATION_URL_TEMPLATE: https://bootstrap-required.example.invalid/api/v1/certificates/verify/{serialNumber}
   DEMODAY_QR_BASE_URL: https://bootstrap-required.example.invalid
   S3_BUCKET_NAME: bootstrap-required
+  EMAIL_PROVIDER: ses
   EMAIL_NO_REPLY_ADDRESS: bootstrap-required@example.invalid
   MEDIA_STORAGE_PURGE_ENABLED: "false"
   PRIVACY_RETENTION_ENABLED: "false"

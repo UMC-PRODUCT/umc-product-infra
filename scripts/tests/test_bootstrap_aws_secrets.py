@@ -81,6 +81,14 @@ class WorksheetParserTests(unittest.TestCase):
 
 
 class PayloadTests(unittest.TestCase):
+    def test_smtp_password_is_only_in_prod_and_dev_email_sources(self) -> None:
+        payloads = uploader.build_payloads(valid_worksheets())
+        for environment in ("prod", "dev", "preview"):
+            properties = payloads[f"/umc-product/{environment}/app-email"]
+            self.assertIn("SES_ACCESS_KEY_ID", properties)
+            self.assertIn("SES_SECRET_ACCESS_KEY", properties)
+            self.assertEqual("SMTP_PASSWORD" in properties, environment != "preview")
+
     def test_all_sources_and_special_remaps(self) -> None:
         values = valid_worksheets()
         uploader.validate_worksheet_values(values, "351284652562")
