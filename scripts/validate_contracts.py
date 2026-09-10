@@ -888,8 +888,8 @@ def validate_render(
         require(environment in {"prod", "dev"}, "preview must not use Gmail SMTP")
         for key, expected in {
             "SMTP_HOST": "smtp.gmail.com", "SMTP_PORT": "587",
-            "SMTP_USERNAME": "umcproductdev@gmail.com",
-            "EMAIL_NO_REPLY_ADDRESS": "umcproductdev@gmail.com",
+            "SMTP_USERNAME": "umcproduct1227@gmail.com",
+            "EMAIL_NO_REPLY_ADDRESS": "umcproduct1227@gmail.com",
         }.items():
             require(environment_values.get(key) == expected, f"{environment}: env {key}")
     else:

@@ -111,7 +111,7 @@
 {{- if or (ne (get .Values.env "SMTP_HOST") "smtp.gmail.com") (ne (toString (get .Values.env "SMTP_PORT")) "587") -}}
 {{- fail "Gmail SMTP는 smtp.gmail.com:587 STARTTLS 설정을 사용해야 한다" -}}
 {{- end -}}
-{{- if or (ne (get .Values.env "SMTP_USERNAME") "umcproductdev@gmail.com") (ne $noReplyAddress (get .Values.env "SMTP_USERNAME")) -}}
+{{- if or (ne (get .Values.env "SMTP_USERNAME") "umcproduct1227@gmail.com") (ne $noReplyAddress (get .Values.env "SMTP_USERNAME")) -}}
 {{- fail "Gmail SMTP 발신 주소는 승인된 SMTP_USERNAME과 일치해야 한다" -}}
 {{- end -}}
 {{- else -}}

@@ -113,7 +113,7 @@ Gmail 발신 주소만 넣으면 SMTP로 바뀌지 않는다. 인증번호·HTML
 dev 검증 후 prod 전환도 지원 이미지와 발신 설정을 함께 변경하는 별도 Git 변경으로 진행한다.
 
 - SMTP 환경은 `smtp.gmail.com:587`에 STARTTLS·인증·서버 인증서 검증을 적용한다.
-  `SMTP_USERNAME`과 `EMAIL_NO_REPLY_ADDRESS`는 `umcproductdev@gmail.com`으로 동일하게 둔다.
+  `SMTP_USERNAME`과 `EMAIL_NO_REPLY_ADDRESS`는 `umcproduct1227@gmail.com`으로 동일하게 둔다.
 - Gmail 계정의 2단계 인증을 활성화하고 발급한 **앱 비밀번호**를 공백 없이
   `.env.prod`와 `.env.dev`의 `SMTP_PASSWORD`에 입력한다. 일반 로그인 비밀번호는 사용하지 않는다.
 - `/umc-product/prod/app-email`, `/umc-product/dev/app-email`의 기존 JSON에

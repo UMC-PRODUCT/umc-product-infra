@@ -48,8 +48,8 @@ class EmailTransportTests(unittest.TestCase):
             with self.subTest(environment=environment):
                 overrides = () if environment == "dev" else (
                     "env.EMAIL_PROVIDER=smtp", "env.SMTP_HOST=smtp.gmail.com",
-                    "env.SMTP_PORT=587", "env.SMTP_USERNAME=umcproductdev@gmail.com",
-                    "env.EMAIL_NO_REPLY_ADDRESS=umcproductdev@gmail.com",
+                    "env.SMTP_PORT=587", "env.SMTP_USERNAME=umcproduct1227@gmail.com",
+                    "env.EMAIL_NO_REPLY_ADDRESS=umcproduct1227@gmail.com",
                 )
                 documents = self.documents(self.render(environment, *overrides))
                 self.check_network(documents, smtp=True)
