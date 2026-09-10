@@ -840,7 +840,6 @@ def validate_render(
             "SSO_ISSUER": "https://api.university.neordinary.com",
             "CERTIFICATE_VERIFICATION_URL_TEMPLATE": "https://api.university.neordinary.com/api/v1/certificates/verify/{serialNumber}",
             "S3_BUCKET_NAME": "umc-product-prod-app-storage-351284652562-ap-northeast-2",
-            "EMAIL_NO_REPLY_ADDRESS": "no-reply@university.neordinary.com",
             "GOOGLE_CLIENT_ID_LIST": GOOGLE_CLIENT_ID_LIST,
             "CORS_ALLOWED_ORIGIN_PATTERNS": (
                 "https://university.neordinary.com,"
@@ -861,7 +860,6 @@ def validate_render(
             "SSO_ISSUER": "https://api-dev.university.neordinary.com",
             "CERTIFICATE_VERIFICATION_URL_TEMPLATE": "https://api-dev.university.neordinary.com/api/v1/certificates/verify/{serialNumber}",
             "S3_BUCKET_NAME": "umc-product-dev-app-storage-351284652562-ap-northeast-2",
-            "EMAIL_NO_REPLY_ADDRESS": "no-reply-nonprod@university.neordinary.com",
             "GOOGLE_CLIENT_ID_LIST": GOOGLE_CLIENT_ID_LIST,
             "DATABASE_USERNAME": "umc_product_dev_app",
             "DATABASE_URL": "jdbc:postgresql://postgres.dev-db.svc.cluster.local:5432/umc_product_dev",
@@ -876,13 +874,29 @@ def validate_render(
             "SSO_ISSUER": "https://api-pr-42.university.neordinary.com",
             "CERTIFICATE_VERIFICATION_URL_TEMPLATE": "https://api-pr-42.university.neordinary.com/api/v1/certificates/verify/{serialNumber}",
             "S3_BUCKET_NAME": "umc-product-preview-app-storage-351284652562-ap-northeast-2",
-            "EMAIL_NO_REPLY_ADDRESS": "no-reply-nonprod@university.neordinary.com",
             "DATABASE_USERNAME": "umc_product_preview_app",
             "DATABASE_URL": "jdbc:postgresql://postgres-preview.preview.svc.cluster.local:5432/umc_product_pr42",
         },
     }[environment]
     for key, expected in expected_environment.items():
         require(environment_values.get(key) == expected, f"{environment}: env {key}")
+
+    provider = environment_values.get("EMAIL_PROVIDER")
+    require(provider in {"ses", "smtp"}, f"{environment}: email provider")
+    require("SMTP_PASSWORD" not in environment_values, "SMTP password must come from Secret")
+    if provider == "smtp":
+        require(environment in {"prod", "dev"}, "preview must not use Gmail SMTP")
+        for key, expected in {
+            "SMTP_HOST": "smtp.gmail.com", "SMTP_PORT": "587",
+            "SMTP_USERNAME": "umcproduct1227@gmail.com",
+            "EMAIL_NO_REPLY_ADDRESS": "umcproduct1227@gmail.com",
+        }.items():
+            require(environment_values.get(key) == expected, f"{environment}: env {key}")
+    else:
+        expected_sender = ("no-reply@university.neordinary.com" if environment == "prod"
+                           else "no-reply-nonprod@university.neordinary.com")
+        require(environment_values.get("EMAIL_NO_REPLY_ADDRESS") == expected_sender,
+                f"{environment}: SES sender")
 
     expected_host, expected_secret, expected_service = edge_expectation(environment)
     certificates = [item for item in resources if item.get("kind") == "Certificate"]
@@ -1352,6 +1366,8 @@ def validate_secrets(path: Path) -> None:
             for datum in item["spec"]["data"]
         }
         expected = {key: key for key in expected_app_properties[name]}
+        if name == "app-email" and item["metadata"]["namespace"] in {"app", "dev-app"}:
+            expected["SMTP_PASSWORD"] = "SMTP_PASSWORD"
         require(
             properties == expected,
             f"{item['metadata']['namespace']}/{name}: JSON property contract",

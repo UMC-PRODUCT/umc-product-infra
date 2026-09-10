@@ -103,6 +103,57 @@ python3 scripts/bootstrap_aws_secrets.py \
 초기 발급 스크립트는 기존 IAM key나 채워진 worksheet를 발견하면 중단한다. 이를 회전 도구로
 사용하지 않는다. `bootstrap_aws_secrets.py`도 기존 값이 다르면 자동 overwrite하지 않는다.
 
+## 임시 Gmail SMTP와 SES 복귀
+
+백엔드의 `EMAIL_PROVIDER=ses|smtp` 지원 이미지가 필요하다. 기존 SES 전용 이미지에
+Gmail 발신 주소만 넣으면 SMTP로 바뀌지 않는다. 인증번호·HTML 템플릿은 유지하고 발송 경로만
+바꾸며, 실패 시 다른 provider로 자동 재발송하지 않는다.
+
+`values-dev.yaml`에서 Gmail SMTP를 먼저 검증하고, `values-prod.yaml`은 SES 발신자를 유지한다.
+dev 검증 후 prod 전환도 지원 이미지와 발신 설정을 함께 변경하는 별도 Git 변경으로 진행한다.
+
+- SMTP 환경은 `smtp.gmail.com:587`에 STARTTLS·인증·서버 인증서 검증을 적용한다.
+  `SMTP_USERNAME`과 `EMAIL_NO_REPLY_ADDRESS`는 `umcproduct1227@gmail.com`으로 동일하게 둔다.
+- Gmail 계정의 2단계 인증을 활성화하고 발급한 **앱 비밀번호**를 공백 없이
+  `.env.prod`와 `.env.dev`의 `SMTP_PASSWORD`에 입력한다. 일반 로그인 비밀번호는 사용하지 않는다.
+- `/umc-product/prod/app-email`, `/umc-product/dev/app-email`의 기존 JSON에
+  `SMTP_PASSWORD` property만 추가한다. SES 키와 다른 property를 삭제·덮어쓰지 않는다.
+  `bootstrap_aws_secrets.py --apply`는 기존 Secret 갱신 도구가 아니므로 AWS 콘솔의
+  **보안 암호 값 검색 → 편집**에서 갱신하거나, 기존 JSON을 보존하는 안전한 갱신 절차를 사용한다.
+- preview는 SES만 사용한다. Gmail 앱 비밀번호를 preview Secret에 복제하지 않는다.
+
+적용 순서:
+
+1. 백엔드 SMTP 지원 코드를 develop에 반영해 빌드·검증하고 GHCR image tag/digest를 확보한다.
+   infra PR의 dev image pin도 해당 지원 이미지로 갱신하기 전에는 merge하지 않는다.
+2. **prod와 dev 양쪽** AWS `app-email` source에 앱 비밀번호를 먼저 추가한다.
+   ESO 매핑은 양쪽에 추가되므로, prod가 아직 SES를 사용해도 두 source 모두 준비해야 한다.
+3. `umc-secrets` 매핑을 반영하고 app/dev-app의 `app-email` ExternalSecret `Ready=True`와
+   refresh time 갱신을 확인한다. 기존 prod도 Reloader로 재시작될 수 있으므로 확인한다.
+4. dev의 **검증한 새 이미지 + EMAIL_PROVIDER=smtp + Gmail 발신자**를 함께 반영한다.
+   rollout/readiness뿐 아니라 인증메일 요청 → Gmail/네이버 수신 → 코드 검증까지 확인한다.
+5. dev 검증 후 백엔드 main에도 SMTP 지원 코드를 반영하고 prod 지원 이미지 tag/digest를
+   확보한다. 그다음 prod values의 이미지와 SMTP 환경변수를 함께 변경하고 동일하게 검증한다.
+   SMTP 서버가 메일을 접수한 것과 받은편지함에 도착한 것은 별개다.
+
+NetworkPolicy는 SMTP 모드일 때만 public IPv4의 TCP/587 **egress**를 추가한다.
+SMTP inbound, NodePort, public SSH는 열지 않는다. 표준 NetworkPolicy는 FQDN을 지원하지
+않으므로 Gmail IP만으로 제한하는 정책은 아니며, 기존 사설망·metadata 주소 제외를 유지한다.
+
+개인 Gmail은 하루 500통 초과 시 제한될 수 있으며 500통의 수신 성공을 보장하는 서비스도 아니다.
+같은 Gmail 계정의 dev·prod·수동 발송과 재발송이 한도를 공유하므로 **700명 전체 발송 대책으로는
+부족하다**. SMTP 발송은 SES를 거치지 않으므로 SES의 SNS 알림·suppression도 적용되지 않는다.
+[Google 발송 한도](https://support.google.com/mail/answer/22839?hl=en),
+[앱 비밀번호](https://support.google.com/accounts/answer/185833?hl=en)를 참고한다.
+
+SES 승인 후에는 prod의 `EMAIL_NO_REPLY_ADDRESS=no-reply@university.neordinary.com`,
+dev의 `EMAIL_NO_REPLY_ADDRESS=no-reply-nonprod@university.neordinary.com`과 함께
+`EMAIL_PROVIDER=ses`로 변경한다. SES 키·region·configuration set은 유지한다.
+GitOps rollout 후 실제 수신을 확인하면 SMTP egress도 다시 닫힌다. 두 환경이 모두 SES로
+돌아온 뒤 Gmail 앱 비밀번호를 폐기하고, ESO 매핑·bootstrap property 정의에서 제거한 다음
+AWS source와 로컬 worksheet에서도 지운다. ESO 매핑이 남아 있을 때 property부터 지우면
+`app-email` 동기화가 실패할 수 있다.
+
 ## 동기화 확인
 
 클러스터 명령은 IDC 서버에서 실행한다. Secret 값은 조회하지 않는다.

@@ -56,6 +56,7 @@ EMAIL_PROPERTIES = (
     ("SES_ACCESS_KEY_ID", "SES_ACCESS_KEY_ID"),
     ("SES_SECRET_ACCESS_KEY", "SES_SECRET_ACCESS_KEY"),
 )
+SMTP_PROPERTIES = (("SMTP_PASSWORD", "SMTP_PASSWORD"),)
 POSTGRES_PROPERTIES = (
     ("POSTGRES_USER", "POSTGRES_USER"),
     ("POSTGRES_PASSWORD", "POSTGRES_PASSWORD"),
@@ -90,7 +91,11 @@ def environment_specs(environment: str) -> tuple[SecretSpec, ...]:
         SecretSpec(
             f"{prefix}/app-storage", env_file, STORAGE_PROPERTIES, environment
         ),
-        SecretSpec(f"{prefix}/app-email", env_file, EMAIL_PROPERTIES, environment),
+        SecretSpec(
+            f"{prefix}/app-email", env_file,
+            EMAIL_PROPERTIES + (SMTP_PROPERTIES if environment in ("prod", "dev") else ()),
+            environment,
+        ),
         SecretSpec(
             f"{prefix}/{postgres_name}", env_file, POSTGRES_PROPERTIES, environment
         ),

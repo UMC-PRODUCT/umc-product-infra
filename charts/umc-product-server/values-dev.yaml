@@ -48,7 +48,12 @@ env:
   S3_BUCKET_NAME: umc-product-dev-app-storage-351284652562-ap-northeast-2
   S3_REGION: ap-northeast-2
   SES_REGION: ap-northeast-2
-  EMAIL_NO_REPLY_ADDRESS: no-reply-nonprod@university.neordinary.com
+  # SMTP 지원 이미지와 app-email/SMTP_PASSWORD를 먼저 준비한다. SES 복귀 시 provider와 발신자를 함께 변경한다.
+  EMAIL_PROVIDER: smtp
+  SMTP_HOST: smtp.gmail.com
+  SMTP_PORT: "587"
+  SMTP_USERNAME: umcproduct1227@gmail.com
+  EMAIL_NO_REPLY_ADDRESS: umcproduct1227@gmail.com
   GOOGLE_CLIENT_ID_LIST: "882297658822-ag179p23eqhc5lti8ue5cgbf5phekbfh.apps.googleusercontent.com,882297658822-qaf493b6fu6a9f33artnu435jimkoome.apps.googleusercontent.com,882297658822-gsl0u8uo78qtt5h0ggkm421sml9c02pd.apps.googleusercontent.com,882297658822-d47kcffbv3eoms278pak6rcv21lhcei8.apps.googleusercontent.com"
   APP_SEED_ENABLED: "true"
   DATABASE_URL: jdbc:postgresql://postgres.dev-db.svc.cluster.local:5432/umc_product_dev

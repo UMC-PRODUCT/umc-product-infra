@@ -104,6 +104,7 @@ externalSecrets:
     data: &appEmailData
       SES_ACCESS_KEY_ID: SES_ACCESS_KEY_ID
       SES_SECRET_ACCESS_KEY: SES_SECRET_ACCESS_KEY
+      SMTP_PASSWORD: SMTP_PASSWORD
 
   - name: app-fcm
     namespace: app
@@ -204,7 +205,10 @@ externalSecrets:
     store: aws-secretsmanager
     targetName: app-email
     remoteKey: app-email
-    data: *appEmailData
+    # preview는 SES만 사용하며 Gmail 자격증명을 공유하지 않는다.
+    data:
+      SES_ACCESS_KEY_ID: SES_ACCESS_KEY_ID
+      SES_SECRET_ACCESS_KEY: SES_SECRET_ACCESS_KEY
 
   # Database administrator and backup contracts
   - name: postgres-secrets

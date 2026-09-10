@@ -168,6 +168,7 @@ fi
 # prod와 nonprod 발신 주소가 뒤섞이면 IAM FromAddress 조건과 실제 runtime이 어긋난다.
 if helm template umc-product-server charts/umc-product-server \
   -f charts/umc-product-server/values-prod.yaml "${common_args[@]}" \
+  --set-string env.EMAIL_PROVIDER=ses \
   --set-string env.EMAIL_NO_REPLY_ADDRESS=no-reply-nonprod@university.neordinary.com \
   >/dev/null 2>&1; then
   echo "prod nonprod sender address unexpectedly passed" >&2
@@ -175,6 +176,7 @@ if helm template umc-product-server charts/umc-product-server \
 fi
 if helm template dev-umc-product-server charts/umc-product-server \
   -f charts/umc-product-server/values-dev.yaml "${common_args[@]}" \
+  --set-string env.EMAIL_PROVIDER=ses \
   --set-string env.EMAIL_NO_REPLY_ADDRESS=no-reply@university.neordinary.com \
   >/dev/null 2>&1; then
   echo "dev production sender address unexpectedly passed" >&2
