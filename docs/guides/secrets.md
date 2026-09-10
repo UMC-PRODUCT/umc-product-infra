@@ -109,8 +109,8 @@ python3 scripts/bootstrap_aws_secrets.py \
 Gmail 발신 주소만 넣으면 SMTP로 바뀌지 않는다. 인증번호·HTML 템플릿은 유지하고 발송 경로만
 바꾸며, 실패 시 다른 provider로 자동 재발송하지 않는다.
 
-`values-dev.yaml`에서 Gmail SMTP를 먼저 검증하고, `values-prod.yaml`은 SES 발신자를 유지한다.
-dev 검증 후 prod 전환도 지원 이미지와 발신 설정을 함께 변경하는 별도 Git 변경으로 진행한다.
+메일 provider 전환은 `values-dev.yaml`에서 실제 발송을 검증한 뒤 `values-prod.yaml`에 적용한다.
+각 환경의 지원 이미지와 provider·발신자 설정을 일치시키고, prod 전환은 별도 Git 변경으로 진행한다.
 
 - SMTP 환경은 `smtp.gmail.com:587`에 STARTTLS·인증·서버 인증서 검증을 적용한다.
   `SMTP_USERNAME`과 `EMAIL_NO_REPLY_ADDRESS`는 `umcproduct1227@gmail.com`으로 동일하게 둔다.
