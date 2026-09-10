@@ -46,12 +46,7 @@ class EmailTransportTests(unittest.TestCase):
     def test_smtp_uses_secret_and_outbound_only(self) -> None:
         for environment in ("prod", "dev"):
             with self.subTest(environment=environment):
-                overrides = () if environment == "dev" else (
-                    "env.EMAIL_PROVIDER=smtp", "env.SMTP_HOST=smtp.gmail.com",
-                    "env.SMTP_PORT=587", "env.SMTP_USERNAME=umcproduct1227@gmail.com",
-                    "env.EMAIL_NO_REPLY_ADDRESS=umcproduct1227@gmail.com",
-                )
-                documents = self.documents(self.render(environment, *overrides))
+                documents = self.documents(self.render(environment))
                 self.check_network(documents, smtp=True)
                 deployment = next(item for item in documents if item["kind"] == "Deployment")
                 container = deployment["spec"]["template"]["spec"]["containers"][0]
@@ -60,16 +55,6 @@ class EmailTransportTests(unittest.TestCase):
                 self.assertEqual(env["EMAIL_NO_REPLY_ADDRESS"], env["SMTP_USERNAME"])
                 self.assertNotIn("SMTP_PASSWORD", env)
                 self.assertIn({"secretRef": {"name": "app-email", "optional": False}}, container["envFrom"])
-
-    def test_prod_keeps_ses_until_dev_verification(self) -> None:
-        documents = self.documents(self.render("prod"))
-        self.check_network(documents, smtp=False)
-        deployment = next(item for item in documents if item["kind"] == "Deployment")
-        container = deployment["spec"]["template"]["spec"]["containers"][0]
-        env = {item["name"]: item["value"] for item in container["env"]}
-        self.assertEqual(env["EMAIL_PROVIDER"], "ses")
-        self.assertEqual(env["EMAIL_NO_REPLY_ADDRESS"], "no-reply@university.neordinary.com")
-        self.assertNotIn("SMTP_USERNAME", env)
 
     def test_ses_rollback_restores_sender_and_closes_smtp_egress(self) -> None:
         for environment in ("prod", "dev"):
@@ -82,14 +67,15 @@ class EmailTransportTests(unittest.TestCase):
                 self.check_network(documents, smtp=False)
 
     def test_rejects_wrong_transport_sender_and_plaintext_password(self) -> None:
-        for override in (
-            "env.EMAIL_PROVIDER=other", "env.EMAIL_PROVIDER=", "env.SMTP_HOST=untrusted.example.com",
-            "env.SMTP_PORT=25", "env.SMTP_USERNAME=another@example.com",
-            "env.EMAIL_NO_REPLY_ADDRESS=no-reply@university.neordinary.com",
-            "env.SMTP_PASSWORD=synthetic-not-a-real-secret",
-        ):
-            with self.subTest(override=override):
-                self.assertNotEqual(self.render("dev", override).returncode, 0)
+        for environment in ("prod", "dev"):
+            for override in (
+                "env.EMAIL_PROVIDER=other", "env.EMAIL_PROVIDER=", "env.SMTP_HOST=untrusted.example.com",
+                "env.SMTP_PORT=25", "env.SMTP_USERNAME=another@example.com",
+                "env.EMAIL_NO_REPLY_ADDRESS=no-reply@university.neordinary.com",
+                "env.SMTP_PASSWORD=synthetic-not-a-real-secret",
+            ):
+                with self.subTest(environment=environment, override=override):
+                    self.assertNotEqual(self.render(environment, override).returncode, 0)
 
     def test_preview_secret_does_not_receive_gmail_password(self) -> None:
         result = subprocess.run(
