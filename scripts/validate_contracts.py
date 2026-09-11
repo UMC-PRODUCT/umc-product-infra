@@ -37,7 +37,8 @@ GOOGLE_CLIENT_ID_LIST = (
     "882297658822-ag179p23eqhc5lti8ue5cgbf5phekbfh.apps.googleusercontent.com,"
     "882297658822-qaf493b6fu6a9f33artnu435jimkoome.apps.googleusercontent.com,"
     "882297658822-gsl0u8uo78qtt5h0ggkm421sml9c02pd.apps.googleusercontent.com,"
-    "882297658822-d47kcffbv3eoms278pak6rcv21lhcei8.apps.googleusercontent.com"
+    "882297658822-d47kcffbv3eoms278pak6rcv21lhcei8.apps.googleusercontent.com,"
+    "655033275728-f7jpdingakk1f4im8reegjmioth8jvnv.apps.googleusercontent.com"
 )
 BASE_REQUIRED_SECRETS = ["app-db", "app-jwt", "app-oauth", "app-storage", "app-email"]
 PROD_REQUIRED_SECRETS = [*BASE_REQUIRED_SECRETS, "app-fcm"]
