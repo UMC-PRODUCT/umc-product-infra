@@ -72,7 +72,7 @@ Argo CD root Application부터 환경과 platform workload까지의 동기화 �
 
 | 계층 | 도구 | 이 저장소의 위치 | 역할 |
 |---|---|---|---|
-| 서버 초기 구성 | Ansible | `ansible/` | Ubuntu·Tailscale·OpenSSH·UFW·K3s·Argo CD |
+| 서버 초기 구성 | Ansible | `ansible/` | Ubuntu·개인 SSH 계정/DB 터널·UFW·K3s·Argo CD |
 | GitOps | Argo CD | `bootstrap/`, `argocd/` | Git과 Kubernetes 상태 일치 |
 | 애플리케이션 | Helm | `charts/umc-product-server/` | prod/dev/preview 공통 배포 계약 |
 | 비밀값 공급 | External Secrets | `charts/umc-secrets/` | AWS source를 namespace별 Secret으로 동기화 |

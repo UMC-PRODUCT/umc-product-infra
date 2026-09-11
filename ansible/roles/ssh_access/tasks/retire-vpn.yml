@@ -1,0 +1,31 @@
+---
+- name: Require a verified public administrator connection before retiring the VPN
+  ansible.builtin.assert:
+    that:
+      - ssh_access_finalize | bool
+      - ssh_access_public_verified | default(false) | bool
+
+- name: Inspect installed services
+  ansible.builtin.service_facts:
+
+- name: Stop the legacy VPN only after public SSH validation
+  ansible.builtin.systemd_service:
+    name: tailscaled
+    state: stopped
+    enabled: false
+  when: "'tailscaled.service' in ansible_facts.services"
+
+# purge하지 않는다. /var/lib/tailscale의 기존 identity는 장애 복구용으로 보존한다.
+- name: Remove the legacy VPN package without purging recovery state
+  ansible.builtin.apt:
+    name: tailscale
+    state: absent
+    purge: false
+
+- name: Remove the unused VPN package repository and signing key
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: absent
+  loop:
+    - /etc/apt/sources.list.d/tailscale.list
+    - /usr/share/keyrings/tailscale-archive-keyring.gpg

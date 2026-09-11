@@ -1,0 +1,57 @@
+---
+# 앱/DB/K3s 배포는 건드리지 않는 관리 접근 전용 playbook.
+- name: Configure personal SSH access and optionally retire the legacy VPN
+  hosts: k3s_servers
+  become: true
+  gather_facts: true
+  any_errors_fatal: true
+  serial: 1
+  environment:
+    LC_ALL: C
+  roles:
+    - role: ssh_access
+  tasks:
+    - name: Reconcile only the declared management and application firewall
+      ansible.builtin.include_role:
+        name: common
+        tasks_from: firewall.yml
+
+    - name: Close the cached connection after SSH and firewall changes
+      ansible.builtin.meta: reset_connection
+
+    - name: Verify a fresh connection through the new policy
+      ansible.builtin.wait_for_connection:
+        connect_timeout: 10
+        sleep: 5
+        timeout: 60
+
+    - name: Retire the VPN only in the verified final phase
+      ansible.builtin.include_role:
+        name: ssh_access
+        tasks_from: retire-vpn.yml
+      when: ssh_access_finalize | bool
+
+    - name: Drop the cached connection after VPN retirement
+      ansible.builtin.meta: reset_connection
+
+    - name: Verify SSH independently of the removed VPN
+      ansible.builtin.wait_for_connection:
+        connect_timeout: 10
+        sleep: 5
+        timeout: 60
+
+    - name: Verify administrator sudo remains available
+      ansible.builtin.command: sudo -n true
+      become: false
+      changed_when: false
+
+    - name: Verify database and Kubernetes API ports remain private
+      ansible.builtin.wait_for:
+        host: "{{ ssh_access_public_host }}"
+        port: "{{ item }}"
+        state: stopped
+        connect_timeout: 3
+        timeout: 5
+      loop: [5432, 6443]
+      delegate_to: localhost
+      become: false

@@ -22,15 +22,24 @@
 
 이하 명령은 저장소의 `ansible/`에서 실행한다. 대상 inventory 생략은 금지한다.
 `inventories/idc-new/hosts.example.yml`을 같은 디렉터리의 `hosts.yml`로 복사하되 기존 파일은
-덮어쓰지 않는다. 새 SSH 사용자·공개키·console·관리자 `/32`를 검토하고 최초 등록 때만
-`tailscale_enroll_confirm: true`로 설정한다.
+덮어쓰지 않는다. 새 서버의 개인 SSH 관리자·공개키·console과 제공업체의 공인 TCP 22 허용을
+검토한다. `ssh_access_public_host`는 새 공인 IP, `ssh_access_users`는 승인한 개인 계정 목록,
+`ssh_access_confirm: true`, `ssh_access_finalize: false`로 시작한다. 기존 접속 경로와 세션을 유지한다.
 
 ```bash
-ansible-playbook -i inventories/idc-new/hosts.yml playbooks/tailscale-enroll.yml
+ansible-playbook -i inventories/idc-new/hosts.yml playbooks/ssh-access.yml
 ```
 
-등록 뒤 새 inventory의 `ansible_host`를 새 서버 Tailscale IP/MagicDNS로 바꾸고 host key를
-대조한다. `tailscale_enroll_confirm: false`, `bootstrap_confirm: true`로 전환한 후 연결을 검증한다.
+별도 terminal에서 새 서버 공인 IP에 개인 관리자로 접속해 host key와 `sudo -n true`를 검증한다.
+실패하면 다음 단계로 가지 않는다. 새 inventory의 `ansible_host`를 새 공인 IP, `ansible_user`를
+개인 `admin`, `ssh_access_finalize: true`로 바꾼 뒤 전환을 마무리한다.
+
+```bash
+ansible-playbook -i inventories/idc-new/hosts.yml playbooks/ssh-access.yml
+```
+
+개인 관리자 재접속을 확인한 뒤에만 기존 세션을 닫고 `bootstrap_confirm: true`로 전환한다.
+상세 접근 검증은 [SSH 초기 구성](../ansible/README.md)을 따른다.
 
 ```bash
 ansible -i inventories/idc-new/hosts.yml k3s_servers -m ansible.builtin.ping
@@ -50,8 +59,10 @@ ansible-playbook -i inventories/idc-new/hosts.yml playbooks/bootstrap.yml
 ansible -i inventories/idc-new/hosts.yml k3s_servers --become -m ansible.builtin.command -a '/usr/local/bin/k3s kubectl get applications,applicationsets -A -o name'
 ```
 
-마지막 결과가 비어 있고 K3s Node·Argo CD가 준비됐는지 확인한다. 공인 22/6443을 닫기 전에
-Tailscale OpenSSH와 console 복구 경로를 검증한다. 아직 정상 root를 적용하지 않는다.
+마지막 결과가 비어 있고 K3s Node·Argo CD가 준비됐는지 확인한다. 개인 관리자 공인 SSH와
+console 복구 경로를 검증하고 DB 5432·Kubernetes API 6443의 외부 비공개를 유지한다.
+아직 정상 root Application을 적용하지 않는다. DB 복원 후에는 새 Service ClusterIP에 맞춰
+개인 `db_tunnel`의 `permit_open`과 DataGrip 접속값도 다시 확인한다.
 
 ## 3. 기존 controller 동결 후 IP PR 반영
 

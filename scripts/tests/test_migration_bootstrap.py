@@ -72,7 +72,7 @@ class MigrationBootstrapTests(unittest.TestCase):
         group = load("ansible/inventories/idc-new/hosts.example.yml")["all"]["children"]["k3s_servers"]
         self.assertEqual(len(group["hosts"]), 1)
         self.assertEqual(group["hosts"]["umc-cafe24-01"]["ansible_host"], "1.255.226.166")
-        for flag in ("bootstrap_root_app_enabled", "bootstrap_confirm", "tailscale_enroll_confirm"):
+        for flag in ("bootstrap_root_app_enabled", "bootstrap_confirm", "ssh_access_confirm", "ssh_access_finalize"):
             self.assertIs(group["vars"][flag], False)
 
 

@@ -50,7 +50,7 @@ def build(theme: dict) -> None:
         backup_store = S3("전용 AWS S3 backup\nSSE-S3 · versioning · 35d\nwriter: put only")
         team = Users("UMC 팀원\nGrafana Viewer")
         operator = Users("인프라 관리자")
-        management = Internet("Tailscale 관리망\nOpenSSH · break-glass")
+        management = Internet("공인 SSH :22\n개인 계정·공개키 · local tunnel")
 
         with Cluster("ns kube-system", graph_attr=ca):
             traefik = Traefik("traefik websecure\n443 only · public 80 닫힘\nUFW: direct HTTPS 허용")
@@ -146,9 +146,9 @@ def build(theme: dict) -> None:
             color=OPS, style="dotted"
         ) >> graf
 
-        # Tailscale은 인프라 관리자의 local health와 break-glass 경로로 남긴다.
+        # 개인 관리자 SSH로 local health를 점검한다. SSH 장애 복구는 제공업체 console을 쓴다.
         operator >> Edge(color=OPS, fontcolor=OPS, style="dotted",
-                         label="Tailscale") >> management
+                         label="개인 SSH key") >> management
         management >> Edge(color=OPS, fontcolor=OPS, style="dotted",
                            label="SSH local port-forward\nhealth · 복구") >> graf
 

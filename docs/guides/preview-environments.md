@@ -76,7 +76,7 @@ record를 가진다. Route53은 DNS만 제공하며 모바일 앱은 조회된 I
 TLS는 `preview` namespace의 `*.university.neordinary.com` 공용 Certificate가 만든 `preview-wildcard-tls` Secret을 사용한다.
 모바일 직접 호출 API에는 별도 앞단 로그인 정책을 적용하지 않는다.
 
-Grafana public gate를 통과한 뒤 일반 maintainer는 Tailscale 없이
+Grafana public gate를 통과한 뒤 일반 maintainer는 VPN 없이
 `https://grafana.university.neordinary.com`에 개인 `Viewer` 계정으로 로그인해
 `preview-umc-product-pr<번호>`의 log, metric, trace를 본다. gate 전 local-only health 점검과
 kubectl은 인프라 관리자만 사용한다. 자세한 경계는
@@ -115,6 +115,14 @@ admin Secret은 platform `secrets` Application이 상시 관리한다.
 kubectl get job -n preview umc-product-server-pr-27-createdb
 kubectl logs -n preview job/umc-product-server-pr-27-createdb
 ```
+
+## 개인 DB 접속
+
+사람의 DB 접속은 공인 SSH의 개인 `db_tunnel` 계정과 별도 개인 PostgreSQL 계정을 사용한다.
+운영자가 현재 `preview/postgres-preview` Service ClusterIP를 조회해 그 사람의 `permit_open`을
+지정하고, DataGrip Database에는 생성된 `umc_product_pr<번호>`를 넣는다. DB 포트를 공개하거나
+앱 공용 role을 팀원에게 배포하지 않는다. 상세 입력은
+[개인 계정과 DB 터널](ansible-bootstrap.md#개인-계정과-db-터널)을 따른다.
 
 ## database 삭제
 

@@ -1,0 +1,44 @@
+# Ansible managed: 개인 키는 운영자가 관리하고 비밀번호 인증은 허용하지 않는다.
+Port 22
+PubkeyAuthentication yes
+AuthenticationMethods publickey
+PasswordAuthentication no
+KbdInteractiveAuthentication no
+PermitEmptyPasswords no
+PermitRootLogin {{ 'no' if ssh_access_finalize else 'prohibit-password' }}
+AuthorizedKeysFile /etc/ssh/authorized_keys/%u
+AllowUsers {{ ssh_access_present | map(attribute='name') | list | join(' ') }}{% if not ssh_access_finalize and ansible_user not in (ssh_access_present | map(attribute='name') | list) %} {{ ansible_user }}{% endif %}
+
+LoginGraceTime 30
+MaxAuthTries 3
+MaxStartups 10:30:30
+LogLevel VERBOSE
+AllowAgentForwarding no
+AllowStreamLocalForwarding no
+X11Forwarding no
+PermitTunnel no
+GatewayPorts no
+AllowTcpForwarding local
+PermitOpen none
+PermitUserEnvironment no
+PermitUserRC no
+
+{% if not ssh_access_finalize and ansible_user not in (ssh_access_present | map(attribute='name') | list) %}
+# 이행 중 기존 운영자만 원래 키 경로를 유지한다.
+Match User {{ ansible_user }}
+    AuthorizedKeysFile .ssh/authorized_keys .ssh/authorized_keys2
+    PermitOpen any
+Match all
+{% endif %}
+{% for account in ssh_access_present %}
+Match User {{ account.name }}
+{% if account.role == 'db_tunnel' %}
+    # PTY만 끄면 명령 실행은 남는다. 세션은 모두 금지하고 TCP 터널만 허용한다.
+    MaxSessions 0
+    PermitTTY no
+    PermitOpen {{ account.permit_open | join(' ') }}
+{% else %}
+    PermitOpen any
+{% endif %}
+Match all
+{% endfor %}

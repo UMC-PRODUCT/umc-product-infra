@@ -1,268 +1,177 @@
 # Ansible로 단일 노드 K3s 초기 구성
 
-빈 Ubuntu 서버는 곧바로 `bootstrap.yml`을 실행하지 않는다. 먼저 공인 SSH로 Tailscale에
-등록하고, 관리 경로를 Tailscale로 바꾼 뒤 표준 bootstrap을 실행한다.
+관리자는 공인 SSH에 **개인 Linux 계정과 개인 공개키**로 접속한다. 백엔드 사용자는 같은 SSH
+서버를 DB 터널로만 사용한다. Tailscale은 더 이상 설치·가입 조건이 아니다.
 
-```text
-1. tailnet policy와 one-off auth key 준비
-2. 공인 SSH로 tailscale-enroll.yml 실행
-3. inventory를 Tailscale 주소로 변경
-4. OpenSSH + PEM 접속과 Ansible ping 확인
-5. bootstrap.yml 실행
-6. 결과 확인 후 제공업체의 공인 22/tcp 제거
-```
+전체 실행 명령은 [Ansible README](../../ansible/README.md)를 따른다. 여기서는 접근 권한,
+전환 검증과 실패 시 복구 조건을 설명한다.
 
 > [!CAUTION]
-> `bootstrap.yml`은 대상 서버의 모든 UFW 인바운드 `allow`·`limit` 규칙을 소유한다.
-> 선언하지 않은 규칙을 삭제하고 SSH 비밀번호 인증과 swap을 끈다. 제공업체 console 같은
-> SSH 외부 복구 경로와 Tailscale 접속이 모두 확인되지 않았다면 실행하지 않는다.
+> 기존 관리자 세션과 제공업체 console을 확보한다. 개인 관리자 공인 SSH·sudo를 확인하기 전에
+> root 접속이나 기존 Tailscale을 끊지 않는다. `bootstrap.yml`은 UFW 인바운드 `allow`·`limit`
+> 규칙을 소유하며, 중간 실패가 이전 단계를 자동으로 되돌리지는 않는다.
 
-## 1. 구조와 용어
+## 사전 준비와 두 단계 전환
 
-| 용어 | 뜻 |
+- 관리자 PC: Python 3.12 이상, OpenSSH, 본인 private key
+- 서버: Ubuntu 22.04/24.04 x86_64, Python 3, 현재 관리자 SSH와 sudo
+- 복구: 제공업체 console 및 서버 SSH host key fingerprint
+- 네트워크: 고정 공인 IP, 제공업체 방화벽의 TCP 22·443 허용, outbound DNS·HTTPS
+- 표준 bootstrap: Git revision/CI, AWS Secrets Manager source, ESO key, Route 53 위임·IAM 준비
+
+카페24 외부 방화벽은 이 playbook이 변경하지 않는다. 서버 UFW의 22번을 열어도 상위 방화벽이
+막으면 접속되지 않는다. 팀원의 출발지 IP는 고정하지 않으며 키 인증과 계정별 권한으로 통제한다.
+DB `5432`와 Kubernetes API `6443`은 외부에 열지 않는다.
+
+`ansible/inventories/idc/hosts.yml`은 로컬 전용이다. 비밀번호·private key 본문을 넣지 않고
+SSH private key의 로컬 경로와 공개키만 사용한다.
+
+| 입력 | 준비 단계 | 최종 단계 |
+|---|---|---|
+| `ansible_host` | 기존 접속 가능 주소 | 서버 공인 IP |
+| `ansible_user` | 기존 관리자 | 선언한 개인 `admin` |
+| `ssh_access_public_host` | 서버 공인 IP | 동일 |
+| `ssh_access_users` | 검토한 개인 계정 목록 | 동일 목록 유지 |
+| `ssh_access_confirm` | 대상·계정·복구 경로 검토 뒤 `true` | `true` |
+| `ssh_access_finalize` | `false` | 독립 접속 검증 뒤 `true` |
+| `bootstrap_confirm` | `false` | 전체 bootstrap을 할 때만 `true` |
+
+1. `ssh-access.yml`을 `ssh_access_finalize: false`로 실행한다. 개인 계정·키와 공인 SSH를
+   준비하되 기존 관리 경로를 보존한다.
+2. 별도 terminal에서 공인 IP에 개인 관리자로 접속해 `sudo -n true`를 확인한다.
+   fingerprint가 다르거나 새 SSH·sudo가 실패하면 여기서 중단한다.
+3. DB가 준비된 환경은 아래 DataGrip 터널 성공과 미승인 목적지·shell 거부까지 확인한다.
+4. inventory를 공인 IP·개인 관리자 계정으로 바꾸고 `ssh_access_finalize: true`로
+   `ssh-access.yml`을 재실행한다. root SSH를 차단하고 Tailscale service/package를 제거한다.
+5. 다시 새 개인 SSH 세션을 열어 검증한 뒤 이전 관리자 세션을 닫는다.
+6. 빈 서버라면 개인 관리자 공인 SSH와 `ssh_access_finalize: true`로 표준 bootstrap을 실행한다.
+   DB가 생성되기 전에는 팀원 DB 접속 검증이 끝났다고 표시하지 않는다.
+
+Tailscale identity 파일은 복구용으로 보존하며 tailnet 계정/기기 자체를 삭제하지 않는다.
+실패하면 유지 중인 관리자 세션 또는 제공업체 console에서 SSH 설정·UFW를 복구한다. 필요하면
+보존한 identity로 기존 VPN을 재구성할 수 있지만, 이는 자동 롤백이나 즉시 접속을 보장하지 않는다.
+DB/PVC·K3s를 초기화하거나 host key 검증을 끄는 방식으로 복구하지 않는다.
+
+## 개인 계정과 DB 터널
+
+### 권한과 inventory 입력
+
+`ssh_access_users`는 아래 필드를 사용한다.
+
+| 필드 | 용도 |
 |---|---|
-| 관리자 PC | Ansible과 Tailscale client를 실행하는 컴퓨터 |
-| 대상 서버 | 구성할 Ubuntu 서버 한 대 |
-| inventory | 서버 주소와 설치 입력을 적는 로컬 `hosts.yml` |
-| Tailscale auth key | 서버를 tailnet에 처음 등록할 일회용 key |
-| secret-zero | ESO가 AWS Secrets Manager에 접근할 런타임 access key 쌍 |
+| `name` | 개인별 Linux 사용자명. 공용 root 계정을 나누지 않는다. |
+| `role` | `admin` 또는 `db_tunnel` |
+| `state` | `present` 또는 명시적 회수용 `absent` |
+| `public_keys` | 그 사람의 공개키 문자열 목록. private key를 넣지 않는다. |
+| `permit_open` | `db_tunnel`이 접근할 실제 Service ClusterIP와 `:5432` 목록 |
 
-Tailscale은 관리망만 제공한다. SSH 인증은 서버의 기존 OpenSSH와 공개키/PEM이 계속 담당한다.
-role은 `tailscale up --ssh=false`를 사용하므로 Tailscale SSH를 켜지 않는다.
+`admin`은 shell과 비밀번호 없이 sudo를 사용할 수 있는 **root에 준하는 관리 권한**이다.
+실제 운영 담당자에게만 부여한다. 일반 조회는 Grafana/Argo CD 조회 계정으로 충분할 수 있다.
 
-Kubernetes API `6443/tcp`는 공인망과 tailnet 모두에서 관리자 PC에 열지 않는다. 클러스터 명령은
-대상 서버에 SSH 접속한 뒤 `sudo k3s kubectl ...`로 실행한다.
+`db_tunnel`은 지정된 DB 목적지로 local TCP forwarding만 가능하고 shell·명령 실행·sudo와
+원격 forwarding을 허용하지 않는다. SSH 키가 있어도 DB 사용자명/비밀번호와 SQL 권한은
+별도로 필요하다. 이 playbook은 PostgreSQL의 개인 role을 자동 생성하거나 변경하지 않는다.
+prod 기본 권한은 조회 전용으로 두고 필요한 사람에게만 별도 승인으로 쓰기 권한을 부여한다.
 
-## 2. 사전 준비
-
-### 관리자 PC와 대상 서버
-
-- 관리자 PC: Python 3.12 이상, OpenSSH, Tailscale client 로그인, 대상 서버 private key
-- 대상 서버: Ubuntu 22.04/24.04 x86_64, Python 3, 공개키 SSH와 sudo
-- 대상 서버 outbound: DNS와 HTTPS 가능
-- 복구 경로: SSH와 독립된 제공업체 console
-- 운영 기준 자원: 8 vCPU, 32GiB RAM, 512GB 영속 disk
-
-### Tailnet policy
-
-[`tailscale-policy.example.hujson`](../../ansible/tailscale-policy.example.hujson)의 항목을 실제
-tailnet policy에 병합한다. 예시의 관리자 email을 실제 값으로 바꾸고 다음 계약을 지킨다.
-
-- 관리자 그룹만 `tag:umc-idc`의 `tcp:22`에 접근
-- `tag:umc-idc`에 접근할 수 있는 더 넓은 기본 grant 제거
-- `tag:umc-idc` 소유자도 관리자 그룹으로 제한
-
-Ansible은 Tailscale 계정의 policy를 적용하지 않는다. 관리자 console에서 직접 반영하고 저장 결과를
-확인한다. 관리자 PC 자체도 해당 tailnet에 로그인되어 있어야 한다.
-
-### Tailscale auth key
-
-대상 서버 등록용 key는 다음 속성으로 한 개 만든다.
-
-- tag: `tag:umc-idc`
-- one-off: 재사용하지 않음
-- non-ephemeral: 일시적인 CI node가 아니라 지속 서버로 유지
-
-tailnet에서 device approval을 사용한다면 key를 preauthorized로 만들거나 등록 직후 node를 승인해야
-playbook의 online 검사를 통과할 수 있다.
-
-기본적으로 private prompt에서 붙여 넣는다. 자동화 환경은 승인된 비밀 저장소에서
-`TAILSCALE_AUTH_KEY` 환경변수로 Ansible process에 주입할 수 있다. key 값을 inventory,
-Git 파일, `--extra-vars`, 명령행 인자에 넣지 않는다.
-
-### 외부 시스템
-
-표준 bootstrap 전에 다음도 준비한다.
-
-- Git `main`과 성공한 CI
-- AWS Secrets Manager source와 ESO bootstrap access key
-- Route53 public hosted zone, authoritative NS 위임, Hosted Zone ID
-- cert-manager와 ExternalDNS의 서로 다른 최소 권한 Route53 자격증명
-- 제공업체 상위 방화벽/NSG 설정을 변경할 권한
-
-AWS 준비 방법은 [비밀값 관리](secrets.md)를 따른다.
-
-## 3. 관리자 PC 준비와 inventory 생성
-
-저장소 루트에서 실행한다.
+팀원은 본인 컴퓨터에서 암호가 걸린 키를 생성하고 `.pub`만 운영자에게 보낸다.
+아래 파일이 이미 있으면 덮어쓰지 말고 기존 키를 사용하거나 새 이름을 선택한다.
 
 ```bash
-cd ansible
-python3 --version
-python3 -m venv .venv
-. .venv/bin/activate
-pip install -r requirements.txt
-ansible-galaxy collection install -r collections/requirements.yml
-cp -n inventories/idc/hosts.example.yml inventories/idc/hosts.yml
+ssh-keygen -t ed25519 -f ~/.ssh/umc_idc_ed25519 -C "본인이메일"
+cat ~/.ssh/umc_idc_ed25519.pub
 ```
 
-`-n`은 기존 `hosts.yml`을 덮어쓰지 않는다. 이 파일은 Git에 넣지 않는다.
+### DataGrip 접속
 
-최초 등록 전 inventory 값은 다음과 같다.
+인프라 관리자는 서버에서 DB Service 주소를 **현재 값으로** 조회한다. Secret 값은 조회하지 않는다.
 
-| 변수 | 최초 등록 값 |
+```bash
+sudo -n k3s kubectl -n db get service postgres -o jsonpath='{.spec.clusterIP}{"\\n"}'
+sudo -n k3s kubectl -n dev-db get service postgres -o jsonpath='{.spec.clusterIP}{"\\n"}'
+sudo -n k3s kubectl -n preview get service postgres-preview -o jsonpath='{.spec.clusterIP}{"\\n"}'
+```
+
+조회한 IP는 해당 팀원의 `permit_open`과 DataGrip General Host에 **정확히 동일하게** 넣는다.
+Service를 삭제·재생성하거나 새 클러스터로 이전하면 IP가 달라질 수 있으므로 다시 조회한다.
+호스트 OS에서 `*.svc.cluster.local`을 해석한다고 가정하지 않는다.
+
+| DataGrip 위치 | 값 |
 |---|---|
-| `ansible_host` | 임시 공인 SSH IP 또는 DNS |
-| `ansible_user` | 공개키/PEM과 sudo를 사용할 계정 |
-| `tailscale_hostname` | 서버의 고정 tailnet 이름, 기본 예시는 `umc-idc-01` |
-| `tailscale_initial_admin_cidrs` | 현재 관리자 공인 출발지의 canonical `/32` |
-| `tailscale_enroll_confirm` | 모든 등록 입력을 검토한 뒤 `true` |
-| `bootstrap_confirm` | 아직 `false` |
+| SSH/SSL → Use SSH tunnel | 활성화 |
+| SSH Host / Port | 서버 공인 IP / `22` |
+| SSH Username / Authentication | 본인 Linux 사용자 / Key pair |
+| SSH Private key | 본인 컴퓨터의 private key 파일 |
+| General Host / Port | 해당 DB Service의 현재 ClusterIP / `5432` |
+| General User / Password | 별도 발급한 개인 PostgreSQL 계정 |
+| General Database | prod `umc_product`, dev `umc_product_dev`, Preview `umc_product_pr<N>` |
 
-`tailscale_initial_admin_cidrs`는 **등록 순간의 공인 SSH 안전 검사에만** 사용한다. 동적 IP가 바뀌면
-새 주소의 `/32`로 갱신하고 등록을 실행한다. `/0`, host bit가 포함된 CIDR, `CHANGE_ME`는
-preflight가 거부한다.
+SSH 연결과 실제 PostgreSQL `Test Connection`을 모두 확인한다. Preview DB는 해당 PR의
+배포가 DB를 만든 뒤에만 존재하며, 종료/정리 전에 DataGrip 연결을 닫는다.
+자세한 생명주기는 [Preview 환경](preview-environments.md)을 따른다.
 
-별도 private key 파일을 쓸 때는 아래 명령의 `ansible-playbook`과 `ansible`에
-`--private-key /absolute/path/to/private-key`를 붙인다. sudo 비밀번호가 필요하면
-`--ask-become-pass`를 붙인다.
+운영자는 추가로 터널 계정에서 shell·명령 실행·원격 forwarding과 허용되지 않은 목적지가
+거부되는지 검증한다. 포트에 TCP 연결만 되는 결과를 DB 로그인 성공으로 표시하지 않는다.
 
-## 4. 1단계: 공인 SSH로 Tailscale 등록
+### 팀원 회수
 
-### 4.1 SSH host key와 연결 확인
+1. 본인의 개인 DB role에 새 로그인 차단을 적용하고 기존 DB 세션을 종료한다.
+   정확한 사람/환경을 대조해 공용 앱 role이나 다른 사용자의 세션을 중단하지 않는다.
+2. `ssh_access_users`의 해당 항목을 `state: absent`로 바꾸고 개인 관리자로
+   `ssh-access.yml`을 실행한다. 현재 실행 중인 관리자 자신은 삭제 대상으로 삼지 않는다.
+3. SSH 로그인 차단·기존 SSH 세션/터널 종료·계정 제거와 재접속 거부를 확인한다.
+4. DB 소유 object·grant와 남긴 home의 보관/삭제는 별도 검토한다.
 
-제공업체 console에서 본 SSH host key fingerprint와 최초 접속 화면을 대조한다.
-서버 key 변경 경고가 나오면 기존 기록을 먼저 지우지 말고 서버 교체 여부를 확인한다.
+inventory에서 항목을 단순히 지우거나 공개키만 제거하는 것은 완전한 회수가 아니다.
+`absent`는 home을 보존하며, 개인 DB role 회수는 별도다. 부여했던 Grafana/Argo CD/GitHub
+권한도 실제 사용 범위에 맞춰 회수한다.
 
-```bash
-ssh USER@PUBLIC_ADDRESS
-sudo -v
-exit
+키 유출 대응, `admin`에서 `db_tunnel`로 권한 축소, 허용 DB 목적지 축소도 이미 열린 SSH 연결의
+권한을 소급 변경하지 않는다. 다른 개인 관리자가 대상 사용자의 기존 세션을 종료하고 새 연결의
+권한을 검증한다. 현재 작업 중인 관리자 자신의 세션을 끊어 유일한 관리 경로를 잃지 않도록 한다.
 
-ansible-inventory --graph
-ansible k3s_servers -m ansible.builtin.ping
-ansible k3s_servers --become -m ansible.builtin.ping
-```
+## 표준 bootstrap 검증
 
-### 4.2 등록 playbook 실행
-
-```bash
-ansible-playbook --syntax-check playbooks/tailscale-enroll.yml
-ansible-lint playbooks/tailscale-enroll.yml
-ansible-playbook --check --tags preflight playbooks/tailscale-enroll.yml
-ansible-playbook playbooks/tailscale-enroll.yml
-```
-
-`tailscale-enroll.yml`은 현재 SSH peer가 `tailscale_initial_admin_cidrs` 안에 있는지 확인한 뒤 다음만
-수행한다.
-
-1. 공식 APT 저장소에서 checksum과 버전을 고정한 Tailscale 설치
-2. `tag:umc-idc`, 고정 hostname, `--ssh=false`, `--netfilter-mode=on`으로 등록
-3. auth key를 원격 임시 `0600` 파일로 전달하고 성공·실패와 관계없이 삭제
-4. node가 online이고 정확한 tag 하나와 `100.64.0.0/10` 주소를 가졌는지 확인
-5. 관리자 PC에서 그 주소의 기존 OpenSSH `22/tcp`에 도달하는지 확인
-
-이 playbook은 UFW와 sshd를 변경하지 않는다. 실패해도 공인 SSH 경로가 그대로 남으므로 원인을
-수정하고 다시 실행한다. one-off key가 소비됐지만 node가 등록되지 않았다면 새 key를 발급한다.
-
-## 5. 2단계: Tailscale 주소로 전환
-
-등록 결과의 `100.x` 주소 또는 MagicDNS 이름으로 기존 PEM 로그인을 확인한다.
+관리자 PC의 `ansible/`에서 실행한다.
 
 ```bash
-ssh USER@TAILSCALE_ADDRESS
-```
-
-새 주소에 대한 SSH host key가 표시되면 제공업체 console에서 같은 서버의 fingerprint인지 다시
-대조한다. Tailscale SSH 인증 화면이 나타나는 구조가 아니라 기존 OpenSSH 공개키 로그인이어야 한다.
-
-성공하면 `hosts.yml`을 다음 상태로 변경한다.
-
-| 변수 | bootstrap 값 |
-|---|---|
-| `ansible_host` | Tailscale `100.x` 주소 또는 MagicDNS 이름 |
-| `tailscale_enroll_confirm` | `false` |
-| `bootstrap_confirm` | `true` |
-
-이후 연결 검사는 공인 주소가 아니라 변경된 inventory로 실행한다.
-
-```bash
-ansible k3s_servers -m ansible.builtin.ping
-ansible k3s_servers --become -m ansible.builtin.ping
-```
-
-`ping`이 실패하면 `bootstrap.yml`을 실행하지 않는다. 관리자 PC의 Tailscale 로그인, tailnet grant,
-MagicDNS/IP, OpenSSH key와 기존 UFW를 확인한다.
-
-## 6. 표준 bootstrap
-
-### 6.1 변경 전 검사
-
-```bash
+ansible-playbook --syntax-check playbooks/ssh-access.yml
 ansible-playbook --syntax-check playbooks/bootstrap.yml
-ansible-lint playbooks/bootstrap.yml playbooks/tailscale-enroll.yml
+ansible-lint playbooks/bootstrap.yml playbooks/ssh-access.yml
 ansible-playbook --check --tags preflight playbooks/bootstrap.yml
-
-cd ..
-./scripts/validate.sh
-cd ansible
 ```
 
-`--tags preflight`는 inventory와 K3s CIDR 계약을 로컬에서 검사한다. 전체 `--check`는 빈 서버의
-설치 전후 상태를 정확히 모사하지 못하므로 사용하지 않는다. 저장소 검사에서 도구가 없어 skip된
-항목은 출력에서 확인한다.
+저장소 루트에서 `./scripts/validate.sh`를 실행하고 skip·실패를 확인한다. 빈 서버의 전체
+`--check`가 설치 전후 상태를 완전히 모사하지는 않는다.
 
-### 6.2 ESO AWS 자격증명
-
-`external_secrets_bootstrap`은 ESO가 AWS Secrets Manager를 읽을 access key ID와 secret access
-key를 private prompt로 받는다. Tailscale auth key와 별개이며, bootstrap 재실행 때도 현재 값을
-다시 입력한다. 자동화 환경은 승인된 비밀 저장소에서 다음 환경변수를 주입할 수 있다.
-
-- `ESO_AWS_ACCESS_KEY_ID`
-- `ESO_AWS_SECRET_ACCESS_KEY`
-
-자격증명을 inventory, `--extra-vars`, Git 파일에 넣지 않는다.
-
-### 6.3 실행
+`external_secrets_bootstrap`은 `ESO_AWS_ACCESS_KEY_ID`, `ESO_AWS_SECRET_ACCESS_KEY`를
+private prompt 또는 승인된 비밀 저장소의 환경변수로 받는다. bootstrap 재실행에도 현재 값이
+필요하며 inventory·Git·명령행 인자에 넣지 않는다.
 
 ```bash
 ansible-playbook playbooks/bootstrap.yml
 ```
 
-실제 순서는 다음과 같다.
+표준 bootstrap은 개인 관리자 공인 SSH 검증 뒤 `ssh_access`, `common`, `k3s`,
+`argocd`, `external_secrets_bootstrap`, root Application 순서로 진행한다.
+접속 계정/공개키만 변경할 때는 전체 bootstrap 대신 `ssh-access.yml`을 사용한다.
 
-| 순서 | 구성 요소 | 작업 |
-|---|---|---|
-| 1 | preflight | SSH peer와 서버 목적지가 실제 Tailscale identity인지 확인 |
-| 2 | `tailscale` | 고정 package·hostname·tag·online 상태 재검증 |
-| 3 | `common` | OS, kernel, UFW, 기존 OpenSSH hardening |
-| 4 | `k3s` | K3s와 Secret 저장 암호화 설치·검증 |
-| 5 | `argocd` | 고정 Helm chart로 Argo CD 설치·검증 |
-| 6 | `external_secrets_bootstrap` | ESO AWS secret-zero 생성·갱신 |
-| 7 | root Application | GitOps tree 동기화와 health 대기 |
-
-preflight는 `SSH_CONNECTION`의 peer를 `tailscale whois`로 조회하고, 연결 목적지 주소가 서버의
-Tailscale 주소인지 확인한다. 공인 SSH로 잘못 실행하면 UFW 변경 전에 중단한다.
-
-`common`은 `tailscale0` 인바운드를 먼저 허용한 뒤 선언 밖의 UFW 인바운드 허용 규칙을 지운다.
-따라서 임시 공인 `22/tcp` 규칙도 사라진다. 뒤 단계가 실패해도 앞 단계 변경은 자동으로 롤백되지
-않으므로 Tailscale 접속으로 원인을 고치고 전체 playbook을 재실행한다.
-
-## 7. 성공 확인과 공인 SSH 제거
-
-Tailscale로 서버에 접속해 확인한다.
+서버에서 다음 읽기 전용 상태를 확인한다.
 
 ```bash
-sudo k3s kubectl get nodes
-sudo k3s kubectl get applications -n argocd
-sudo k3s kubectl get secretstores,externalsecrets -A
-sudo k3s kubectl get certificates,clusterissuers -A
-sudo ufw status verbose
+sudo -n k3s kubectl get nodes
+sudo -n k3s kubectl get applications -n argocd
+sudo -n k3s kubectl get secretstores,externalsecrets -A
+sudo -n k3s kubectl get certificates,clusterissuers -A
+sudo -n ufw status verbose
+sudo -n sshd -t
 ```
 
-완료 조건:
+완료 기준은 Ansible 실패/접속불가 0, Node Ready, 필요한 Argo Application Synced/Healthy,
+SecretStore·ExternalSecret·Certificate 준비, 개인 관리자 새 SSH·sudo 성공, root/비밀번호
+로그인 거부와 DB 터널 권한 분리다. 외부 5432·6443이 계속 비공개인지도 확인한다.
 
-- `PLAY RECAP`: `failed=0`, `unreachable=0`
-- K3s Node: `Ready`
-- root Application: `Synced`, `Healthy`
-- 필요한 SecretStore, ExternalSecret, Certificate, ClusterIssuer: 준비됨
-- UFW: active, incoming deny, `tailscale0` 허용
-- UFW: 출발지와 무관하게 `22/tcp`, `6443/tcp` port 허용 규칙 없음
-
-여기까지 확인한 뒤 제공업체 방화벽/NSG의 임시 공인 `22/tcp` 허용을 제거한다. 마지막으로
-Tailscale 주소로 새 OpenSSH 세션을 열어 접속이 계속 되는지 확인한다.
-
-## 8. 운영과 문제 해결
+## 운영과 문제 해결
 
 ### Argo CD 로컬 계정
 
@@ -291,7 +200,7 @@ runtime Secret을 Git manifest로 덮어쓰지 않는다.
 로그인할 때는 `argocd login argo.university.neordinary.com --grpc-web --username umc-viewer`를
 실행하고 비밀번호를 대화형으로 입력한다. TLS는 Traefik에서 종료하며 외부 `80/tcp`는 열지 않는다.
 
-DNS·Ingress 장애 시 운영자는 Tailscale 경유 SSH로 IDC에 접속해 loopback에만 HTTP를 연다.
+DNS·Ingress 장애 시 운영자는 개인 관리자 공인 SSH로 IDC에 접속해 loopback에만 HTTP를 연다.
 core의 `server.insecure=true` 적용 후에는 backend가 HTTP이므로 이 복구 경로에 HTTPS를 쓰지 않는다.
 
 ```bash
@@ -300,7 +209,7 @@ sudo k3s kubectl -n argocd port-forward --address 127.0.0.1 service/argocd-serve
 ```
 
 관리자 PC의 별도 terminal에서 같은 IDC로 SSH tunnel을 유지한다. 아래 두 변수에는 승인된
-SSH 사용자와 Tailscale 주소를 사용한다.
+개인 관리자 SSH 사용자와 서버 공인 주소를 사용한다.
 
 ```bash
 ssh -N -L 127.0.0.1:18080:127.0.0.1:18080 "$IDC_SSH_USER@$IDC_NODE_HOST"
@@ -308,57 +217,45 @@ ssh -N -L 127.0.0.1:18080:127.0.0.1:18080 "$IDC_SSH_USER@$IDC_NODE_HOST"
 
 다른 관리자 PC terminal에서 `argocd login 127.0.0.1:18080 --plaintext --username admin`으로
 복구 작업을 수행한다. `--plaintext`는 SSH로 암호화된 이 loopback 경로에만 사용한다.
-복구 후 port-forward와 tunnel을 종료한다. 공인 SSH, Kubernetes API나 `--address 0.0.0.0`을
+복구 후 port-forward와 tunnel을 종료한다. Kubernetes API나 `--address 0.0.0.0`을
 열어 우회하지 않는다. Helm 배포 성공만으로 인증 검증이 끝나지는 않으므로 공개 로그인과
 viewer의 변경 권한 거부를 다시 확인한다.
 
-### 재실행
+### 재실행과 오류 확인
 
-Ansible 설정 변경이나 중간 실패 복구는 inventory가 Tailscale 주소를 가리키는 상태에서
-`playbooks/bootstrap.yml` 전체를 다시 실행한다. 이미 등록된 서버에 enroll playbook을 반복 실행할
-필요는 없다. 앱 image, Helm values, Kubernetes manifest 변경은 Git과 Argo CD로 처리한다.
-
-### 자주 보는 실패
+공인 IP·개인 관리자 inventory와 `ssh_access_finalize: true`를 유지한다.
+SSH 사용자 변경은 `ssh-access.yml`, OS/K3s bootstrap 변경은 `bootstrap.yml`을 사용한다.
+앱 image, Helm values와 Kubernetes manifest 변경은 Git과 Argo CD로 처리한다.
 
 | 증상 | 먼저 확인할 것 |
 |---|---|
-| enroll inventory 거부 | `CHANGE_ME`, 공인 관리자 `/32`, `tailscale_enroll_confirm=true` |
-| auth key 거부 | one-off key 사용 여부, `tag:umc-idc`, device approval 상태 |
-| enroll 끝의 port 22 확인 실패 | 관리자 PC Tailscale 로그인, tailnet grant, 기존 서버 UFW |
-| bootstrap이 Tailscale 연결을 거부 | `ansible_host`, `tailscale whois`, SSH 목적지 주소 |
-| SSH host key 경고 | 제공업체 console의 실제 fingerprint와 서버 교체 여부 |
+| SSH timeout | 공인 IP, 카페24 상위 방화벽, UFW, sshd 상태 |
+| `Permission denied (publickey)` | 사용자명, 본인 private key, 선언한 공개키, effective sshd 설정 |
+| 관리자 sudo 실패 | `role: admin`, sudoers 검증, 개인 관리자 접속 여부 |
+| finalize 거부 | 개인 관리자 공인 경로·키·sudo 검증, inventory 입력 |
+| SSH host key 경고 | 제공업체 console의 fingerprint와 실제 서버 교체 여부 |
+| DB 터널만 실패 | `permit_open`의 IP/포트, Service ClusterIP, Endpoint/Pod, 개인 DB 계정 |
 | UFW 규칙 때문에 중단 | deny/reject, route rule, quoted profile을 console에서 검토 |
 | ESO 자격증명 누락 | [비밀값 관리](secrets.md)의 bootstrap key 준비 상태 |
-| root health timeout | child Application, ExternalSecret, Certificate 상태 |
+| root Application health timeout | child Application, ExternalSecret, Certificate 상태 |
 
-root 상태는 Secret 값을 출력하지 않는 다음 명령으로 조사한다.
+### 방화벽과 보호 경계
 
-```bash
-sudo k3s kubectl describe application root -n argocd
-sudo k3s kubectl get applications -n argocd
-sudo k3s kubectl get secretstores,externalsecrets -A
-sudo k3s kubectl get certificates,clusterissuers -A
-```
-
-### 방화벽 계약
-
-| 경로 | UFW | 실제 접근 제한 |
+| 경로 | UFW | 인증/권한 |
 |---|---|---|
-| 관리 접속 | `tailscale0` interface 허용 | tailnet grant: 관리자 → `tag:umc-idc`, `tcp:22`만 |
-| 공인 HTTPS | 인터넷 → `443/tcp` | 제공업체 상위 방화벽, UFW, Traefik |
-| K3s 내부 | Pod·Service CIDR 허용 | 단일 node 내부 통신 |
-| 공인 SSH/API | `22/tcp`, `6443/tcp` 규칙 없음 | 제공업체 방화벽에서도 차단 |
+| 공인 SSH | `22/tcp` 연결 제한 | 개인 키만, root 로그인 금지, 계정별 shell/터널 권한 |
+| 공인 HTTPS | `443/tcp` 허용 | Traefik과 각 애플리케이션 인증 |
+| K3s 내부 | Pod·Service CIDR 허용 | 단일 node 내부 통신과 NetworkPolicy |
+| 공인 DB/API | `5432/tcp`, `6443/tcp` 허용 없음 | 제공업체 상위 방화벽도 비공개 |
 
-UFW 기본 정책은 inbound deny, outbound allow다. `common`은 필요한 규칙을 먼저 추가한 뒤 선언하지
-않은 인바운드 `allow`·`limit` 규칙을 제거한다. 자동 해석하기 위험한 inbound deny/reject,
-route allow/limit, quoted application profile을 발견하면 변경 전에 중단한다.
+UFW 기본 정책은 inbound deny, outbound allow다. `common`은 필요한 규칙을 먼저 추가한 뒤
+선언 밖 인바운드 `allow`·`limit` 규칙을 제거한다. 자동 해석하기 위험한 inbound deny/reject,
+route allow/limit, quoted application profile은 변경 전에 중단한다.
 
-Route53은 DNS 서비스라 사용자 트래픽을 중계하는 source CIDR이 없다. 모바일·웹 사용자는
-DNS가 돌려준 IDC public IPv4의 `443/tcp`로 직접 연결하므로 제공업체 상위 방화벽과 UFW가
-public HTTPS를 허용해야 한다. `80/tcp`는 DNS-01 인증에 필요하지 않아 열지 않는다.
-별도 trusted proxy가 없는 동안 Traefik은 외부가 임의로 보낸 `X-Forwarded-*` header를 신뢰하지 않는다.
+공개키 인증은 개인 키 유출·OpenSSH 취약점·접속 폭주를 모두 해결하지 않는다. 보안 업데이트와
+SSH 인증 로그를 점검하고 계정 회수를 검증한다. 연결 제한이나 서버 UFW는 회선에 도달한 공격
+트래픽을 없애지 않으므로 대규모 DDoS·초과 과금 대응은 제공업체 정책과 별도로 검토한다.
 
-### K3s 보호
-
-K3s는 Secret 저장 암호화를 사용하고 kubeconfig를 `root:root`, mode `0600`으로 둔다. kubeconfig를
-관리자 PC로 복사하지 않는다.
+Route 53은 DNS만 제공하며 proxy나 방화벽이 아니다. public `80/tcp`는 DNS-01 인증에 필요하지
+않아 열지 않는다. K3s는 Secret 저장 암호화와 `root:root`, mode `0600` kubeconfig를 유지한다.
+클러스터 조회는 개인 관리자 SSH의 `sudo -n k3s kubectl`로 수행하고 kubeconfig를 배포하지 않는다.
