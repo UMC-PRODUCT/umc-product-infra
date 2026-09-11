@@ -184,6 +184,5 @@ restore까지 검증한 뒤 별도 폐기 승인을 받는다. 앱/DB 자동 복
 | 기존 DB 종료 후, 새 앱 시작 전 | 기존 DB/PVC와 dump를 보존한다. 원본의 쓰기 재개는 새 writer 부재를 검증한 뒤 승인한다. |
 | Verify 또는 DNS 전환 이후 | 양쪽 writer를 동시에 켜지 않는다. 새 데이터 변경·외부 부작용을 평가하고 데이터 정합성 복구 계획을 승인받는다. DNS만 되돌리거나 이전 dump를 덮어쓰지 않는다. |
 
-DB 접속은 [DB 접근 가이드](../docs/guides/db-access.md), Secret 준비는
-[Secret 운영](../docs/guides/secrets.md), 후속 backup 검증은
+Secret 준비는 [Secret 운영](../docs/guides/secrets.md), 후속 backup 검증은
 [backup 활성화](backup-activation.md)를 따른다. 이 문서의 대상·중단 조건을 먼저 적용한다.

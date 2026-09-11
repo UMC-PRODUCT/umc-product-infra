@@ -61,7 +61,6 @@ ansible-lint playbooks/bootstrap.yml playbooks/tailscale-enroll.yml
 | 서버 최초 설치·재구성 | `ansible/README.md` |
 | Secret 추가·변경·회전 | `docs/guides/secrets.md` |
 | DNS·TLS·Route 53 | `docs/guides/domains-tls.md` |
-| DB 접속·password 회전 | `docs/guides/db-access.md` |
 | backup 최초 활성화 | `runbooks/backup-activation.md` |
 
 문서의 고정 계약과 코드가 다르면 코드를 먼저 확인하고, 차이를 사용자에게 알린 뒤 둘을 함께

@@ -432,6 +432,85 @@ def validate_ses_contract() -> None:
         identity["Properties"].get("DkimAttributes") == {"SigningEnabled": True},
         "SES DKIM signing",
     )
+    require(
+        identity["Properties"].get("ConfigurationSetAttributes")
+        == {"ConfigurationSetName": "SesFeedbackConfigurationSet"}
+        and identity.get("DependsOn") == [
+            "SesFeedbackEventDestination", "SesSenderUser", "NonprodSesSenderUser"
+        ],
+        "SES identity default feedback configuration set",
+    )
+    resources = template["Resources"]
+    require(
+        resources["SesFeedbackConfigurationSet"]["Properties"].get("SuppressionOptions")
+        == {"SuppressedReasons": ["BOUNCE", "COMPLAINT"]},
+        "SES feedback suppression must cover hard bounces and complaints",
+    )
+    require(
+        resources["SesFeedbackConfigurationSet"].get("DeletionPolicy") == "Retain"
+        and resources["SesFeedbackConfigurationSet"].get("UpdateReplacePolicy") == "Retain",
+        "SES feedback default must outlive the retained domain identity",
+    )
+    require(
+        "Default" not in parameters["FeedbackNotificationEmailAddress"]
+        and resources["SesFeedbackSubscription"]["Properties"]
+        == {
+            "TopicArn": "SesFeedbackTopic",
+            "Protocol": "email",
+            "Endpoint": "FeedbackNotificationEmailAddress",
+        },
+        "SES feedback requires an explicit operator email subscription",
+    )
+    require(
+        resources["SesFeedbackEventDestination"].get("DependsOn")
+        == "SesFeedbackTopicPolicy"
+        and resources["SesFeedbackEventDestination"]["Properties"]
+        == {
+            "ConfigurationSetName": "SesFeedbackConfigurationSet",
+            "EventDestination": {
+                "Name": "bounce-complaint-email",
+                "Enabled": True,
+                "MatchingEventTypes": ["BOUNCE", "COMPLAINT"],
+                "SnsDestination": {"TopicARN": "SesFeedbackTopic"},
+            },
+        },
+        "SES feedback publishes only bounce and complaint events",
+    )
+    require(
+        resources["SesFeedbackTopicPolicy"]["Properties"]
+        == {
+            "Topics": ["SesFeedbackTopic"],
+            "PolicyDocument": {
+                "Version": "2012-10-17",
+                "Statement": [{
+                    "Sid": "AllowSesFeedbackPublishing",
+                    "Effect": "Allow",
+                    "Principal": {"Service": "ses.amazonaws.com"},
+                    "Action": "sns:Publish",
+                    "Resource": "SesFeedbackTopic",
+                    "Condition": {"StringEquals": {
+                        "AWS:SourceAccount": "AWS::AccountId",
+                        "AWS:SourceArn": "arn:${AWS::Partition}:ses:${AWS::Region}:${AWS::AccountId}:configuration-set/${SesFeedbackConfigurationSet}",
+                    }},
+                }],
+            },
+        },
+        "SES feedback SNS publish permission must be account/configuration-set scoped",
+    )
+    for user, from_parameter in (
+        ("SesSenderUser", "SenderEmailAddress"),
+        ("NonprodSesSenderUser", "NonprodSenderEmailAddress"),
+    ):
+        statement = resources[user]["Properties"]["Policies"][0]["PolicyDocument"]["Statement"][0]
+        require(
+            statement["Action"] == "ses:SendEmail"
+            and statement["Resource"][:2] == [
+                "arn:${AWS::Partition}:ses:${AWS::Region}:${AWS::AccountId}:identity/${SesDomainIdentity}",
+                "arn:${AWS::Partition}:ses:${AWS::Region}:${AWS::AccountId}:configuration-set/${SesFeedbackConfigurationSet}",
+            ]
+            and statement["Condition"] == {"StringEquals": {"ses:FromAddress": from_parameter}},
+            f"{user}: feedback access must retain exact sender restriction",
+        )
 
     route53_records = {
         name: resource

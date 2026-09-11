@@ -1,4 +1,4 @@
-# prod 읽기전용 DB role(umc_product_ro) — 승인된 infra 운영 조회용 (docs/guides/db-access.md)
+# prod 읽기전용 DB role(umc_product_ro) — 승인된 infra 운영 조회용
 #
 # 왜 Job 인가: 계정을 수동 psql 로 한 번 만들면 대체 노드 준비 후 소프트웨어 재구축 때 잊힌다.
 # 이 레포가 내건 원칙이 "클러스터 정의 전체가 Git 하나로 복원"이라 계정도 Git 에 있어야 한다.

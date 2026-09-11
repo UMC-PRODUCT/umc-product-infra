@@ -62,7 +62,6 @@ Argo CD root Application부터 환경과 platform workload까지의 동기화 �
 |---|---|
 | 빈 서버에 처음 설치하거나 Ansible을 재실행 | [Ansible README](ansible/README.md) |
 | Secret을 추가·변경·회전 | [비밀값 관리](docs/guides/secrets.md) |
-| DataGrip으로 dev/prod DB에 접속 | [DataGrip SSH 연결](docs/guides/db-access.md#datagrip에서-ssh로-접속) |
 | DNS·TLS·Route 53을 변경 | [도메인과 TLS](docs/guides/domains-tls.md) |
 | 장애·느린 API·서버 자원 사용량 확인 | [상황별 대시보드 안내](observability/README.md#어떤-상황에-어떤-대시보드를-볼까) |
 | backup을 처음 활성화 | [Backup activation runbook](runbooks/backup-activation.md) |

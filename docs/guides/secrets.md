@@ -73,6 +73,79 @@ CloudFormation 순서는 다음과 같다.
 CloudFormation은 access key와 Secrets Manager 값을 만들지 않는다. Template의 `Parameters`와
 `Outputs`가 배포 계약이며, 실제 값은 콘솔·CLI 결과로 검증한다.
 
+### SES 반송·스팸 신고 알림
+
+`cloud/aws/ses-email.yaml` 배포 시 `FeedbackNotificationEmailAddress`에 담당자 메일을 지정한다.
+이는 앱 발신 주소나 자격증명이 아니라 SNS 알림 수신 주소다. 기존 스택 업데이트에서는
+발신 주소·Hosted Zone·sandbox 테스트 수신자 등 다른 파라미터 값을 유지한다.
+
+- `umc-product-ses-feedback` configuration set을 발신 domain identity의 기본값으로 연결한다.
+  앱이 별도 configuration set을 지정하지 않으면 prod/dev/preview 모두 적용된다.
+- `BOUNCE`, `COMPLAINT` 이벤트만 SNS 이메일 구독으로 보낸다. 정상 발송·열람 알림은 보내지 않는다.
+- 수신자가 **AWS Notification - Subscription Confirmation** 메일의 **Confirm subscription**을
+  눌러야 알림이 전달된다. CloudFormation 완료만으로 구독이 확인된 것은 아니다.
+- SNS 구독 확인 후 AWS mailbox simulator의 `bounce@simulator.amazonses.com`,
+  `complaint@simulator.amazonses.com`으로 각각 시험 발송하고 담당자 메일 수신까지 확인한다.
+  이 테스트는 sandbox에서도 가능하며, simulator 반송은 suppression list에 추가되지 않는다.
+- configuration set은 hard bounce와 SES가 전달받은 complaint 주소를 계정 suppression list에
+  추가하도록 설정한다. Gmail 등 일부 메일 서비스의 스팸 신고는 SES에 전달되지 않을 수 있다.
+- 담당자는 알림의 수신 주소·사유를 확인하고 불필요한 재발송을 중단한다. 이 알림 설정 자체가
+  앱의 수신 거부 기능이나 수신 거부 요청 처리 절차를 대신하지는 않는다.
+
+수신 주소 변경도 CloudFormation 파라미터로 반영하고 새 주소의 구독을 확인한다.
+알림에는 수신자와 메일 메타데이터가 포함될 수 있으므로 팀 외부에 전달하지 않는다.
+기본 configuration set을 삭제하려면 먼저 identity에서 연결을 해제한다.
+스택 삭제 시 domain identity와 기본 configuration set은 함께 보존되지만 SNS 알림 리소스는
+삭제된다. 재구성 시 기존 보존 리소스 처리와 SNS 구독 확인을 다시 점검한다.
+
+### 임시 Gmail SMTP와 SES 복귀
+
+백엔드의 `EMAIL_PROVIDER=ses|smtp` 지원 이미지가 필요하다. 기존 SES 전용 이미지에
+Gmail 발신 주소만 넣으면 SMTP로 바뀌지 않는다. 인증번호·HTML 템플릿은 유지하고 발송 경로만
+바꾸며, 실패 시 다른 provider로 자동 재발송하지 않는다.
+
+- prod/dev: `smtp.gmail.com:587`에 STARTTLS·인증·서버 인증서 검증을 적용한다.
+  `SMTP_USERNAME`과 `EMAIL_NO_REPLY_ADDRESS`는 `umcproduct1227@gmail.com`으로 동일하게 둔다.
+- Gmail 계정의 2단계 인증을 활성화하고 발급한 **앱 비밀번호**를 공백 없이
+  `.env.prod`와 `.env.dev`의 `SMTP_PASSWORD`에 입력한다. 일반 로그인 비밀번호는 사용하지 않는다.
+- `/umc-product/prod/app-email`, `/umc-product/dev/app-email`의 기존 JSON에
+  `SMTP_PASSWORD` property만 추가한다. SES 키와 다른 property를 삭제·덮어쓰지 않는다.
+  `bootstrap_aws_secrets.py --apply`는 기존 Secret 갱신 도구가 아니므로 AWS 콘솔의
+  **보안 암호 값 검색 → 편집**에서 갱신하거나, 기존 JSON을 보존하는 안전한 갱신 절차를 사용한다.
+- preview는 SES만 사용한다. Gmail 앱 비밀번호를 preview Secret에 복제하지 않는다.
+
+적용 순서:
+
+1. 백엔드 SMTP 지원 코드를 빌드·검증하고 GHCR image tag/digest를 확보한다.
+2. 두 AWS `app-email` source에 앱 비밀번호를 추가한다. 기존 ESO 매핑에는 아직 없으므로
+   이 단계만으로 SMTP로 전환되지는 않는다.
+3. `umc-secrets` 매핑을 반영하고 app/dev-app의 `app-email` ExternalSecret `Ready=True`와
+   refresh time 갱신을 확인한다. 기존 환경도 Reloader로 재시작될 수 있으므로 확인한다.
+4. 해당 환경 values에서 **검증한 새 이미지 + EMAIL_PROVIDER=smtp + Gmail 발신자**를 함께
+   반영한다. dev 실제 인증메일 수신을 먼저 확인한 뒤 prod에 적용한다.
+5. rollout/readiness뿐 아니라 인증메일 요청 → Gmail/네이버 수신 → 코드 검증까지 확인한다.
+   SMTP 서버가 메일을 접수한 것과 받은편지함에 도착한 것은 별개다.
+
+NetworkPolicy는 SMTP 모드일 때만 public IPv4의 TCP/587 **egress**를 추가한다.
+SMTP inbound, NodePort, public SSH는 열지 않는다. 표준 NetworkPolicy는 FQDN을 지원하지
+않으므로 Gmail IP만으로 제한하는 정책은 아니며, 기존 사설망·metadata 주소 제외를 유지한다.
+
+개인 Gmail은 하루 500통 초과 시 제한될 수 있으며 500통의 수신 성공을 보장하는 서비스도 아니다.
+같은 Gmail 계정의 dev·prod·수동 발송과 재발송이 한도를 공유하므로 **700명 전체 발송 대책으로는
+부족하다**. SMTP 발송은 SES를 거치지 않으므로 SES의 SNS 알림·suppression도 적용되지 않는다.
+[Google 발송 한도](https://support.google.com/mail/answer/22839?hl=en),
+[앱 비밀번호](https://support.google.com/accounts/answer/185833?hl=en)를 참고한다.
+
+SES 승인 후에는 prod의 `EMAIL_NO_REPLY_ADDRESS=no-reply@university.neordinary.com`,
+dev의 `EMAIL_NO_REPLY_ADDRESS=no-reply-nonprod@university.neordinary.com`과 함께
+`EMAIL_PROVIDER=ses`로 변경한다. SES 키·region·configuration set은 유지한다.
+GitOps rollout 후 실제 수신을 확인하면 SMTP egress도 다시 닫힌다. 두 환경이 모두 SES로
+돌아온 뒤 Gmail 앱 비밀번호를 폐기하고, ESO 매핑·bootstrap property 정의에서 제거한 다음
+AWS source와 로컬 worksheet에서도 지운다. ESO 매핑이 남아 있을 때 property부터 지우면
+`app-email` 동기화가 실패할 수 있다.
+
+### 최초 access key 발급
+
 ```bash
 aws sts get-caller-identity --profile default
 
