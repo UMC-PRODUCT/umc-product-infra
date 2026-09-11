@@ -1,19 +1,30 @@
 ---
 # Cafe24: 8 cores / RAM 32 GB / SSD 500 GB. mount와 실제 여유 용량은 별도 확인한다.
-# hosts.yml로 복사한다. 기존 inventories/idc/hosts.yml은 이전 완료까지 보존한다.
 all:
   children:
     k3s_servers:
       hosts:
         umc-cafe24-01:
-          # 등록 성공 후 반드시 새 Tailscale 100.x 주소/MagicDNS로 교체한다.
+          # 1차는 기존 키 관리 경로, 2차부터 공인 IP와 개인 관리자 계정으로 접속한다.
           ansible_host: 1.255.226.166
-          ansible_user: CHANGE_ME_SSH_USER
-          tailscale_hostname: umc-cafe24-01
+          ansible_user: CHANGE_ME_CURRENT_SSH_USER
       vars:
-        tailscale_enroll_confirm: false
-        tailscale_initial_admin_cidrs:
-          - CHANGE_ME_CURRENT_ADMIN_PUBLIC_IP/32
+        ssh_access_public_host: 1.255.226.166
+        ssh_access_confirm: false
+        ssh_access_finalize: false
+        ssh_access_users:
+          - name: infra_operator
+            role: admin
+            state: present
+            public_keys: ['CHANGE_ME_ED25519_PUBLIC_KEY']
+          # 팀원의 공개키만 받는다. private key와 DB 비밀번호는 넣지 않는다.
+          # - name: backend_member
+          #   role: db_tunnel
+          #   state: present
+          #   public_keys: ['CHANGE_ME_ED25519_PUBLIC_KEY']
+          #   permit_open: ['CHANGE_ME_DB_SERVICE_CLUSTER_IP:5432']
+          # 탈퇴 시 명단에서 지우지 말고 state: absent로 한 번 적용한다.
+        common_public_tcp_ports: [22, 443]
         bootstrap_confirm: false
-        # 첫 설치는 K3s/Argo CD/secret-zero까지만. DB 이전 전 앱과 DNS가 뜨면 안 된다.
+        # DB 이전 전에 앱과 DNS가 뜨지 않도록 첫 root 생성을 보류한다.
         bootstrap_root_app_enabled: false

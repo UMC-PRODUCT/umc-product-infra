@@ -1,0 +1,5 @@
+---
+- name: Reload personal SSH policy
+  ansible.builtin.service:
+    name: ssh
+    state: reloaded

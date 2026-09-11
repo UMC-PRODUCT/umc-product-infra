@@ -1,7 +1,9 @@
 from __future__ import annotations
 
-import json
+import ast
 import re
+import subprocess
+import sys
 import unittest
 from pathlib import Path
 from urllib.parse import quote
@@ -187,156 +189,251 @@ class PostgresBootstrapContractTests(unittest.TestCase):
             self.assertRegex(text, r"(?m)^\s*\$role_check\$;\s*$", relative_path)
 
 
-class TailscaleBootstrapContractTests(unittest.TestCase):
-    def test_standard_bootstrap_requires_tailscale_before_common(self) -> None:
+class PublicSshBootstrapContractTests(unittest.TestCase):
+    def test_standard_bootstrap_prepares_personal_ssh_before_common(self) -> None:
         path = ROOT / "ansible" / "playbooks" / "bootstrap.yml"
-        with path.open(encoding="utf-8") as stream:
-            play = yaml.safe_load(stream)[0]
+        play = yaml.safe_load(path.read_text(encoding="utf-8"))[0]
 
-        role_names = [role["role"] for role in play["roles"]]
         self.assertEqual(
-            role_names,
-            ["tailscale", "common", "k3s", "argocd", "external_secrets_bootstrap"],
+            [role["role"] for role in play["roles"]],
+            ["ssh_access", "common", "k3s", "argocd", "external_secrets_bootstrap"],
         )
         text = path.read_text(encoding="utf-8")
-        self.assertIn("tailscale\n          - whois\n          - --json", text)
-        self.assertIn("bootstrap_ssh_destination_address", text)
-        self.assertIn(".get('Node', {}).get('ID', '') | string | length > 0", text)
+        self.assertNotIn("tailscale_hostname", text)
+        self.assertNotIn("/usr/bin/tailscale", text)
+        self.assertIn("ssh_access_finalize | default(false) | bool", text)
+        self.assertIn("common_public_tcp_ports == [22, 443]", text)
 
-    def test_enrollment_does_not_mutate_ufw_or_enable_tailscale_ssh(self) -> None:
-        enroll_playbook = (
-            ROOT / "ansible" / "playbooks" / "tailscale-enroll.yml"
+    def test_access_only_playbook_does_not_reinstall_the_cluster(self) -> None:
+        play = yaml.safe_load(
+            (ROOT / "ansible/playbooks/ssh-access.yml").read_text(encoding="utf-8")
+        )[0]
+        self.assertEqual([role["role"] for role in play["roles"]], ["ssh_access"])
+        tasks = play["tasks"]
+        firewall = next(
+            task for task in tasks
+            if task.get("ansible.builtin.include_role", {}).get("name") == "common"
+        )
+        self.assertEqual(firewall["ansible.builtin.include_role"]["tasks_from"], "firewall.yml")
+        retire = next(
+            task for task in tasks
+            if task.get("ansible.builtin.include_role", {}).get("tasks_from") == "retire-vpn.yml"
+        )
+        self.assertEqual(retire["when"], "ssh_access_finalize | bool")
+        self.assertTrue(any(
+            "ansible.builtin.wait_for_connection" in task
+            for task in tasks[tasks.index(firewall) + 1:tasks.index(retire)]
+        ))
+        self.assertTrue(any(
+            "ansible.builtin.wait_for_connection" in task
+            for task in tasks[tasks.index(retire) + 1:]
+        ))
+
+    def test_key_only_authentication_and_tunnel_only_sessions_are_explicit(self) -> None:
+        template = (
+            ROOT / "ansible/roles/ssh_access/templates/sshd.conf.j2"
         ).read_text(encoding="utf-8")
-        self.assertNotIn("ansible.builtin.command: ufw", enroll_playbook)
+        for setting in (
+            "AuthenticationMethods publickey",
+            "PasswordAuthentication no",
+            "KbdInteractiveAuthentication no",
+            "PermitEmptyPasswords no",
+            "AuthorizedKeysFile /etc/ssh/authorized_keys/%u",
+            "AllowTcpForwarding local",
+            "AllowStreamLocalForwarding no",
+            "AllowAgentForwarding no",
+            "PermitTunnel no",
+            "PermitUserRC no",
+            "GatewayPorts no",
+            "PermitOpen none",
+            "MaxSessions 0",
+            "PermitTTY no",
+            "PermitOpen {{ account.permit_open | join(' ') }}",
+        ):
+            self.assertIn(setting, template)
+        self.assertIn("PermitRootLogin {{ 'no' if ssh_access_finalize else 'prohibit-password' }}", template)
+        self.assertIn("AllowUsers {{ ssh_access_present", template)
+        self.assertIn("MaxStartups ", template)
 
-        tasks = load_tasks("ansible/roles/tailscale/tasks/main.yml")
-        enrollment = next(
-            task for task in tasks if task.get("name") == "Enroll the server in the tailnet"
+        tasks = load_tasks("ansible/roles/ssh_access/tasks/main.yml")
+        keys = next(task["ansible.builtin.copy"] for task in tasks
+                    if task.get("ansible.builtin.copy", {}).get("dest")
+                    == "/etc/ssh/authorized_keys/{{ item.name }}")
+        self.assertEqual((keys["owner"], keys["group"], keys["mode"]), ("root", "root", "0644"))
+        self.assertEqual(keys["content"], "{{ item.public_keys | join('\n') }}\n")
+        config = next(task["ansible.builtin.template"] for task in tasks
+                      if "ansible.builtin.template" in task)
+        self.assertEqual(config["validate"], "/usr/sbin/sshd -t -f %s")
+
+    def test_finalization_requires_the_actual_public_personal_admin_and_sudo(self) -> None:
+        tasks = load_tasks("ansible/roles/ssh_access/tasks/main.yml")
+        guard = next(task for task in tasks if task.get("name")
+                     == "Require actual public-key administrator access before finalization")
+        conditions = guard["ansible.builtin.assert"]["that"]
+        self.assertIn("ssh_access_connection.stdout.split()[2] == ssh_access_public_host", conditions)
+        self.assertIn("ansible_host == ssh_access_public_host", conditions)
+        self.assertIn("ansible_user != 'root'", conditions)
+        self.assertTrue(any("selectattr('role', 'equalto', 'admin')" in expression for expression in conditions))
+        self.assertEqual(guard["when"], "ssh_access_finalize")
+        sudo = next(task for task in tasks if task.get("ansible.builtin.command") == "sudo -n true")
+        mark = next(task for task in tasks
+                    if task.get("ansible.builtin.set_fact", {}).get("ssh_access_public_verified") is True)
+        self.assertLess(tasks.index(guard), tasks.index(sudo))
+        self.assertLess(tasks.index(sudo), tasks.index(mark))
+        self.assertEqual(mark["when"], "ssh_access_finalize")
+
+    def test_explicit_account_retirement_terminates_existing_tunnels(self) -> None:
+        tasks = load_tasks("ansible/roles/ssh_access/tasks/revoke.yml")
+        revoke_keys = next(task for task in tasks if "ansible.builtin.file" in task)
+        kill = next(task for task in tasks if "pkill" in command_argv(task))
+        remove = next(task for task in tasks if "ansible.builtin.user" in task)
+        self.assertEqual(revoke_keys["ansible.builtin.file"]["state"], "absent")
+        self.assertIn("-u", command_argv(kill))
+        self.assertLess(tasks.index(revoke_keys), tasks.index(kill))
+        self.assertLess(tasks.index(kill), tasks.index(remove))
+        self.assertEqual(remove["ansible.builtin.user"]["state"], "absent")
+        self.assertFalse(remove["ansible.builtin.user"]["remove"])
+        self.assertFalse(remove["ansible.builtin.user"]["force"])
+
+    def test_firewall_limits_ssh_and_removes_undeclared_allow_rules(self) -> None:
+        tasks = load_tasks("ansible/roles/common/tasks/firewall.yml")
+        defaults = yaml.safe_load(
+            (ROOT / "ansible/roles/common/defaults/main.yml").read_text(encoding="utf-8")
         )
-        self.assertTrue(enrollment["no_log"])
-        join_task = next(
-            task
-            for task in enrollment["block"]
-            if task.get("name")
-            == "Join with the fixed server identity and safe network settings"
+        self.assertEqual(defaults["common_public_tcp_ports"], [22, 443])
+        k3s_defaults = yaml.safe_load(
+            (ROOT / "ansible/roles/k3s/defaults/main.yml").read_text(encoding="utf-8")
         )
-        argv = command_argv(join_task)
-        self.assertTrue(any(str(value).startswith("--auth-key=file:") for value in argv))
-        self.assertIn("--ssh=false", argv)
-        self.assertIn("--accept-routes=false", argv)
-        self.assertIn("--netfilter-mode=on", argv)
-        self.assertNotIn("--webclient=false", argv)
+        for name in ("k3s_cluster_cidr", "k3s_service_cidr"):
+            self.assertEqual(defaults[name], k3s_defaults[name])
+        guard = tasks[0]["ansible.builtin.assert"]["that"]
+        self.assertIn("common_public_tcp_ports == [22, 443]", guard)
+        self.assertTrue(any("ssh_access_public_verified" in condition for condition in guard))
+        initial = next(task for task in tasks if task.get("name")
+                       == "Initialize the desired inbound firewall rules")
+        facts = initial["ansible.builtin.set_fact"]
+        self.assertEqual(facts["common_expected_public_ufw_rules"],
+                         ["ufw limit 22/tcp", "ufw allow 443/tcp"])
+        self.assertIn("common_legacy_tailscale_interface.stat.exists",
+                      facts["common_expected_legacy_ufw_rules"])
+        self.assertIn("not (ssh_access_finalize", facts["common_expected_legacy_ufw_rules"])
+        limits = [index for index, task in enumerate(tasks)
+                  if command_argv(task)[:3] == ["ufw", "limit", "22/tcp"]]
+        cleanup_index = next(index for index, task in enumerate(tasks)
+                             if task.get("when") == "item not in common_expected_inbound_ufw_rules")
+        self.assertEqual(len(limits), 2)
+        self.assertLess(limits[0], cleanup_index)
+        self.assertLess(cleanup_index, limits[1])
+        verification = next(task for task in tasks if task.get("name")
+                            == "Verify the declared inbound UFW rules")
+        self.assertEqual(len(verification["ansible.builtin.assert"]["that"]), 2)
+        common = load_tasks("ansible/roles/common/tasks/main.yml")
+        self.assertTrue(any(task.get("ansible.builtin.import_tasks") == "firewall.yml" for task in common))
+        self.assertFalse(any(
+            task.get("ansible.builtin.template", {}).get("src") == "ssh-hardening.conf.j2"
+            for task in common
+        ))
 
-        client_preferences = next(
-            task
-            for task in enrollment["block"]
-            if task.get("name") == "Disable unpinned Tailscale client auto-updates"
-        )
-        self.assertIn("--auto-update=false", command_argv(client_preferences))
-        self.assertIn("--webclient=false", command_argv(client_preferences))
+    def test_firewall_rejects_unsafe_cidrs_before_any_rule_mutation(self) -> None:
+        tasks = load_tasks("ansible/roles/common/tasks/firewall.yml")
+        guard = next(task for task in tasks if task.get("name")
+                     == "Validate private non-overlapping K3s CIDRs before firewall mutation")
+        argv = command_argv(guard)
+        self.assertEqual(argv[:2], ["{{ ansible_playbook_python }}", "-c"])
+        self.assertEqual(guard["delegate_to"], "localhost")
+        self.assertIs(guard["become"], False)
+        self.assertIs(guard["changed_when"], False)
+        self.assertIs(guard["check_mode"], False)
+        first_mutation = next(index for index, task in enumerate(tasks)
+                              if command_argv(task)[:1] == ["ufw"])
+        self.assertLess(tasks.index(guard), first_mutation)
+        for cluster, service, valid in (
+            ("10.42.0.0/16", "10.43.0.0/16", True),
+            ("172.16.0.0/16", "192.168.0.0/16", True),
+            ("0.0.0.0/0", "10.43.0.0/16", False),
+            ("10.42.0.0/16", "0.0.0.0/0", False),
+            ("1.255.226.0/24", "10.43.0.0/16", False),
+            ("100.64.0.0/10", "10.43.0.0/16", False),
+            ("127.0.0.0/8", "10.43.0.0/16", False),
+            ("2001:db8::/64", "10.43.0.0/16", False),
+            ("10.42.0.1/16", "10.43.0.0/16", False),
+            ("10.42.0.0/255.255.0.0", "10.43.0.0/16", False),
+            ("10.0.0.0/8", "10.43.0.0/16", False),
+            ("10.43.0.0/16", "10.43.0.0/16", False),
+            ("invalid", "10.43.0.0/16", False),
+        ):
+            with self.subTest(cluster=cluster, service=service):
+                result = subprocess.run(
+                    [sys.executable, "-c", argv[2], cluster, service],
+                    capture_output=True, text=True, check=False,
+                )
+                self.assertEqual(result.returncode == 0, valid, result.stderr)
 
-        cleanup = enrollment["always"][0]
-        self.assertEqual(cleanup["ansible.builtin.file"]["state"], "absent")
+    def test_firewall_check_mode_reads_state_but_does_not_require_unapplied_changes(self) -> None:
+        tasks = load_tasks("ansible/roles/common/tasks/firewall.yml")
+        for task in tasks:
+            if task.get("ansible.builtin.command") in ("ufw show added", "ufw status", "ufw status verbose"):
+                self.assertIs(task["check_mode"], False)
+                self.assertIs(task["changed_when"], False)
+            if task.get("name") in ("Verify the declared inbound UFW rules", "Verify the required K3s firewall boundaries"):
+                self.assertEqual(task["when"], "not ansible_check_mode")
+        self.assertNotIn("when", tasks[0])
 
-    def test_tailscale_package_and_repository_key_are_pinned(self) -> None:
-        path = ROOT / "ansible" / "roles" / "tailscale" / "defaults" / "main.yml"
-        with path.open(encoding="utf-8") as stream:
-            defaults = yaml.safe_load(stream)
+    def test_firewall_port_patterns_distinguish_allow_from_limit_on_ipv4_and_ipv6(self) -> None:
+        tasks = load_tasks("ansible/roles/common/tasks/firewall.yml")
+        guard = next(task for task in tasks if task.get("name")
+                     == "Verify the required K3s firewall boundaries")
+        patterns = []
+        for expression in guard["ansible.builtin.assert"]["that"]:
+            match = re.search(r"select\('match', ('(?:\\.|[^'])*')\)", expression)
+            if match:
+                patterns.append(re.compile(ast.literal_eval(match.group(1))))
+        self.assertEqual(len(patterns), 4)
+        ssh_limit, ssh_allow, private_ports, https_allow = patterns
+        for suffix in ("", " (v6)"):
+            self.assertRegex(f"22/tcp{suffix} LIMIT IN Anywhere{suffix}", ssh_limit)
+            self.assertNotRegex(f"22/tcp{suffix} ALLOW IN Anywhere{suffix}", ssh_limit)
+            self.assertRegex(f"22/tcp{suffix} ALLOW IN Anywhere{suffix}", ssh_allow)
+            self.assertRegex(f"443/tcp{suffix} ALLOW IN Anywhere{suffix}", https_allow)
+            for port in (80, 5432, 6443):
+                for action in ("ALLOW", "LIMIT"):
+                    self.assertRegex(f"{port}/tcp{suffix} {action} IN Anywhere{suffix}", private_ports)
+        self.assertNotRegex("8080/tcp ALLOW IN Anywhere", private_ports)
 
-        self.assertRegex(defaults["tailscale_version"], r"^\d+\.\d+\.\d+$")
-        self.assertRegex(
-            defaults["tailscale_apt_key_checksum"], r"^sha256:[0-9a-f]{64}$"
-        )
-        self.assertIn("pkgs.tailscale.com/stable/ubuntu", defaults["tailscale_apt_key_url"])
-
-    def test_tailscale_ipv4_filter_matches_100_range_addresses(self) -> None:
-        tasks = load_tasks("ansible/roles/tailscale/tasks/main.yml")
-        state = next(
-            task
-            for task in tasks
-            if task.get("name") == "Record the effective Tailscale state"
-        )
-        expression = state["ansible.builtin.set_fact"]["tailscale_primary_ipv4"]
-
-        self.assertIn("select('match', '^100\\.')", expression)
-        self.assertNotIn("select('match', '^100\\\\.')", expression)
-
-    def test_ufw_has_only_an_interface_rule_for_tailnet_management(self) -> None:
-        common = (
-            ROOT / "ansible" / "roles" / "common" / "tasks" / "main.yml"
-        ).read_text(encoding="utf-8")
-        defaults = (
-            ROOT / "ansible" / "roles" / "common" / "defaults" / "main.yml"
-        ).read_text(encoding="utf-8")
-
-        self.assertIn("ufw allow in on", common)
-        self.assertNotIn("common_admin_ssh_cidrs", common + defaults)
-        self.assertNotIn("common_k3s_api_cidrs", common + defaults)
-        self.assertIn("contain no port-based SSH or Kubernetes API allow rule", common)
+    def test_legacy_vpn_removal_is_guarded_and_retains_recovery_identity(self) -> None:
+        tasks = load_tasks("ansible/roles/ssh_access/tasks/retire-vpn.yml")
+        conditions = tasks[0]["ansible.builtin.assert"]["that"]
+        self.assertIn("ssh_access_finalize | bool", conditions)
+        self.assertIn("ssh_access_public_verified | default(false) | bool", conditions)
+        package = next(task["ansible.builtin.apt"] for task in tasks if "ansible.builtin.apt" in task)
+        self.assertEqual(package["name"], "tailscale")
+        self.assertEqual(package["state"], "absent")
+        self.assertFalse(package["purge"])
 
     def test_direct_edge_exposes_only_https_and_trusts_no_forwarded_proxy(self) -> None:
         common_tasks = (
-            ROOT / "ansible" / "roles" / "common" / "tasks" / "main.yml"
+            ROOT / "ansible/roles/common/tasks/firewall.yml"
         ).read_text(encoding="utf-8")
-        with (
-            ROOT / "ansible" / "roles" / "common" / "defaults" / "main.yml"
-        ).open(encoding="utf-8") as stream:
-            common_defaults = yaml.safe_load(stream)
-        with (
-            ROOT
-            / "ansible"
-            / "roles"
-            / "k3s"
-            / "templates"
-            / "traefik-config.yaml.j2"
-        ).open(encoding="utf-8") as stream:
-            traefik_config = yaml.safe_load(stream)
-
-        self.assertEqual(common_defaults["common_public_tcp_ports"], [443])
+        traefik_config = yaml.safe_load(
+            (ROOT / "ansible/roles/k3s/templates/traefik-config.yaml.j2").read_text(encoding="utf-8")
+        )
         self.assertIn("umc-public-https", common_tasks)
         traefik_values = yaml.safe_load(traefik_config["spec"]["valuesContent"])
         self.assertIs(traefik_values["ports"]["web"]["expose"]["default"], False)
-        self.assertIs(
-            traefik_values["service"]["spec"]["allocateLoadBalancerNodePorts"], False
-        )
-        forwarded_headers = traefik_values["ports"]["websecure"][
-            "forwardedHeaders"
-        ]
+        self.assertIs(traefik_values["service"]["spec"]["allocateLoadBalancerNodePorts"], False)
         self.assertEqual(
-            forwarded_headers,
+            traefik_values["ports"]["websecure"]["forwardedHeaders"],
             {"insecure": False, "trustedIPs": []},
         )
 
     def test_k3s_api_is_probed_from_the_controller_as_unreachable(self) -> None:
         tasks = load_tasks("ansible/roles/k3s/tasks/main.yml")
-        probe = next(
-            task
-            for task in tasks
-            if task.get("name")
-            == "Require the Kubernetes API to remain unreachable from the controller"
-        )
-
+        probe = next(task for task in tasks if task.get("name")
+                     == "Require the Kubernetes API to remain unreachable from the controller")
+        self.assertEqual(probe["ansible.builtin.wait_for"]["host"], "{{ ssh_access_public_host }}")
         self.assertEqual(probe["ansible.builtin.wait_for"]["port"], 6443)
         self.assertEqual(probe["ansible.builtin.wait_for"]["state"], "stopped")
         self.assertEqual(probe["delegate_to"], "localhost")
-
-    def test_tailnet_policy_allows_ssh_and_denies_k3s_api(self) -> None:
-        path = ROOT / "ansible" / "tailscale-policy.example.hujson"
-        hujson = re.sub(r"//.*", "", path.read_text(encoding="utf-8"))
-        policy = json.loads(hujson)
-
-        self.assertEqual(
-            policy["grants"],
-            [
-                {
-                    "src": ["group:umc-infra-admins"],
-                    "dst": ["tag:umc-idc"],
-                    "ip": ["tcp:22"],
-                }
-            ],
-        )
-        self.assertEqual(policy["tests"][0]["accept"], ["tag:umc-idc:22"])
-        self.assertEqual(policy["tests"][0]["deny"], ["tag:umc-idc:6443"])
 
 
 class RepositoryValidationContractTests(unittest.TestCase):

@@ -1,0 +1,231 @@
+---
+- name: Validate the explicit SSH access inventory before mutation
+  ansible.builtin.assert:
+    that:
+      - ssh_access_confirm | default(false) | bool
+      - ssh_access_finalize is boolean
+      - ssh_access_users is sequence and ssh_access_users is not string
+      - ssh_access_users | length > 0
+      - ssh_access_users | map(attribute='name') | unique | length == ssh_access_users | length
+      - ssh_access_public_host is match('^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$')
+      - ansible_user is defined
+    fail_msg: Supply reviewed personal accounts, public IPv4 and ssh_access_confirm=true.
+
+- name: Validate individual account names and explicit lifecycle
+  ansible.builtin.assert:
+    that:
+      - item.name is match('^[a-z][a-z0-9_]{1,30}$')
+      - item.name not in ['root', 'nobody', 'daemon', 'www_data']
+      - item.state in ['present', 'absent']
+      - item.role in ['admin', 'db_tunnel']
+      - item.state != 'absent' or item.name != ansible_user
+    fail_msg: Use a unique non-system username and explicit role/state; never remove the connected operator.
+  loop: "{{ ssh_access_users }}"
+  loop_control:
+    label: "{{ item.name }}"
+
+- name: Collect the declared active accounts
+  ansible.builtin.set_fact:
+    ssh_access_present: "{{ ssh_access_users | selectattr('state', 'equalto', 'present') | list }}"
+    ssh_access_public_verified: false
+
+- name: Require at least one retained personal administrator
+  ansible.builtin.assert:
+    that:
+      - ssh_access_present | selectattr('role', 'equalto', 'admin') | list | length > 0
+
+- name: Require public keys and narrowly scoped tunnel destinations
+  ansible.builtin.assert:
+    that:
+      - item.public_keys is sequence and item.public_keys is not string
+      - item.public_keys | length > 0
+      - >-
+        item.public_keys | select('match', '^(ssh-ed25519|sk-ssh-ed25519@openssh.com) [A-Za-z0-9+/]+={0,3}( [^\r\n]+)?$')
+        | list | length == item.public_keys | length
+      - "'CHANGE_ME' not in (item.public_keys | join(' '))"
+      - item.role != 'db_tunnel' or (item.permit_open | default([]) | length > 0)
+      - >-
+        item.role != 'db_tunnel' or
+        (item.permit_open | select('match', '^10\.43\.[0-9]{1,3}\.[0-9]{1,3}:5432$')
+        | list | length == item.permit_open | length)
+    fail_msg: Provide real Ed25519 public keys; DB accounts require exact 10.43.x.x:5432 destinations, never wildcards.
+  loop: "{{ ssh_access_present }}"
+  loop_control:
+    label: "{{ item.name }}"
+
+- name: Read the actual SSH connection without privilege escalation
+  ansible.builtin.command: printenv SSH_CONNECTION
+  become: false
+  register: ssh_access_connection
+  changed_when: false
+  check_mode: false
+
+- name: Require actual public-key administrator access before finalization
+  ansible.builtin.assert:
+    that:
+      - ssh_access_connection.stdout.split() | length == 4
+      - ssh_access_connection.stdout.split()[2] == ssh_access_public_host
+      - ssh_access_connection.stdout.split()[3] == '22'
+      - ansible_host == ssh_access_public_host
+      - ansible_user != 'root'
+      - ansible_user in (ssh_access_present | selectattr('role', 'equalto', 'admin') | map(attribute='name') | list)
+    fail_msg: Finalize only through public IPv4 as a retained personal admin; keep the old connection until this succeeds.
+  when: ssh_access_finalize
+
+- name: Verify noninteractive sudo for the current finalization operator
+  ansible.builtin.command: sudo -n true
+  become: false
+  changed_when: false
+  check_mode: false
+  when: ssh_access_finalize
+
+- name: Mark the public administrator path verified
+  ansible.builtin.set_fact:
+    ssh_access_public_verified: true
+  when: ssh_access_finalize
+
+- name: Inspect existing account IDs before managing any account
+  ansible.builtin.getent:
+    database: passwd
+
+- name: Refuse to adopt or delete system accounts
+  ansible.builtin.assert:
+    that:
+      - item.name not in ansible_facts.getent_passwd or ansible_facts.getent_passwd[item.name][1] | int >= 1000
+    fail_msg: SSH access management cannot mutate system accounts.
+  loop: "{{ ssh_access_users }}"
+  loop_control:
+    label: "{{ item.name }}"
+
+- name: Ensure SSH and sudo are installed
+  ansible.builtin.apt:
+    name: [openssh-server, sudo, ufw]
+    state: present
+
+- name: Create personal access groups
+  ansible.builtin.group:
+    name: "{{ item }}"
+    state: present
+  loop: [umc-ssh-admins, umc-db-tunnel]
+
+- name: Create personal accounts without password login
+  ansible.builtin.user:
+    name: "{{ item.name }}"
+    state: present
+    create_home: true
+    shell: /bin/bash
+    password_lock: true
+    groups: "{{ 'umc-ssh-admins' if item.role == 'admin' else 'umc-db-tunnel' }}"
+    append: false
+  loop: "{{ ssh_access_present }}"
+  loop_control:
+    label: "{{ item.name }}"
+
+- name: Keep authorized public keys outside user-writable homes
+  ansible.builtin.file:
+    path: /etc/ssh/authorized_keys
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Reconcile the entire declared public-key set for each account
+  ansible.builtin.copy:
+    content: "{{ item.public_keys | join('\n') }}\n"
+    dest: "/etc/ssh/authorized_keys/{{ item.name }}"
+    owner: root
+    group: root
+    mode: '0644'
+    validate: /usr/bin/ssh-keygen -l -f %s
+  loop: "{{ ssh_access_present }}"
+  loop_control:
+    label: "{{ item.name }}"
+
+# 승인된 인프라 관리자만 root 권한을 갖는다. DB 터널 그룹은 sudoers에 들어가지 않는다.
+- name: Grant sudo only to the personal administrator group
+  ansible.builtin.copy:
+    content: "%umc-ssh-admins ALL=(ALL:ALL) NOPASSWD: ALL\n"
+    dest: /etc/sudoers.d/umc-ssh-admins
+    owner: root
+    group: root
+    mode: '0440'
+    validate: /usr/sbin/visudo -cf %s
+
+- name: Ensure the SSH drop-in directory exists
+  ansible.builtin.file:
+    path: /etc/ssh/sshd_config.d
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Install key-only authentication and per-user forwarding restrictions
+  ansible.builtin.template:
+    src: sshd.conf.j2
+    dest: /etc/ssh/sshd_config.d/00-umc-hardening.conf
+    owner: root
+    group: root
+    mode: '0644'
+    backup: true
+    validate: /usr/sbin/sshd -t -f %s
+  register: ssh_access_config
+  notify: Reload personal SSH policy
+
+- name: Validate the complete SSH configuration including other drop-ins
+  ansible.builtin.command: /usr/sbin/sshd -t
+  changed_when: false
+
+- name: Read effective authentication and per-user policy
+  ansible.builtin.command:
+    argv:
+      - /usr/sbin/sshd
+      - -T
+      - -C
+      - "user={{ item.name }},host=client,addr={{ ssh_access_connection.stdout.split()[0] }}"
+  loop: "{{ ssh_access_present }}"
+  loop_control:
+    label: "{{ item.name }}"
+  register: ssh_access_effective
+  changed_when: false
+
+- name: Reject shadowed authentication or tunnel policy before reload
+  ansible.builtin.assert:
+    that:
+      - "'passwordauthentication no' in item.stdout_lines"
+      - "'kbdinteractiveauthentication no' in item.stdout_lines"
+      - "'authenticationmethods publickey' in item.stdout_lines"
+      - "'authorizedkeysfile /etc/ssh/authorized_keys/%u' in item.stdout_lines"
+      - "not ssh_access_finalize or 'permitrootlogin no' in item.stdout_lines"
+      - "item.item.role != 'db_tunnel' or 'maxsessions 0' in item.stdout_lines"
+      - "item.item.role != 'db_tunnel' or 'allowtcpforwarding local' in item.stdout_lines"
+      - "item.item.role != 'db_tunnel' or ('permitopen ' ~ (item.item.permit_open | join(' '))) in item.stdout_lines"
+    fail_msg: An existing SSH setting overrides the intended authentication or tunnel policy; do not finalize.
+  loop: "{{ ssh_access_effective.results }}"
+  loop_control:
+    label: "{{ item.item.name }}"
+  when: not ansible_check_mode
+
+- name: Apply the verified SSH policy before revoking old accounts
+  ansible.builtin.meta: flush_handlers
+
+# AllowUsers는 이미 absent 계정을 제외했다. 키 삭제만으로 기존 세션이 끊기지는 않는다.
+- name: Revoke explicitly retired SSH accounts
+  ansible.builtin.include_tasks: revoke.yml
+  loop: "{{ ssh_access_users | selectattr('state', 'equalto', 'absent') | list }}"
+  loop_control:
+    loop_var: ssh_access_retired
+    label: "{{ ssh_access_retired.name }}"
+
+- name: Inspect the cloud-init configuration directory
+  ansible.builtin.stat:
+    path: /etc/cloud/cloud.cfg.d
+  register: ssh_access_cloud_config
+
+- name: Prevent cloud-init from restoring password authentication
+  ansible.builtin.copy:
+    content: "ssh_pwauth: false\n"
+    dest: /etc/cloud/cloud.cfg.d/99-disable-pwauth.cfg
+    owner: root
+    group: root
+    mode: '0644'
+  when: ssh_access_cloud_config.stat.isdir | default(false)

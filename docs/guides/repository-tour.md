@@ -8,16 +8,16 @@
 
 ## 먼저 기억할 한 문장
 
-**사람이 서버·tailnet policy·AWS Route53·GitHub의 바깥 기반을 준비하고,
-Ansible이 Tailscale 관리 경로로 빈 서버를 K3s 클러스터로 만들며, 그 뒤부터 Argo CD가
+**사람이 서버·개인 SSH 공개키·상위 방화벽·AWS Route53·GitHub의 바깥 기반을 준비하고,
+Ansible이 개인 관리자 공인 SSH로 빈 서버를 K3s 클러스터로 만들며, 그 뒤부터 Argo CD가
 Git의 Kubernetes 선언을 계속 맞춘다.**
 
 책임을 섞지 않은 이유는 장애가 났을 때 고칠 곳을 분명하게 하기 위해서다.
 
 | 계층 | 담당 | 이 저장소의 위치 | 하지 않는 일 |
 |---|---|---|---|
-| 외부 기반 | VM/IDC·공인 IP·상위 방화벽·영속 디스크, Tailscale policy, AWS Route53, GitHub | 사람의 사전 작업 + `cloud/aws/` | Kubernetes workload 운영 |
-| 서버 bootstrap | OS, Tailscale, OpenSSH/UFW, K3s, Argo CD, ESO 최초 자격증명 | `ansible/` | 앱 버전의 지속 배포 |
+| 외부 기반 | VM/IDC·공인 IP·상위 방화벽·영속 디스크, 개인 공개키, AWS Route53, GitHub | 사람의 사전 작업 + `cloud/aws/` | Kubernetes workload 운영 |
+| 서버 bootstrap | OS, 개인 계정·OpenSSH/UFW, K3s, Argo CD, ESO 최초 자격증명 | `ansible/` | 앱 버전의 지속 배포 |
 | GitOps | 클러스터 안의 선언 상태를 Git과 일치시킴 | `bootstrap/`, `argocd/` | 서버나 AWS 계정 생성 |
 | workload | 앱, DB, DNS/TLS controller, 관측 스택 | `charts/`, `manifests/` | 실제 secret 값을 Git에 저장 |
 | 운영 절차 | 점검·복구·검증 | `docs/`, `runbooks/`, `scripts/` | 선언 상태를 대신함 |
@@ -28,8 +28,8 @@ Git의 Kubernetes 선언을 계속 맞춘다.**
 
 ```text
 관리자 PC
-  ├─ 최초 1회: 임시 public SSH로 Tailscale enroll
-  └─ Tailscale 경유 OpenSSH로 Ansible
+  ├─ 최초/전환: 기존 접속을 보존하며 개인 관리자 공인 SSH 검증
+  └─ 개인 관리자 OpenSSH로 Ansible
       ├─ Ubuntu 서버의 OpenSSH·UFW·커널 설정
       ├─ K3s 설치
       ├─ Argo CD 설치
@@ -99,17 +99,17 @@ Route53은 DNS만 담당하고 사용자 요청을 대신 통과시키거나 차
 
 ### `ansible/`: 빈 Linux 서버를 안전하게 준비
 
-Ansible은 Tailscale로 연결된 서버의 OpenSSH에 접속해 사람이 반복하기 어려운 초기
-작업을 같은 순서로 수행한다. Tailscale SSH는 사용하지 않으며 기존 public key/PEM
-인증을 계속 쓴다.
+Ansible은 공인 IP의 OpenSSH에 개인 관리자 키로 접속해 초기 작업을 같은 순서로 수행한다.
+백엔드 사용자는 별도 개인 `db_tunnel` 계정으로 지정 DB에만 터널링하며 서버 shell·sudo는
+사용하지 않는다. PostgreSQL의 개인 role은 SSH 계정과 별도로 관리한다.
 
 ```text
 ansible/
 ├── inventories/idc/hosts.yml       # 어느 서버에 접속할지; 로컬 전용
-├── playbooks/tailscale-enroll.yml   # 최초 1회 tailnet에 등록
-├── playbooks/bootstrap.yml          # tailnet 접속 후 전체 실행 순서
+├── playbooks/ssh-access.yml        # 개인 계정 준비 → 공인 SSH 검증 → 기존 경로 정리
+├── playbooks/bootstrap.yml         # 개인 관리자 공인 SSH로 전체 실행
 └── roles/
-    ├── tailscale/                   # Tailscale 설치·연결 계약
+    ├── ssh_access/                  # 개인 계정·키·SSH 터널 권한
     ├── common/                      # OS·SSH·UFW·swap·kernel
     ├── k3s/                         # K3s와 Traefik 설정
     ├── argocd/                      # Argo CD와 root Application
@@ -177,7 +177,7 @@ CloudFormation을 사용한다. Azure VM이나 Kubernetes 리소스까지 관리
 | 용어 | 쉬운 뜻 | 이 저장소의 예 |
 |---|---|---|
 | controller | Ansible 명령을 실행하는 관리자 PC | 현재 노트북 |
-| managed host | Tailscale 경유 SSH로 설정되는 대상 서버 | 현재 임시 Azure VM 또는 최종 IDC 한 대 |
+| managed host | 개인 관리자 공인 SSH로 설정되는 대상 서버 | 대상 IDC 한 대 |
 | inventory | 접속 대상과 환경 입력 | `inventories/idc/hosts.yml` |
 | playbook | 역할을 어떤 순서로 실행할지 | `playbooks/bootstrap.yml` |
 | role | 한 책임의 task·기본값·template 묶음 | `roles/k3s/` |
@@ -190,12 +190,13 @@ CloudFormation을 사용한다. Azure VM이나 Kubernetes 리소스까지 관리
 실제 순서는 다음과 같다.
 
 ```text
-tailscale-enroll.yml을 최초 1회 실행
-  → inventory의 ansible_host를 Tailscale MagicDNS/IP로 변경
-  → ansible -m ping으로 tailnet SSH 검증
+ssh-access.yml을 finalize=false로 실행
+  → 개인 관리자 공인 SSH·sudo, DB 터널 권한 검증
+  → inventory를 공인 IP·개인 관리자로 변경
+  → finalize=true로 root SSH 차단·기존 VPN 제거
 bootstrap.yml의 pre_tasks
-  → inventory·현재 Tailscale 경유 OpenSSH 연결 검사
-  → tailscale
+  → inventory·현재 개인 관리자 공인 OpenSSH 연결 검사
+  → ssh_access
   → common
   → k3s
   → argocd
@@ -205,12 +206,13 @@ bootstrap.yml의 pre_tasks
 ```
 
 중요한 점은 Ansible이 하나의 트랜잭션이 아니라는 것이다. 뒤 단계가 실패해도 앞에서 바꾼
-UFW·SSH·K3s가 자동으로 원상복구되지는 않는다. 그래서 실행 전에 tailnet SSH와 제공업체 콘솔을
+UFW·SSH·K3s가 자동으로 원상복구되지는 않는다. 그래서 실행 전에 개인 SSH와 제공업체 콘솔을
 모두 검증하고, 실패하면 무작정 초기화하지 말고 원인을 고쳐 같은 playbook을 재실행한다.
 
-tailnet policy의 관리 계약은 [policy 예시](../../ansible/tailscale-policy.example.hujson)처럼
-관리자 주체에서 `tag:umc-idc`의 `tcp:22`만 grant하는 것이다. 서버 UFW에 공인
-`22/tcp`와 Kubernetes API `6443/tcp` 허용 규칙을 두지 않는다.
+관리 계약은 공인 `22/tcp`에서 개인 키만 허용하고 root·비밀번호 SSH 로그인을 차단하는 것이다.
+관리자 `admin`은 root에 준하는 sudo 권한이므로 운영 담당자로 제한한다. 백엔드 `db_tunnel`은
+지정 DB 목적지 forwarding만 허용한다. DB `5432/tcp`와 Kubernetes API `6443/tcp`는 공개하지 않는다.
+개인 키 등록·퇴임 시 기존 SSH/DB 세션 회수는 [상세 가이드](ansible-bootstrap.md#개인-계정과-db-터널)를 따른다.
 
 ## 5. Argo CD, Helm, Kubernetes의 관계
 
@@ -287,7 +289,7 @@ Deployment와 Ingress를 연 values를 Helm으로 사전 검증한 뒤 infra `ma
 - GitHub 원격 저장소, 보호된 `main`, CI 성공, public GHCR image와 digest
 - AWS CloudFormation stack, Secrets Manager source, ESO bootstrap credential, SES 검증 상태
 - Route53 hosted zone과 NS 위임, Hosted Zone ID, 두 controller의 분리된 IAM 자격증명
-- Grafana production TLS·public Ingress 준비 상태, 팀원별 Viewer 계정과 Tailscale break-glass 경로
+- Grafana production TLS·public Ingress 준비 상태, 팀원별 Viewer 계정과 개인 SSH·console 복구 경로
 - 운영자가 합의한 backup RPO/RTO와 외부 restore 위치
 
 특히 K3s의 `local-path` PVC는 **실제로 마운트된 디스크 경로**를 사용한다. 현재 임시 Azure의

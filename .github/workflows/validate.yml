@@ -91,4 +91,4 @@ jobs:
           set -euo pipefail
           actionlint
           cd ansible
-          ansible-lint playbooks/tailscale-enroll.yml playbooks/bootstrap.yml
+          ansible-lint playbooks/ssh-access.yml playbooks/bootstrap.yml

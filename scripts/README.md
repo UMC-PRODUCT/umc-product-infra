@@ -256,7 +256,7 @@ Kubernetes 상태는 바꾸지 않는다. 최종 기준은
 
 | 파일 | 주요 검증 |
 |---|---|
-| [`test_ansible_bootstrap_contracts.py`](tests/test_ansible_bootstrap_contracts.py) | K3s installer pin, server-side apply, Tailscale·OpenSSH·UFW와 비공개 Kubernetes API |
+| [`test_ansible_bootstrap_contracts.py`](tests/test_ansible_bootstrap_contracts.py) | K3s installer pin, server-side apply, 개인 OpenSSH·UFW와 비공개 Kubernetes API |
 | [`test_bootstrap_aws_secrets.py`](tests/test_bootstrap_aws_secrets.py) | worksheet parser, 29개 source mapping, 환경 분리, stdin 전달과 오류 메시지 비노출 |
 | [`test_bootstrap_route53_access_keys.py`](tests/test_bootstrap_route53_access_keys.py) | 안전한 `.env.prod`, Route53 stack 계약, access key 발급과 실패 rollback |
 | [`test_validate_observability.py`](tests/test_validate_observability.py) | Operator Pod·monitor selector, named port와 cluster RBAC 권한 경계 |
@@ -278,7 +278,7 @@ python3 -m unittest discover -s scripts/tests -p 'test_*.py'
 6. ./scripts/validate.sh
 7. 최초 Git push와 Static validation 성공 확인
 8. GitHub에서 일반 변경은 PR로 제한하고 배포 bot만 direct push 예외로 설정
-9. Ansible로 Tailscale·K3s·Argo CD·ESO bootstrap
+9. Ansible로 개인 SSH 접근 검증·K3s·Argo CD·ESO bootstrap
 10. SecretStore와 ExternalSecret의 Ready 상태 확인
 ```
 

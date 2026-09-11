@@ -65,17 +65,17 @@
     port: 6443
     timeout: 300
 
-# 같은 관리자 PC가 tailnet에서 6443에 닿는다면 grant가 너무 넓은 상태다.
+# Kubernetes API는 관리 SSH와 달리 공인 주소로 열지 않는다.
 - name: Require the Kubernetes API to remain unreachable from the controller
   ansible.builtin.wait_for:
-    host: "{{ tailscale_primary_ipv4 }}"
+    host: "{{ ssh_access_public_host }}"
     port: 6443
     state: stopped
     connect_timeout: 2
     timeout: 5
     msg: >-
-      Kubernetes API is reachable through the tailnet. Restrict the
-      tag:umc-idc grant to tcp:22 before continuing.
+      Kubernetes API is reachable through the public address. Close public
+      6443/tcp in both the host and provider firewall before continuing.
   delegate_to: localhost
   become: false
 

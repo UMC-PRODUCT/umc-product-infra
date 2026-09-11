@@ -5,7 +5,7 @@
 수정 방법은 [관측 원본 README](../../observability/README.md)를 먼저 본다.
 
 Grafana의 canonical URL은 `https://grafana.university.neordinary.com`이며 UMC 팀원이 인터넷에서 접속한다.
-Tailscale은 팀원의 Grafana 접속 조건이 아니다. 공개 HTTPS 뒤에서 Grafana 자체 로그인을 사용하고,
+VPN은 팀원의 Grafana 접속 조건이 아니다. 공개 HTTPS 뒤에서 Grafana 자체 로그인을 사용하고,
 익명 접근과 자체 회원가입은 끈다. 운영자가 사람별 계정을 만들고 기본 권한은 `Viewer`로 둔다.
 
 저장소 desired state에는 고정 IDC public IPv4, production Certificate와 public Ingress가 함께
@@ -20,7 +20,7 @@ Tailscale은 팀원의 Grafana 접속 조건이 아니다. 공개 HTTPS 뒤에�
 sudo -n k3s kubectl port-forward -n monitoring service/grafana 13000:80
 ```
 
-관리자 PC의 SSH tunnel은 local bind만 연다.
+관리자는 공인 IP의 개인 `admin` SSH 계정을 사용한다. 관리자 PC의 SSH tunnel은 local bind만 연다.
 
 ```bash
 ssh -L 13000:127.0.0.1:13000 "$IDC_SSH_USER@$IDC_NODE_HOST"
@@ -94,7 +94,7 @@ exporter를 연결해 확인할 때만 선택한다.
 
 ## 팀원 계정
 
-public gate를 통과한 뒤 팀원은 Tailscale, SSH, kubeconfig 없이 canonical URL에 접속한다.
+public gate를 통과한 뒤 팀원은 VPN, SSH, kubeconfig 없이 canonical URL에 접속한다.
 로그인 계정은 다음 원칙으로 관리한다.
 
 - 관리자 계정을 공유하지 않고 사람마다 별도 local account를 만든다.
@@ -125,7 +125,7 @@ Route53은 hostname을 IDC public IPv4로 해석할 뿐 proxy, WAF, 사용자 �
 4. Ingress와 ExternalDNS의 exact A record 및 TXT ownership을 확인한다.
 5. 외부에서 DNS 결과, certificate chain, HTTP→HTTPS 우회 불가와 login 화면을 확인한다.
 6. 관리자 계정으로 로그인해 팀원별 `Viewer` 계정을 만들고 Viewer가 관리 기능에 접근하지 못하는지 확인한다.
-7. Tailscale 경유 local-only health와 관리자 복구 경로도 계속 확인한다.
+7. 개인 관리자 공인 SSH 경유 local-only health와 제공업체 console 복구 경로도 계속 확인한다.
 
 실제 IP와 production TLS 없이 hostname만 만들거나 임시 HTTP Ingress를 열지 않는다. TLS private
 key와 AWS access key도 Git에 저장하지 않는다. DNS와 인증서 절차는

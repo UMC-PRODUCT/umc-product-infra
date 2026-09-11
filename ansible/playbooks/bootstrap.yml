@@ -11,7 +11,7 @@
   # 입력 검사는 제어 노드에서 실행하며 원격 호스트를 변경하지 않는다.
   # gather_facts를 늦춰 잘못된 인벤토리는 원격 접속 전에 거부한다.
   # 로컬 검사가 끝난 뒤에만 역할이 사용할 facts를 수집한다.
-  # UFW와 SSH를 바꾸기 전 현재 연결이 실제 Tailscale 주소로 끝나야 한다.
+  # 최초 ssh-access.yml 완료 후 개인 관리자 계정으로만 전체 bootstrap을 실행한다.
   pre_tasks:
     - name: Refuse an unreviewed or placeholder inventory
       ansible.builtin.assert:
@@ -22,9 +22,9 @@
           - "'CHANGE_ME' not in ansible_host"
           - ansible_user is defined
           - "'CHANGE_ME' not in ansible_user"
-          - tailscale_hostname is defined
-          - "'CHANGE_ME' not in tailscale_hostname"
-          - tailscale_required_tag | default('tag:umc-idc') == 'tag:umc-idc'
+          - ssh_access_finalize | default(false) | bool
+          - ssh_access_confirm | default(false) | bool
+          - ansible_user != 'root'
           - >-
             (common_public_tcp_ports | default([])
             | select('integer') | list | length)
@@ -32,16 +32,12 @@
           - common_public_tcp_ports | length > 0
           - common_public_tcp_ports | min >= 1
           - common_public_tcp_ports | max <= 65535
-          - >-
-            common_public_tcp_ports
-            | map('int')
-            | intersect([22, 6443])
-            | list | length == 0
+          - common_public_tcp_ports == [22, 443]
         fail_msg: >-
           Copy inventories/idc/hosts.example.yml to hosts.yml, replace every
-          CHANGE_ME value, complete playbooks/tailscale-enroll.yml first,
-          point ansible_host at the Tailscale address, keep 22/6443 out of the
-          public port list, and set bootstrap_confirm=true.
+          CHANGE_ME value, complete playbooks/ssh-access.yml first, connect
+          through the public IPv4 as a personal administrator, keep 5432/6443
+          private, and set bootstrap_confirm=true and ssh_access_finalize=true.
       delegate_to: localhost
       become: false
       tags:
@@ -73,9 +69,6 @@
                 networks.append(network)
             if networks[0].overlaps(networks[1]):
                 raise SystemExit("K3s cluster and service CIDRs overlap")
-            tailscale = ipaddress.ip_network("100.64.0.0/10")
-            if any(network.overlaps(tailscale) for network in networks):
-                raise SystemExit("K3s CIDRs must not overlap Tailscale 100.64.0.0/10")
           - "{{ k3s_cluster_cidr | default('10.42.0.0/16') }}"
           - "{{ k3s_service_cidr | default('10.43.0.0/16') }}"
       changed_when: false
@@ -88,69 +81,11 @@
     - name: Gather host facts after the local safety check
       ansible.builtin.setup:
 
-    - name: Read the active SSH connection metadata without sudo
-      ansible.builtin.command: printenv SSH_CONNECTION
-      register: bootstrap_ssh_connection
-      changed_when: false
-      failed_when: false
-      check_mode: false
-      become: false
-
-    - name: Require complete active SSH connection metadata
-      ansible.builtin.assert:
-        that:
-          - bootstrap_ssh_connection.rc == 0
-          - bootstrap_ssh_connection.stdout.split() | length == 4
-        fail_msg: >-
-          SSH_CONNECTION is unavailable; refusing firewall and SSH mutation.
-      become: false
-
-    - name: Record the active SSH peer and destination addresses
-      ansible.builtin.set_fact:
-        bootstrap_ssh_peer_address: "{{ bootstrap_ssh_connection.stdout.split()[0] }}"
-        bootstrap_ssh_destination_address: "{{ bootstrap_ssh_connection.stdout.split()[2] }}"
-
-    - name: Read this server's Tailscale addresses
-      ansible.builtin.command: /usr/bin/tailscale ip
-      register: bootstrap_tailscale_addresses
-      changed_when: false
-      failed_when: false
-      check_mode: false
-
-    - name: Look up the active peer through the local Tailscale daemon
-      ansible.builtin.command:
-        argv:
-          - /usr/bin/tailscale
-          - whois
-          - --json
-          - "{{ bootstrap_ssh_peer_address }}"
-      register: bootstrap_tailscale_peer_identity
-      changed_when: false
-      failed_when: false
-      check_mode: false
-
-    - name: Require the active SSH session to traverse the tailnet
-      ansible.builtin.assert:
-        that:
-          - bootstrap_tailscale_addresses.rc == 0
-          - >-
-            bootstrap_ssh_destination_address
-            in bootstrap_tailscale_addresses.stdout_lines
-          - bootstrap_tailscale_peer_identity.rc == 0
-          - bootstrap_tailscale_peer_identity.stdout | trim | length > 0
-          - >-
-            (bootstrap_tailscale_peer_identity.stdout | from_json)
-            .get('Node', {}).get('ID', '') | string | length > 0
-        fail_msg: >-
-          The current SSH session is not a verified Tailscale connection.
-          Stop before UFW mutation, change ansible_host to the enrolled
-          Tailscale IP or MagicDNS name, and verify ansible.builtin.ping.
-
-  # Tailscale 상태를 먼저 고정한 뒤 common이 공인 관리 경로를 제거한다.
+  # ssh_access가 개인 키·공인 관리자 접속을 검증한 뒤 common이 방화벽을 정리한다.
   # common 뒤에 k3s가 필요하고, Argo CD core와 secret-zero는 모두 k3s에 의존한다.
   # root Application은 두 준비가 모두 끝난 뒤 post_tasks에서 연다.
   roles:
-    - role: tailscale
+    - role: ssh_access
     - role: common
     - role: k3s
     - role: argocd

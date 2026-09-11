@@ -1,0 +1,292 @@
+---
+
+- name: Require the exact public port contract before firewall mutation
+  ansible.builtin.assert:
+    that:
+      - common_public_tcp_ports == [22, 443]
+      - not (ssh_access_finalize | default(false) | bool) or (ssh_access_public_verified | default(false) | bool)
+    fail_msg: >-
+      Declare exactly [22, 443]. Removing the legacy management rule requires
+      a verified fresh public-key SSH connection with the personal administrator.
+
+# access-only 실행도 CIDR을 검증한다. /0 등 잘못된 입력이 모든 포트를 여는 것을 막는다.
+- name: Validate private non-overlapping K3s CIDRs before firewall mutation
+  ansible.builtin.command:
+    argv:
+      - "{{ ansible_playbook_python }}"
+      - -c
+      - |
+        import ipaddress
+        import sys
+
+        private_ranges = tuple(ipaddress.ip_network(value) for value in
+                               ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"))
+        networks = []
+        for name, raw in zip(("cluster", "service"), sys.argv[1:], strict=True):
+            try:
+                network = ipaddress.ip_network(raw, strict=True)
+            except ValueError as error:
+                raise SystemExit(f"Invalid K3s {name} CIDR: {error}") from error
+            if network.version != 4 or raw != network.with_prefixlen:
+                raise SystemExit(f"K3s {name} CIDR must be canonical IPv4")
+            if not any(network.subnet_of(private) for private in private_ranges):
+                raise SystemExit(f"K3s {name} CIDR must stay within an RFC1918 range")
+            networks.append(network)
+        if networks[0].overlaps(networks[1]):
+            raise SystemExit("K3s cluster and service CIDRs must not overlap")
+      - "{{ k3s_cluster_cidr }}"
+      - "{{ k3s_service_cidr }}"
+  changed_when: false
+  check_mode: false
+  delegate_to: localhost
+  become: false
+
+# 전환 첫 단계는 기존 관리 경로를 보존한다. 새 서버에 Tailscale을 설치하지 않는다.
+- name: Inspect the legacy management interface
+  ansible.builtin.stat:
+    path: /sys/class/net/tailscale0
+  register: common_legacy_tailscale_interface
+
+- name: Initialize the desired inbound firewall rules
+  ansible.builtin.set_fact:
+    common_expected_legacy_ufw_rules: >-
+      {{ ['ufw allow in on tailscale0']
+         if (common_legacy_tailscale_interface.stat.exists
+             and not (ssh_access_finalize | default(false) | bool)) else [] }}
+    common_expected_public_ufw_rules:
+      - ufw limit 22/tcp
+      - ufw allow 443/tcp
+    common_expected_internal_ufw_rules: []
+
+- name: Build the desired K3s internal firewall rules
+  ansible.builtin.set_fact:
+    common_expected_internal_ufw_rules: >-
+      {{ common_expected_internal_ufw_rules
+         + ['ufw allow from '
+            ~ (item | regex_replace('/32$', '') | regex_replace('/128$', ''))] }}
+  loop:
+    - "{{ k3s_cluster_cidr }}"
+    - "{{ k3s_service_cidr }}"
+
+- name: Combine the desired inbound UFW rules
+  ansible.builtin.set_fact:
+    common_expected_inbound_ufw_rules: >-
+      {{ common_expected_legacy_ufw_rules
+         + common_expected_public_ufw_rules
+         + common_expected_internal_ufw_rules }}
+
+- name: Read configured UFW rules before any firewall mutation
+  ansible.builtin.command: ufw show added
+  register: common_configured_ufw_rules_initial
+  changed_when: false
+  check_mode: false
+
+# route allow/limit, inbound deny/reject, quoted profile은 의미를 안전하게 정규화할 수 없다.
+# 기존 보호 규칙을 임의로 지우거나 앞선 deny에 의해 관리 경로가 막히지 않도록 먼저 중단한다.
+- name: Refuse unmanaged firewall rules that can override the declared state
+  ansible.builtin.assert:
+    that:
+      - >-
+        common_configured_ufw_rules_initial.stdout_lines
+        | select('match', '^ufw\\s+route\\s+(?:allow|limit)(?:\\s|$)')
+        | list | length == 0
+      - >-
+        common_configured_ufw_rules_initial.stdout_lines
+        | select('match', '^ufw\\s+(?:deny|reject)(?:\\s|$)')
+        | reject('search', '(^|\\s)out(\\s|$)')
+        | list | length == 0
+      - >-
+        common_configured_ufw_rules_initial.stdout_lines
+        | select('match', '^ufw\\s+(?:allow|limit)(?:\\s|$)')
+        | reject('search', '(^|\\s)out(\\s|$)')
+        | map('regex_replace', '\\s+comment\\s+.*$', '')
+        | select('search', '[\\x27\\x22]')
+        | list | length == 0
+    fail_msg: >-
+      Found an unmanaged forwarded allow/limit rule or inbound deny/reject
+      rule, or a quoted application-profile rule that cannot be reconciled
+      safely. Resolve it through the provider console or model it explicitly
+      before rerunning; an earlier deny can override the management path.
+
+# 공개키 인증은 ssh_access 역할에서 먼저 적용한다. 기존 경로는 검증 완료 단계에서만 제거한다.
+- name: Preserve an existing legacy management interface during migration
+  ansible.builtin.command:
+    argv:
+      - ufw
+      - allow
+      - in
+      - 'on'
+      - tailscale0
+      - comment
+      - umc-legacy-management
+  when: common_expected_legacy_ufw_rules | length > 0
+  register: common_legacy_ufw_rule
+  changed_when: "'Rule added' in common_legacy_ufw_rule.stdout"
+
+- name: Rate limit new public SSH connections
+  ansible.builtin.command:
+    argv:
+      - ufw
+      - limit
+      - 22/tcp
+      - comment
+      - umc-public-ssh
+  register: common_public_ssh_ufw_rule
+  changed_when: >-
+    'Rule added' in common_public_ssh_ufw_rule.stdout or
+    'Rule updated' in common_public_ssh_ufw_rule.stdout
+
+- name: Allow direct public HTTPS traffic
+  ansible.builtin.command:
+    argv:
+      - ufw
+      - allow
+      - 443/tcp
+      - comment
+      - umc-public-https
+  register: common_public_https_ufw_rule
+  changed_when: "'Rule added' in common_public_https_ufw_rule.stdout"
+
+- name: Allow the K3s pod and service networks on the node
+  ansible.builtin.command:
+    argv:
+      - ufw
+      - allow
+      - from
+      - "{{ item }}"
+      - to
+      - any
+      - comment
+      - k3s-internal
+  loop:
+    - "{{ k3s_cluster_cidr }}"
+    - "{{ k3s_service_cidr }}"
+  register: common_internal_ufw_rules
+  changed_when: "'Rule added' in common_internal_ufw_rules.stdout"
+
+- name: Read configured UFW rules after adding the desired inbound rules
+  ansible.builtin.command: ufw show added
+  register: common_configured_ufw_rules_before_cleanup
+  changed_when: false
+  check_mode: false
+
+# 기존 allow 22/tcp도 삭제 대상이다. 남겨두면 뒤의 limit 규칙을 우회할 수 있다.
+- name: Remove inbound UFW allow and limit rules outside the declared state
+  ansible.builtin.command:
+    argv: >-
+      {{ ['ufw', '--force', 'delete']
+         + (item | regex_replace('^ufw\\s+', '')).split() }}
+  loop: >-
+    {{ common_configured_ufw_rules_before_cleanup.stdout_lines
+       | select('match', '^ufw\\s+(?:allow|limit)(?:\\s|$)')
+       | reject('search', '(^|\\s)out(\\s|$)')
+       | map('regex_replace', '\\s+comment\\s+.*$', '')
+       | list }}
+  when: item not in common_expected_inbound_ufw_rules
+  changed_when: true
+
+# UFW가 기존 allow와 limit을 중복으로 취급하는 경우에도 cleanup 이후 limit을 확실히 남긴다.
+- name: Ensure the SSH connection limit remains after stale-rule cleanup
+  ansible.builtin.command:
+    argv:
+      - ufw
+      - limit
+      - 22/tcp
+      - comment
+      - umc-public-ssh
+  register: common_final_ssh_ufw_rule
+  changed_when: >-
+    'Rule added' in common_final_ssh_ufw_rule.stdout or
+    'Rule updated' in common_final_ssh_ufw_rule.stdout
+
+- name: Read the reconciled UFW rules
+  ansible.builtin.command: ufw show added
+  register: common_configured_ufw_rules_after
+  changed_when: false
+  check_mode: false
+
+- name: Verify the declared inbound UFW rules
+  ansible.builtin.assert:
+    that:
+      - >-
+        (common_configured_ufw_rules_after.stdout_lines
+        | select('match', '^ufw\\s+(?:allow|limit)(?:\\s|$)')
+        | reject('search', '(^|\\s)out(\\s|$)')
+        | map('regex_replace', '\\s+comment\\s+.*$', '')
+        | list | difference(common_expected_inbound_ufw_rules) | length) == 0
+      - >-
+        (common_expected_inbound_ufw_rules
+        | difference(common_configured_ufw_rules_after.stdout_lines
+          | select('match', '^ufw\\s+(?:allow|limit)(?:\\s|$)')
+          | reject('search', '(^|\\s)out(\\s|$)')
+          | map('regex_replace', '\\s+comment\\s+.*$', '')
+          | list) | length) == 0
+    fail_msg: UFW inbound allow/limit rules differ from the Ansible-declared state.
+  when: not ansible_check_mode
+
+# outbound 규칙은 정리하지 않는다. 기본 inbound deny로 미선언 포트를 차단한다.
+- name: Inspect the effective UFW defaults
+  ansible.builtin.command: ufw status verbose
+  register: common_ufw_defaults
+  changed_when: false
+  check_mode: false
+
+- name: Deny incoming traffic by default
+  ansible.builtin.command: ufw default deny incoming
+  when: "'deny (incoming)' not in common_ufw_defaults.stdout"
+  changed_when: true
+
+- name: Allow outgoing traffic by default
+  ansible.builtin.command: ufw default allow outgoing
+  when: "'allow (outgoing)' not in common_ufw_defaults.stdout"
+  changed_when: true
+
+- name: Inspect UFW state
+  ansible.builtin.command: ufw status
+  register: common_ufw_status
+  changed_when: false
+  check_mode: false
+
+- name: Enable UFW after the public SSH rule exists
+  ansible.builtin.command: ufw --force enable
+  when: "'Status: inactive' in common_ufw_status.stdout"
+  changed_when: true
+
+- name: Read the effective UFW rules
+  ansible.builtin.command: ufw status verbose
+  register: common_effective_ufw_status
+  changed_when: false
+  check_mode: false
+
+- name: Verify the required K3s firewall boundaries
+  ansible.builtin.assert:
+    that:
+      - "'Status: active' in common_effective_ufw_status.stdout"
+      - "'deny (incoming)' in common_effective_ufw_status.stdout"
+      - "'allow (outgoing)' in common_effective_ufw_status.stdout"
+      - k3s_cluster_cidr in common_effective_ufw_status.stdout
+      - k3s_service_cidr in common_effective_ufw_status.stdout
+      - >-
+        common_effective_ufw_status.stdout_lines
+        | select('match', '^22/tcp(?: \\(v6\\))?\\s+LIMIT(?: IN)?\\s+Anywhere(?: \\(v6\\))?(?:\\s|$)')
+        | list | length > 0
+      - >-
+        common_effective_ufw_status.stdout_lines
+        | select('match', '^22(?:/tcp)?(?: \\(v6\\))?\\s+ALLOW(?: IN)?\\s+')
+        | list | length == 0
+      - >-
+        common_effective_ufw_status.stdout_lines
+        | select('match', '^(?:80|5432|6443)(?:/tcp)?(?: \\(v6\\))?\\s+(?:ALLOW|LIMIT)(?: IN)?\\s+')
+        | list | length == 0
+      - >-
+        common_effective_ufw_status.stdout_lines
+        | select('match', '^443/tcp(?: \\(v6\\))?\\s+ALLOW(?: IN)?\\s+Anywhere(?: \\(v6\\))?(?:\\s|$)')
+        | list | length > 0
+      - >-
+        not (ssh_access_finalize | default(false) | bool) or
+        ('on tailscale0' not in common_effective_ufw_status.stdout)
+    fail_msg: >-
+      UFW must limit public SSH on 22/tcp, allow HTTPS on 443/tcp and both
+      internal K3s CIDRs, and keep public HTTP, PostgreSQL and Kubernetes API
+      closed. The finalized state must not retain the legacy management rule.
+  when: not ansible_check_mode

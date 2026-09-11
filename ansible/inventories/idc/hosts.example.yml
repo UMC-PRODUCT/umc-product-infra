@@ -4,18 +4,24 @@ all:
     k3s_servers:
       hosts:
         umc-idc-01:
-          # 1단계에서는 임시 공인 IP, 등록 후에는 Tailscale IP/MagicDNS로 바꾼다.
-          ansible_host: CHANGE_ME_INITIAL_PUBLIC_IP_THEN_TAILSCALE_ADDRESS
-          ansible_user: CHANGE_ME_SSH_USER
-          tailscale_hostname: umc-idc-01
+          # 1차는 기존 키 관리 경로, 2차부터 공인 IP와 개인 관리자 계정으로 접속한다.
+          ansible_host: CHANGE_ME_PUBLIC_IP
+          ansible_user: CHANGE_ME_CURRENT_SSH_USER
       vars:
-        # 최초 Tailscale 등록 때만 true로 바꾼다. 등록 playbook은 UFW를 변경하지 않는다.
-        tailscale_enroll_confirm: false
-        # 최초 공인 SSH에서 서버가 관측하는 현재 관리자 출발지 주소만 적는다.
-        # 동적 IP라도 등록할 때의 /32 한 개면 충분하며 이후 bootstrap에서는 쓰지 않는다.
-        tailscale_initial_admin_cidrs:
-          - CHANGE_ME_CURRENT_ADMIN_PUBLIC_IP/32
-
-        # ansible_host를 Tailscale 주소로 바꾸고 ping까지 확인한 뒤에만 true로 바꾼다.
-        # false인 예시 inventory는 표준 bootstrap preflight에서 중단된다.
+        ssh_access_public_host: CHANGE_ME_PUBLIC_IP
+        ssh_access_confirm: false
+        ssh_access_finalize: false
+        ssh_access_users:
+          - name: infra_operator
+            role: admin
+            state: present
+            public_keys: ['CHANGE_ME_ED25519_PUBLIC_KEY']
+          # 팀원의 공개키만 받는다. private key와 DB 비밀번호는 넣지 않는다.
+          # - name: backend_member
+          #   role: db_tunnel
+          #   state: present
+          #   public_keys: ['CHANGE_ME_ED25519_PUBLIC_KEY']
+          #   permit_open: ['CHANGE_ME_DB_SERVICE_CLUSTER_IP:5432']
+          # 탈퇴 시 명단에서 지우지 말고 state: absent로 한 번 적용한다.
+        common_public_tcp_ports: [22, 443]
         bootstrap_confirm: false

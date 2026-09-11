@@ -1,0 +1,27 @@
+---
+- name: Remove the retired account's public keys
+  ansible.builtin.file:
+    path: "/etc/ssh/authorized_keys/{{ ssh_access_retired.name }}"
+    state: absent
+
+- name: Terminate processes including established tunnels for the retired account
+  ansible.builtin.command:
+    argv: [pkill, -KILL, -u, "{{ ssh_access_retired.name }}"]
+  register: ssh_access_terminated
+  changed_when: ssh_access_terminated.rc == 0
+  failed_when: ssh_access_terminated.rc not in [0, 1]
+  when: ssh_access_retired.name in ansible_facts.getent_passwd
+
+- name: Delete the retired Linux account while preserving its files for review
+  ansible.builtin.user:
+    name: "{{ ssh_access_retired.name }}"
+    state: absent
+    remove: false
+    force: false
+
+- name: Report the separate database offboarding boundary
+  ansible.builtin.debug:
+    msg: >-
+      SSH access revoked for {{ ssh_access_retired.name }}. Disable the matching
+      personal PostgreSQL login and terminate its database sessions separately;
+      this role never deletes database roles, tables, or user files.
