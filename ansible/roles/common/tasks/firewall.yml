@@ -171,16 +171,17 @@
   check_mode: false
 
 # 기존 allow 22/tcp도 삭제 대상이다. 남겨두면 뒤의 limit 규칙을 우회할 수 있다.
+# {{ ... }} 템플릿은 Ansible이 regex backslash를 보존하므로 한 번만 쓴다.
 - name: Remove inbound UFW allow and limit rules outside the declared state
   ansible.builtin.command:
     argv: >-
       {{ ['ufw', '--force', 'delete']
-         + (item | regex_replace('^ufw\\s+', '')).split() }}
+         + (item | regex_replace('^ufw\s+', '')).split() }}
   loop: >-
     {{ common_configured_ufw_rules_before_cleanup.stdout_lines
-       | select('match', '^ufw\\s+(?:allow|limit)(?:\\s|$)')
-       | reject('search', '(^|\\s)out(\\s|$)')
-       | map('regex_replace', '\\s+comment\\s+.*$', '')
+       | select('match', '^ufw\s+(?:allow|limit)(?:\s|$)')
+       | reject('search', '(^|\s)out(\s|$)')
+       | map('regex_replace', '\s+comment\s+.*$', '')
        | list }}
   when: item not in common_expected_inbound_ufw_rules
   changed_when: true

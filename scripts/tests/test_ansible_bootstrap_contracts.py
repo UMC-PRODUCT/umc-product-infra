@@ -334,6 +334,39 @@ class PublicSshBootstrapContractTests(unittest.TestCase):
             for task in common
         ))
 
+    def test_firewall_cleanup_renders_real_ansible_loop_and_delete_argv(self) -> None:
+        try:
+            from ansible.parsing.dataloader import DataLoader
+            from ansible.template import Templar, trust_as_template
+        except ImportError:
+            self.skipTest("Install ansible/requirements.txt to verify the Ansible runtime")
+
+        tasks = load_tasks("ansible/roles/common/tasks/firewall.yml")
+        cleanup = next(task for task in tasks
+                       if task.get("when") == "item not in common_expected_inbound_ufw_rules")
+        expected = [
+            "ufw limit 22/tcp", "ufw allow 443/tcp",
+            "ufw allow from 10.42.0.0/16", "ufw allow from 10.43.0.0/16",
+        ]
+        stale = ["ufw allow in on tailscale0", "ufw allow 22/tcp"]
+        configured = [rule + " comment 'managed rule'" for rule in stale + expected]
+        configured += ["Added user rules (see 'ufw status' for running firewall):",
+                       "ufw allow out 443/tcp", "ufw limit out 25/tcp"]
+        variables = {
+            "common_configured_ufw_rules_before_cleanup": {"stdout_lines": configured},
+            "common_expected_inbound_ufw_rules": expected,
+        }
+        templar = Templar(loader=DataLoader(), variables=variables)
+        loop = templar.template(trust_as_template(cleanup["loop"]))
+        self.assertEqual(loop, stale + expected)
+        self.assertEqual([rule for rule in loop if rule not in expected], stale)
+
+        for rule in stale:
+            with self.subTest(rule=rule):
+                templar = Templar(loader=DataLoader(), variables={**variables, "item": rule})
+                argv = templar.template(trust_as_template(cleanup["ansible.builtin.command"]["argv"]))
+                self.assertEqual(argv, ["ufw", "--force", "delete"] + rule.split()[1:])
+
     def test_firewall_rejects_unsafe_cidrs_before_any_rule_mutation(self) -> None:
         tasks = load_tasks("ansible/roles/common/tasks/firewall.yml")
         guard = next(task for task in tasks if task.get("name")
