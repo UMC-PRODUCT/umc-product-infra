@@ -6,8 +6,8 @@ deployment:
   enabled: true
 
 image:
-  tag: "f4ca25955010"
-  digest: "sha256:7f5301c176974284a594924a0ecf4ffec8455e2b7d3a3f311963f43c1bdeb529"
+  tag: "2d227f8bfcd7"
+  digest: "sha256:6b58581fe4c4dafa03fb78d7625f3b3ca793170605b1fca43c253eb361ebe2f5"
 
 priorityClassName: app-important
 
