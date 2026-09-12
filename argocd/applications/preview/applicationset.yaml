@@ -81,6 +81,8 @@ spec:
             # 으로 죽는다. sprig 의 substr 을 쓴다.
             - name: image.tag
               value: "{{ substr 0 12 .head_sha }}"
+              # SHA 앞 12자리가 숫자뿐이어도 Helm 정수 값으로 변환하지 않는다.
+              forceString: true
             - name: fullnameOverride
               value: "umc-product-server-pr-{{ .number }}"
             - name: ingress.host

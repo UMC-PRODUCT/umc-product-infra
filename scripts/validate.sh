@@ -68,13 +68,14 @@ appset = yaml.safe_load(Path("argocd/applications/preview/applicationset.yaml").
 source = appset["spec"]["template"]["spec"]["source"]
 chart = Path(source["path"])
 for number in (42, 43):
+    tag = "0123456789ab" if number == 42 else "123456789012"
     name = f"umc-product-server-pr-{number}"
     args = ["helm", "template", f"umc-product-preview-{number}", str(chart), "--namespace", "preview"]
     for value_file in source["helm"]["valueFiles"]:
         args.extend(["-f", str(chart / value_file)])
     for parameter in source["helm"]["parameters"]:
         value = parameter["value"].replace("{{ .number }}", str(number))
-        value = value.replace("{{ substr 0 12 .head_sha }}", "0123456789ab")
+        value = value.replace("{{ substr 0 12 .head_sha }}", tag)
         if "{{" in value:
             raise SystemExit(f"unsupported Preview template expression: {parameter['name']}")
         flag = "--set-string" if parameter.get("forceString") else "--set"
@@ -86,6 +87,7 @@ for number in (42, 43):
     ingress, = [item for item in documents if item["kind"] == "Ingress"]
     assert deployment["metadata"]["name"] == ingress["metadata"]["name"] == name
     container = deployment["spec"]["template"]["spec"]["containers"][0]
+    assert container["image"] == f"ghcr.io/umc-product/umc-product-server:{tag}"
     env = {item["name"]: item.get("value") for item in container["env"]}
     assert env["DEMODAY_QR_BASE_URL"] == "https://university.neordinary.com"
     assert env["DATABASE_URL"].endswith(f"/umc_product_pr{number}")
