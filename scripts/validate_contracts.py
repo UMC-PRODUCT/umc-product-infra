@@ -1584,6 +1584,16 @@ def validate_preview_budget() -> None:
         for item in applicationset["spec"]["template"]["spec"]["source"]["helm"]["parameters"]
     }
     require(
+        parameters.get("deployment.enabled") == "true"
+        and parameters.get("ingress.enabled") == "true",
+        "preview: ApplicationSet must enable the PR Deployment and Ingress together",
+    )
+    require(
+        parameters.get("env.DEMODAY_QR_BASE_URL")
+        == "https://university.neordinary.com",
+        "preview: QR frontend origin must use the approved shared web address",
+    )
+    require(
         parameters.get("ingress.host")
         == "api-pr-{{ .number }}.university.neordinary.com",
         "preview: exact public hostname",
@@ -1614,6 +1624,11 @@ def validate_preview_budget() -> None:
         (ROOT / "charts" / "umc-product-server" / "values-preview.yaml").read_text(
             encoding="utf-8"
         )
+    )
+    require(
+        preview_values["deployment"]["enabled"] is False
+        and preview_values["ingress"]["enabled"] is False,
+        "preview: standalone values must remain disabled without PR metadata",
     )
     require(
         preview_values["certificate"]["enabled"] is False,

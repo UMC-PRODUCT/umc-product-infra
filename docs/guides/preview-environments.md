@@ -4,9 +4,10 @@
 동시 상한은 3개다. URL은 `https://api-pr-<PR번호>.university.neordinary.com`이며 모바일 앱이 직접 호출한다.
 
 > [!IMPORTANT]
-> 저장소 기본 설정은 `deployment.enabled: false`, `ingress.enabled: false`다. 아래는
-> **Preview 활성화 후의 운영 계약**이며, PR 번호를 URL에 넣거나 `preview` label만 붙인다고
-> 접속되는 것은 아니다. 백엔드 기본 브랜치의 발행 workflow와 ApplicationSet 활성화가 모두 필요하다.
+> `values-preview.yaml` 단독 기본값은 `deployment.enabled: false`, `ingress.enabled: false`지만,
+> ApplicationSet은 PR별 값과 함께 두 gate를 켠다. 백엔드 기본 브랜치 `main`의
+> `publish-preview.yml`이 먼저 반영되어야 하며, 이미지 발행과 Argo Ready 확인 전에는
+> PR 번호를 URL에 넣거나 `preview` label만 붙였다고 접속 가능한 것은 아니다.
 > 활성화 준비는 [사용 조건](#사용-조건)과 [운영 준비](#운영-준비)를 따른다.
 
 ## 사용 조건
@@ -21,6 +22,9 @@ PR은 다음 조건을 모두 만족해야 한다.
 - backend 기본 브랜치 `main`의 `publish-preview.yml`이 PR head SHA image를 GHCR에 push했다.
 - ApplicationSet이 PR별 값과 함께 `deployment.enabled`, `ingress.enabled`를 `true`로 주입한다.
 - QR 링크가 열 실제 frontend origin을 `env.DEMODAY_QR_BASE_URL`에 지정했다.
+
+QR 웹 주소는 dev와 동일한 `https://university.neordinary.com`을 사용한다. 이 값은 QR 링크의
+웹 origin만 정하며, 기존 웹사이트의 API 목적지를 PR API로 바꾸거나 별도 웹 Preview를 만들지는 않는다.
 
 일반 PR CI의 `push: false` 빌드 성공만으로 Preview 이미지가 발행됐다고 판단하지 않는다.
 Preview 발행은 읽기 권한의 PR 빌드와 쓰기 권한의 이미지 발행을 서로 다른 runner에서 처리한다.
@@ -177,8 +181,8 @@ kubectl exec -it -n preview postgres-preview-0 -- sh -ceu '
 - `/umc-product/preview/app-db`는 shared preview app password를 가진다.
 - `/umc-product/preview/postgres-preview-secrets`는 preview 관리자 자격증명을 가진다.
 - GHCR package는 public이고 Pod는 anonymous pull한다. `ghcr-pull` Secret을 만들거나 주입하지 않는다.
-- PR별 동적 URL 외에 `DEMODAY_QR_BASE_URL`의 실제 HTTPS frontend origin을 준비한다.
-  현재 공통값의 `bootstrap-required`를 남기면 Deployment 활성화 시 Helm 검증이 실패한다.
+- ApplicationSet은 `DEMODAY_QR_BASE_URL=https://university.neordinary.com`을 주입한다.
+  PR별 image·DB·URL parameter와 이 값이 누락되면 활성화 렌더 검증이 실패한다.
 - Preview 이메일은 Gmail SMTP가 아니라 SES다. 샌드박스 상태에서는 검증된 수신자만 사용할 수
   있으므로, dev의 Gmail 메일 테스트 성공을 Preview 이메일 준비 완료로 판단하지 않는다.
 - preview namespace의 app/DB Secret과 argocd token ExternalSecret이 `Ready=True`인지 확인한다.

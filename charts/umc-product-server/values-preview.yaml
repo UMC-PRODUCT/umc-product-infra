@@ -1,4 +1,5 @@
-# PR preview override. ApplicationSet이 PR 번호·head SHA·database 이름을 주입한다.
+# PR preview override. ApplicationSet이 PR 번호·head SHA·database 이름과 활성화 값을 주입한다.
+# 이 파일만으로는 PR 정보가 없으므로 deployment/ingress 기본값을 false로 유지한다.
 
 environment: preview
 

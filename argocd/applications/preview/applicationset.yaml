@@ -11,8 +11,8 @@
 #     Secrets Manager /umc-product/platform/argocd/preview-github-token에서 ESO가 동기화한다.
 #     public repo여도 API rate limit과 안정적인 polling을 위해 사용한다.
 #     권한은 contents:read + pull_requests:read만 준다.
-#   - backend의 향후 trusted CI가 라벨 붙은 PR head SHA 이미지를 GHCR에 게시해야 한다.
-#     현재 BE CI에는 이 계약이 아직 없으므로 preview workload gate는 꺼 둔다.
+#   - backend 기본 브랜치 main에 publish-preview.yml을 먼저 반영한다.
+#     라벨 붙은 PR head SHA 이미지를 GHCR에 게시하며, 빌드 중에는 이미지 pull이 대기할 수 있다.
 #   - 네이티브 모바일 로그인은 provider token을 API로 직접 보내므로 Preview에서도 검증한다.
 #     브라우저 callback 기반 OAuth는 동적 URL을 등록하지 않으며 callback broker도 두지 않는다.
 apiVersion: argoproj.io/v1alpha1
@@ -70,7 +70,13 @@ spec:
             - values.yaml
             - values-preview.yaml
           parameters:
-            # 이미지 태그는 PR head 커밋 12자리. 향후 trusted publish CI도 같은 값을 쓴다.
+            # PR 번호·image·DB 정보를 함께 주입할 때만 workload와 외부 접근을 연다.
+            # values-preview.yaml 단독 렌더는 안전하게 비활성 상태를 유지한다.
+            - name: deployment.enabled
+              value: "true"
+            - name: ingress.enabled
+              value: "true"
+            # 이미지 태그는 PR head 커밋 12자리. trusted publish CI도 같은 값을 쓴다.
             # slice 는 배열용이라 문자열에 쓰면 "list should be type of slice or array but string"
             # 으로 죽는다. sprig 의 substr 을 쓴다.
             - name: image.tag
@@ -98,8 +104,9 @@ spec:
               value: "https://api-pr-{{ .number }}.university.neordinary.com"
             - name: env.CERTIFICATE_VERIFICATION_URL_TEMPLATE
               value: "https://api-pr-{{ .number }}.university.neordinary.com/api/v1/certificates/verify/{serialNumber}"
-            # DEMODAY_QR_BASE_URL은 API가 아니라 QR을 여는 FE origin이므로
-            # preview FE 도메인을 정한 뒤 별도 parameter로 추가한다.
+            # QR을 여는 웹 주소는 dev와 동일하게 사용한다. PR별 API origin과는 별개다.
+            - name: env.DEMODAY_QR_BASE_URL
+              value: "https://university.neordinary.com"
       destination:
         server: https://kubernetes.default.svc
         namespace: preview

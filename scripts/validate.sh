@@ -56,6 +56,45 @@ helm template umc-product-preview charts/umc-product-server \
   -f charts/umc-product-server/values-preview.yaml \
   >"$validation_dir/preview-desired-state.yaml"
 
+# 실제 ApplicationSet parameter를 사용한다. 별도의 --set fixture가 누락된 PR 운영값을 가리지 않는다.
+python3 - "$validation_dir" <<'PY'
+import subprocess
+import sys
+from pathlib import Path
+
+import yaml
+
+appset = yaml.safe_load(Path("argocd/applications/preview/applicationset.yaml").read_text())
+source = appset["spec"]["template"]["spec"]["source"]
+chart = Path(source["path"])
+for number in (42, 43):
+    name = f"umc-product-server-pr-{number}"
+    args = ["helm", "template", f"umc-product-preview-{number}", str(chart), "--namespace", "preview"]
+    for value_file in source["helm"]["valueFiles"]:
+        args.extend(["-f", str(chart / value_file)])
+    for parameter in source["helm"]["parameters"]:
+        value = parameter["value"].replace("{{ .number }}", str(number))
+        value = value.replace("{{ substr 0 12 .head_sha }}", "0123456789ab")
+        if "{{" in value:
+            raise SystemExit(f"unsupported Preview template expression: {parameter['name']}")
+        flag = "--set-string" if parameter.get("forceString") else "--set"
+        args.extend([flag, f"{parameter['name']}={value}"])
+    result = subprocess.run(args, check=True, capture_output=True, text=True)
+    Path(sys.argv[1], f"preview-pr-{number}-desired-state.yaml").write_text(result.stdout)
+    documents = [item for item in yaml.safe_load_all(result.stdout) if item]
+    deployment, = [item for item in documents if item["kind"] == "Deployment"]
+    ingress, = [item for item in documents if item["kind"] == "Ingress"]
+    assert deployment["metadata"]["name"] == ingress["metadata"]["name"] == name
+    container = deployment["spec"]["template"]["spec"]["containers"][0]
+    env = {item["name"]: item.get("value") for item in container["env"]}
+    assert env["DEMODAY_QR_BASE_URL"] == "https://university.neordinary.com"
+    assert env["DATABASE_URL"].endswith(f"/umc_product_pr{number}")
+    assert ingress["spec"]["rules"][0]["host"] == f"api-pr-{number}.university.neordinary.com"
+    assert ingress["spec"]["tls"][0]["secretName"] == "preview-wildcard-tls"
+    assert len([item for item in documents if item["kind"] == "Job"]) == 2
+print("Preview ApplicationSet desired state renders with PR-specific API/DB and shared QR origin")
+PY
+
 # test API 리소스는 testApi 값만으로 노출되지 않고 Deployment와 Ingress gate를 모두 따른다.
 helm template dev-umc-product-server charts/umc-product-server \
   --namespace dev-app \
