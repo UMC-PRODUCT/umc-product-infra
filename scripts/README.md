@@ -39,7 +39,7 @@ observability/ 원본
 | [`bootstrap_route53_access_keys.py`](bootstrap_route53_access_keys.py) | cert-manager·ExternalDNS Route53 키 최초 발급 | AWS IAM, `.env.prod` | 최초 1회 |
 | [`bootstrap_aws_access_keys.py`](bootstrap_aws_access_keys.py) | prod S3·SES·backup 키 최초 발급 | AWS IAM, `.env.prod` | 최초 1회 |
 | [`bootstrap_nonprod_aws_access_keys.py`](bootstrap_nonprod_aws_access_keys.py) | dev/preview S3와 nonprod SES 키 최초 발급 | AWS IAM, `.env.dev`, `.env.preview` | 최초 1회 |
-| [`bootstrap_aws_secrets.py`](bootstrap_aws_secrets.py) | worksheet 검증과 29개 Secrets Manager source 생성 | 조회 또는 AWS Secrets Manager | Secret 최초 구성 |
+| [`bootstrap_aws_secrets.py`](bootstrap_aws_secrets.py) | worksheet 검증과 30개 Secrets Manager source 생성 | 조회 또는 AWS Secrets Manager | Secret 최초 구성 |
 | [`bootstrap-external-secrets-aws.sh`](bootstrap-external-secrets-aws.sh) | ESO가 AWS에 접근할 `aws-bootstrap` Secret 직접 주입 | Kubernetes | 수동 복구·직접 주입 시 |
 | [`gen-configmaps.py`](gen-configmaps.py) | 관측 원본을 ConfigMap·PrometheusRule로 변환 | `manifests/observability/`, `manifests/observability-integrations/` | dashboard·alert 변경 시 |
 | [`validate.sh`](validate.sh) | 저장소 전체 검증 | 외부 인프라 변경 없음 | 모든 변경 후 |
@@ -121,7 +121,7 @@ python3 scripts/bootstrap_nonprod_aws_access_keys.py \
 ## 2. AWS Secrets Manager source 생성
 
 [`bootstrap_aws_secrets.py`](bootstrap_aws_secrets.py)는 세 worksheet를 읽어 Helm의
-ExternalSecret 계약과 일치하는 29개 JSON source를 구성한다. 이 중 prod/dev의
+ExternalSecret 계약과 일치하는 30개 JSON source를 구성한다. 이 중 prod/dev/preview의
 `docs-basic-auth` source는 Scalar/OpenAPI 문서용 bcrypt htpasswd 값을, prod의
 `postgres-exporter` source는 모니터링 전용 DB role password를 공급한다.
 
@@ -257,7 +257,7 @@ Kubernetes 상태는 바꾸지 않는다. 최종 기준은
 | 파일 | 주요 검증 |
 |---|---|
 | [`test_ansible_bootstrap_contracts.py`](tests/test_ansible_bootstrap_contracts.py) | K3s installer pin, server-side apply, 개인 OpenSSH·UFW와 비공개 Kubernetes API |
-| [`test_bootstrap_aws_secrets.py`](tests/test_bootstrap_aws_secrets.py) | worksheet parser, 29개 source mapping, 환경 분리, stdin 전달과 오류 메시지 비노출 |
+| [`test_bootstrap_aws_secrets.py`](tests/test_bootstrap_aws_secrets.py) | worksheet parser, 30개 source mapping, 환경 분리, stdin 전달과 오류 메시지 비노출 |
 | [`test_bootstrap_route53_access_keys.py`](tests/test_bootstrap_route53_access_keys.py) | 안전한 `.env.prod`, Route53 stack 계약, access key 발급과 실패 rollback |
 | [`test_validate_observability.py`](tests/test_validate_observability.py) | Operator Pod·monitor selector, named port와 cluster RBAC 권한 경계 |
 

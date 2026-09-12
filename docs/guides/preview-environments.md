@@ -19,7 +19,8 @@ PR은 다음 조건을 모두 만족해야 한다.
 - 작성자는 `MEMBER`, `OWNER`, `COLLABORATOR` 중 하나다.
 - maintainer가 head repository와 작성자 관계를 확인했다.
 - maintainer가 `preview` label을 붙였다.
-- backend 기본 브랜치 `main`의 `publish-preview.yml`이 PR head SHA image를 GHCR에 push했다.
+- backend 기본 브랜치 `main`의 `publish-preview.yml`이 이미지를 발행하고 익명 pull을 검증했다.
+- 같은 workflow가 infra `main`의 `argocd/preview-releases/pr-<번호>.json`에 성공 SHA/tag/digest를 기록했다.
 - ApplicationSet이 PR별 값과 함께 `deployment.enabled`, `ingress.enabled`를 `true`로 주입한다.
 - QR 링크가 열 실제 frontend origin을 `env.DEMODAY_QR_BASE_URL`에 지정했다.
 
@@ -29,18 +30,24 @@ QR 웹 주소는 dev와 동일한 `https://university.neordinary.com`을 사용�
 일반 PR CI의 `push: false` 빌드 성공만으로 Preview 이미지가 발행됐다고 판단하지 않는다.
 Preview 발행은 읽기 권한의 PR 빌드와 쓰기 권한의 이미지 발행을 서로 다른 runner에서 처리한다.
 `pull_request_target` workflow는 PR 대상이 `develop`이어도 기본 브랜치 `main`에 먼저 있어야 한다.
-발행 직전에 PR의 저장소·작성자 관계·라벨·open 상태·최신 head SHA를 다시 확인한다.
+발행 직전과 infra push 직전에 PR의 저장소·작성자 관계·라벨·open 상태·최신 head SHA를 다시 확인한다.
 ApplicationSet PR generator는 author association을 직접 필터링하지 못하고 `preview` label을 본다.
 따라서 `preview` label은 신뢰 검토를 끝냈다는 보안 승인이다. fork나 외부 PR에 붙이지 않으며,
 외부 작성자는 label을 직접 붙일 권한을 갖지 않는다.
 라벨을 유지한 채 새 commit을 push하면 새 코드도 자동으로 빌드·배포된다. 새 SHA마다 별도
 승인을 받는 정책은 아니므로, 신뢰 범위가 바뀌면 먼저 라벨을 제거한다.
-trusted publish CI는 같은 12자리 head-SHA tag를 덮어쓰지 않는다. Preview는 registry digest를
-Git에 동적으로 전달하지 않으므로 tag 불변성은 publish 권한 경계에 의존한다.
+trusted publish CI는 같은 12자리 head-SHA tag를 덮어쓰지 않는다. 태그는 추적용이며 실제 실행
+이미지는 성공 기록의 `imageDigest`로 고정한다. infra 기록 갱신은 PR 코드를 실행하지 않는 별도
+job에서 `UMC_INFRA_GITOPS_TOKEN`으로 수행하고, dev/prod writer와 공통 대기열을 사용한다.
 
 공통 `values-preview.yaml`은 PR 번호·image·DB 값 없이 직접 활성화하지 않는다.
-ApplicationSet이 먼저 새 SHA를 감지하면 이미지 빌드 중 잠시 `ImagePullBackOff`가 발생할 수
-있다. 빌드 실패 시 새 Preview는 Ready가 되지 않으며 기존 Preview도 재배포 중 중단될 수 있다.
+최초 성공 기록이 없으면 Application/Service/database를 생성하지 않는다. 후속 빌드·테스트·발행이나
+infra push가 실패하면 기록이 바뀌지 않으므로 기존 성공 이미지를 유지한다. 현재 PR head와
+기록의 SHA가 달라도 Application을 제거하지 않는다. Argo annotation의 `preview-head-sha`는
+최신 PR 커밋, `preview-deployed-sha`는 배포 대상 성공 커밋이다.
+
+이 보장은 **빌드·이미지 발행 실패**에 대한 것이다. 성공 이미지로 교체할 때는 여전히 단일 replica
+`Recreate`이므로 짧은 중단이 있고, Flyway·앱 기동 실패 시 이전 Pod 유지나 DB rollback은 보장하지 않는다.
 
 ## 수명주기
 
@@ -51,6 +58,8 @@ Preview 활성화 전 공용 TLS 준비
 
 trusted PR + preview label
   -> backend image:<head SHA 12자리>
+  -> 익명 pull/digest 검증
+  -> infra main의 PR별 성공 기록 갱신
   -> ApplicationSet poll
   -> Argo Application
   -> Service admission (quota, wave -2)
@@ -65,9 +74,14 @@ label 제거 또는 PR close
   -> Application 삭제
 ```
 
-ApplicationSet은 PR을 120초마다 확인한다. 이름은 Application `umc-product-preview-<PR번호>`,
+ApplicationSet은 PR과 Git 성공 기록을 각각 120초 주기로 확인한다. 이름은 Application `umc-product-preview-<PR번호>`,
 workload `umc-product-server-pr-<PR번호>`, database `umc_product_pr<PR번호>`,
 관측 service `preview-umc-product-pr<PR번호>`다.
+
+성공 기록 파일은 PR 종료 후에도 유지한다. 파일만 남아 있어도 열린 PR+라벨 조건이 없으면
+Application은 생성되지 않는다. 다시 열고 라벨을 붙이면 마지막 성공 이미지로 시작할 수 있지만,
+이미 삭제한 DB 데이터는 복구되지 않는다. **열린 PR의 성공 기록 파일 삭제는 Application과 DB
+삭제를 유발**하므로 기록을 삭제해서 일시 정지하지 않는다.
 
 ## 격리 범위
 
@@ -94,6 +108,13 @@ record를 가진다. Route53은 DNS만 제공하며 모바일 앱은 조회된 I
 직접 HTTPS 요청한다.
 TLS는 `preview` namespace의 `*.university.neordinary.com` 공용 Certificate가 만든 `preview-wildcard-tls` Secret을 사용한다.
 모바일 직접 호출 API에는 별도 앞단 로그인 정책을 적용하지 않는다.
+
+API 문서는 `https://api-pr-<번호>.university.neordinary.com/docs/scalar.html`에서 확인한다.
+기존 dev/prod처럼 Swagger UI 대신 Scalar를 사용한다. `/docs`와 `/docs-json`은
+모두 고정 계정 `umc-docs`의 Basic Auth로 보호하고 일반 API에는 이 인증을 추가하지 않는다.
+모든 PR은 Preview 전용 비밀번호 하나를 공유하며, PR 생성·삭제·재배포 시 비밀번호를 새로 만들지 않는다.
+비밀번호는 로컬 `.env.preview`의 문서 계정 주석에서 관리하고 팀 승인 채널로만 전달한다.
+AWS에는 `/umc-product/preview/docs-basic-auth`의 bcrypt `users` 값만 저장하며 앱 Pod에 주입하지 않는다.
 
 Grafana public gate를 통과한 뒤 일반 maintainer는 VPN 없이
 `https://grafana.university.neordinary.com`에 개인 `Viewer` 계정으로 로그인해
@@ -175,11 +196,18 @@ kubectl exec -it -n preview postgres-preview-0 -- sh -ceu '
 
 ## 운영 준비
 
+- 기존 PR Application이 있다면 이 Matrix 방식으로 전환하기 전에 각 실행 이미지의 검증된
+  SHA/digest 성공 기록을 먼저 준비한다. 기록이 없는 기존 Application은 전환 시 삭제 대상이다.
+  처음 활성화하는 경우에는 기존 PR Application이 없는지 확인한다.
 - `/umc-product/platform/argocd/preview-github-token`은 PR read-only PAT를 가진다.
 - `/umc-product/preview/app-{db,jwt,oauth,storage,email}` source 경로는 prod/dev와 분리한다.
   `app-email`만 명시적 예외로 dev와 같은 nonprod SES 자격증명을 사용하며 prod sender는 공유하지 않는다.
 - `/umc-product/preview/app-db`는 shared preview app password를 가진다.
 - `/umc-product/preview/postgres-preview-secrets`는 preview 관리자 자격증명을 가진다.
+- `/umc-product/preview/docs-basic-auth` source를 먼저 준비하고 ESO IAM의 해당 ARN 읽기 권한을
+  적용한다. 그다음 chart를 반영해 `preview/docs-basic-auth` ExternalSecret `Ready=True`를 확인한다.
+- 문서 경로는 익명/틀린 비밀번호 요청 `401`, 올바른 자격증명 요청 `200`을 확인한다.
+  일반 API의 JWT·공개 API 동작은 바뀌지 않아야 한다. 상세 준비·회전은 [Secret 운영](secrets.md)을 따른다.
 - GHCR package는 public이고 Pod는 anonymous pull한다. `ghcr-pull` Secret을 만들거나 주입하지 않는다.
 - ApplicationSet은 `DEMODAY_QR_BASE_URL=https://university.neordinary.com`을 주입한다.
   PR별 image·DB·URL parameter와 이 값이 누락되면 활성화 렌더 검증이 실패한다.
@@ -189,12 +217,14 @@ kubectl exec -it -n preview postgres-preview-0 -- sh -ceu '
 - preview namespace의 `*.university.neordinary.com` Certificate가 `letsencrypt-production`을 사용하고,
   최신 generation에서 `Ready=True`이며 `preview-wildcard-tls`가 존재하는지 확인한다.
 - `preview` label 권한을 신뢰된 maintainer로 제한한다.
-- fork PR에 label을 붙여도 backend image가 생성되지 않는지 실제로 확인한다.
+- 첫 빌드 실패 시 Application이 없고, 기존 PR의 후속 빌드 실패 시 이전 digest가 유지되는지 확인한다.
+- fork PR에 label을 붙여도 backend image와 성공 기록이 생성되지 않는지 실제로 확인한다.
 - 3개 preview가 떠 있을 때 네 번째 preview의 Service가 quota에서 fail-closed되고 database를 만들지 않는지 확인한다.
 
 ## 알려진 tradeoff
 
 한 namespace/PostgreSQL로 메모리를 아끼지만 PR 사이 credential과 DB trust boundary는 없다.
-SHA tag로 ApplicationSet이 즉시 프리뷰를 만들지만 prod/dev의 immutable digest 수준은 아니다.
+성공 기록 갱신을 기다리므로 최신 PR head와 실행 버전이 다를 수 있다. marker JSON 오류는
+ApplicationSet 조정을 막을 수 있어 writer와 `validate_preview_releases.py`에서 schema를 검증한다.
 PostDelete hook은 정확한 PR database의 연결을 강제 종료하고 DB를 지운다. 테스트 결과를
 보관해야 한다면 PR 종료나 label 제거 전에 별도로 저장해야 한다.

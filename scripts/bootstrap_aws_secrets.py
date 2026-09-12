@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate local worksheets and create the 29 AWS Secrets Manager sources."""
+"""Validate local worksheets and create the 30 AWS Secrets Manager sources."""
 
 from __future__ import annotations
 
@@ -150,6 +150,12 @@ SECRET_SPECS = (
     ),
     *environment_specs("dev")[5:],
     *environment_specs("preview"),
+    SecretSpec(
+        "/umc-product/preview/docs-basic-auth",
+        ".env.preview",
+        DOCS_BASIC_AUTH_PROPERTIES,
+        "preview",
+    ),
     SecretSpec(
         "/umc-product/platform/monitoring/grafana-admin",
         ".env.prod",
@@ -336,7 +342,7 @@ def validate_worksheet_values(values: dict[str, dict[str, str]], account_id: str
 
     docs_users = [
         values[env_file]["DOCS_BASIC_AUTH_USERS"]
-        for env_file in (".env.prod", ".env.dev")
+        for env_file in ENV_FILES
     ]
     htpasswd_pattern = re.compile(
         r"^umc-docs:\$2[aby]\$\d{2}\$[./A-Za-z0-9]{53}$"

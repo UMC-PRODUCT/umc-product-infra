@@ -210,6 +210,14 @@ externalSecrets:
       SES_ACCESS_KEY_ID: SES_ACCESS_KEY_ID
       SES_SECRET_ACCESS_KEY: SES_SECRET_ACCESS_KEY
 
+  # PR마다 생성하지 않고 Preview namespace의 문서 라우터들이 함께 사용한다.
+  - name: docs-basic-auth
+    namespace: preview
+    store: aws-secretsmanager
+    targetName: docs-basic-auth
+    remoteKey: docs-basic-auth
+    data: *docsBasicAuthData
+
   # Database administrator and backup contracts
   - name: postgres-secrets
     namespace: db

@@ -11,8 +11,8 @@
 {{- fail "image.tag는 bootstrap-required가 아닌 12자리 lowercase commit SHA여야 한다" -}}
 {{- end -}}
 {{- $imageDigest := .Values.image.digest -}}
-{{- if and (ne $environment "preview") (not $imageDigest) -}}
-{{- fail "prod/dev에서 deployment.enabled=true이면 image.digest가 필수" -}}
+{{- if not $imageDigest -}}
+{{- fail "deployment.enabled=true이면 검증된 image.digest가 필수" -}}
 {{- end -}}
 {{- if and $imageDigest (not (regexMatch "^sha256:[a-f0-9]{64}$" $imageDigest)) -}}
 {{- fail "image.digest는 비어 있거나 sha256:<64 lowercase hex> 형식이어야 한다" -}}

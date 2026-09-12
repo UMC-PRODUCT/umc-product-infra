@@ -43,6 +43,7 @@ property 목록은 문서에 복사하지 않고 위 코드에서 확인한다.
 - `FIREBASE_CONFIGURATION`은 service-account JSON 전체를 문자열로 저장하며 base64로 바꾸지 않는다.
 - `DOCS_BASIC_AUTH_USERS`는 `umc-docs:<bcrypt hash>` 형식의 htpasswd 한 줄이다. 원문
   비밀번호는 로컬 worksheet에서만 확인하고 AWS·Kubernetes에는 이 해시만 저장한다.
+  prod/dev/preview마다 다른 비밀번호를 사용하며, bootstrap은 환경 간 동일 htpasswd 복사를 거부한다.
 - `POSTGRES_EXPORTER_PASSWORD`는 prod 모니터링 role 전용 값이다. DB 관리자,
   앱, readonly password와 모두 다른 난수를 쓴다.
 - prod SES 자격증명은 dev/preview와 공유하지 않는다. dev/preview만 nonprod sender를 공유한다.
@@ -258,10 +259,29 @@ Traefik이 변경을 감지하므로 애플리케이션 Pod를 재시작하지 �
 htpasswd -nB -C 12 umc-docs
 ```
 
-환경별 `/umc-product/prod/docs-basic-auth` 또는
-`/umc-product/dev/docs-basic-auth`의 `users` property를 갱신하고 해당
+환경별 `/umc-product/prod/docs-basic-auth`, `/umc-product/dev/docs-basic-auth` 또는
+`/umc-product/preview/docs-basic-auth`의 `users` property를 갱신하고 해당
 `docs-basic-auth` ExternalSecret을 force-sync한 뒤, 익명 요청은 `401`, 새 자격증명 요청은
 `200`인지 확인한다.
+
+### Preview 문서 인증
+
+모든 PR의 `/docs`, `/docs-json` 경로는 Preview 전용 고정 사용자 `umc-docs`와 공용
+비밀번호를 사용한다. `preview` namespace의 `docs-basic-auth` Secret 한 개를 각 PR의
+문서용 Traefik Middleware가 참조하며, PR이 닫혀도 이 공용 Secret은 유지된다.
+일반 API 인증과 개발용 test API의 공개 범위는 이 문서 인증 설정으로 변경되지 않는다.
+
+Preview 문서를 처음 활성화하기 전에 prod/dev와 다른 비밀번호로 위 대화형 명령을 실행하고,
+생성한 htpasswd 한 줄을 private `.env.preview`의 `DOCS_BASIC_AUTH_USERS`에 넣는다.
+`bootstrap_aws_secrets.py`는 이를 `/umc-product/preview/docs-basic-auth`의 `users`로 매핑한다.
+기존 prod/dev source를 복제하지 않으며, 누락된 source만 생성하는 기존 bootstrap 절차를 따른다.
+실제 비밀번호나 htpasswd 결과를 chat·Git·명령 인자에 남기지 않는다.
+
+AWS source 준비와 `preview/docs-basic-auth` ExternalSecret의 `Ready=True`를 확인한 뒤
+Preview 문서 설정을 배포한다. 각 PR의 `https://api-pr-<PR번호>.university.neordinary.com/docs`와
+`/docs-json`에서 익명 요청 `401`, 자격증명 입력 후 `200`을 확인한다. 비밀번호 회전은 이
+Preview source 한 곳에서 수행하며 모든 PR 문서에 함께 적용된다. 일반 앱 Pod는 문서 인증
+Secret을 읽지 않으므로 문서 비밀번호 회전만으로 앱을 재시작하지 않는다.
 
 ## 앱 DB 비밀번호 회전
 
