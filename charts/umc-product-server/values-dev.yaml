@@ -6,8 +6,8 @@ deployment:
   enabled: true
 
 image:
-  tag: "7fe15be8cecc"
-  digest: "sha256:46d77187a0f921d925162f5fd33a6096861cabb040358948153f86e11e9a6d2c"
+  tag: "8259ce8edcd7"
+  digest: "sha256:ef97f5d339ce4aefd3bed8151df4b73a054ec47cc83712f5f4ad64b0c8413024"
 
 priorityClassName: dev-low
 
