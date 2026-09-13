@@ -1104,6 +1104,21 @@ def validate_render(
     if environment == "preview":
         jobs = [item for item in resources if item.get("kind") == "Job"]
         require(len(jobs) == 2, "preview: createdb and dropdb Jobs")
+        dropdb = next(
+            item
+            for item in jobs
+            if item["metadata"]["labels"]["app.kubernetes.io/component"]
+            == "database-cleanup"
+        )
+        require(
+            dropdb["metadata"]["annotations"]["argocd.argoproj.io/hook"] == "PostDelete",
+            "preview: dropdb must run after workload deletion",
+        )
+        dropdb_script = dropdb["spec"]["template"]["spec"]["containers"][0]["args"][0]
+        require(
+            'DROP DATABASE IF EXISTS :"db" WITH (FORCE);' in dropdb_script,
+            "preview: dropdb must force-disconnect only the quoted target database",
+        )
         createdb = next(
             item
             for item in jobs
