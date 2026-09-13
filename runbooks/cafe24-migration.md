@@ -2,8 +2,8 @@
 
 대상은 public IPv4 `1.255.226.166`, CPU 8코어, RAM 32GB, SSD 500GB인 새 Cafe24 서버다.
 이 문서는 실행 승인이나 현재 배포 상태를 대신하지 않는다. 작업 창, 중단 허용 시간, 이전 대상과
-단계별 담당자를 확정한 승인된 작업에서만 실행한다. GitHub SSO·배포팀·OAuth App 준비와
-관리자 계정 비활성화는 별도 인증 작업이며, 여기서 완료됐다고 가정하지 않는다.
+단계별 담당자를 확정한 승인된 작업에서만 실행한다. Argo CD는 운영자 전용 `admin`과 공용 조회
+계정 `umc-viewer`를 사용하며, 이전 뒤에도 로그인과 조회·변경 권한 분리를 검증한다.
 
 ## 1. 대상과 복구 자료 확정
 
@@ -80,7 +80,7 @@ ansible -i inventories/idc/hosts.yml k3s_servers --become -m ansible.builtin.com
 merge한다. CI 성공과 merge revision을 기록한다. 기존 controller를 재시작하거나 기존 inventory로
 bootstrap을 재실행하지 않는다. 아직 DNS는 기존 주소여야 하며 수동 A/TXT 변경도 하지 않는다.
 merge 전 최신 `main`으로 rebase하고 모든 Ingress target과 ExternalDNS filter를 다시 검색한다.
-별도 인증 작업에서 공개 Argo Ingress가 추가됐다면 그 target도 새 IP로 맞춘 뒤 재검증한다.
+공개 Argo Ingress의 target도 같은 새 IP인지 재검증한다.
 
 ## 4. 새 서버 Prepare root
 
@@ -165,8 +165,9 @@ ansible -i inventories/idc-new/hosts.yml k3s_servers --become -m ansible.builtin
 ```
 
 dev와 승인된 Preview host도 실제 배포 목록에 맞춰 점검한다. 새 앱의 readiness, DB 연결·업무
-읽기/승인된 쓰기, dashboard·datasource, 익명 접근 차단과 사람별 로그인/권한을 검증한다.
-인증 main 변경의 적용·SSO 검증이 끝나지 않았다면 관리자 비활성화 완료로 표시하지 않는다.
+읽기/승인된 쓰기, dashboard·datasource와 익명 접근 차단을 검증한다. Grafana는 사람별 계정과
+권한을 확인하고, Argo CD는 `admin` 로그인과 `umc-viewer`의 조회 성공·변경 권한 거부를 확인한다.
+계정과 SSH 복구 경로는 [Argo CD 접근 가이드](../docs/guides/ansible-bootstrap.md#argo-cd-로컬-계정)를 따른다.
 
 ## 7. DNS를 마지막으로 전환
 

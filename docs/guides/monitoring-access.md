@@ -73,8 +73,9 @@ Loki query 예시다.
 
 trace ID link는 Tempo datasource를 연다. metrics, logs, traces의 service name은 `SPRING_APPLICATION_NAME`과 일치시킨다.
 
-PostgreSQL Detail은 **production 전용**이며 두 source를 함께 쓴다. dev에는 PostgreSQL exporter와
-해당 Kubernetes DB workload가 없으므로 빈 dev 패널로 해석하지 않는다.
+PostgreSQL Detail은 **production 전용**이며 두 source를 함께 쓴다. dev에는 PostgreSQL exporter를
+배포하지 않는다. dev DB workload 상태는 `Kubernetes` folder의 dashboard에서 namespace
+`dev-db`로 조회한다.
 
 - `postgres-exporter`: 접속 수, 최대 접속, DB 용량, transaction, cache hit, lock 같은 DB 내부 지표
 - `kube-state-metrics`: `db` namespace의 PostgreSQL Pod/StatefulSet 상태, CPU·memory request/limit, PVC 요청 용량
