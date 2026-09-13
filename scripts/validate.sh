@@ -34,6 +34,7 @@ common_args=(
 )
 
 python3 scripts/gen-configmaps.py --check
+python3 scripts/validate_preview_releases.py
 PYTHONPYCACHEPREFIX="$validation_dir/pycache" python3 -m py_compile scripts/*.py
 PYTHONPYCACHEPREFIX="$validation_dir/pycache" \
   python3 -m unittest discover -s scripts/tests -p 'test_*.py'
@@ -55,6 +56,61 @@ helm template umc-product-preview charts/umc-product-server \
   --namespace preview \
   -f charts/umc-product-server/values-preview.yaml \
   >"$validation_dir/preview-desired-state.yaml"
+
+# 실제 ApplicationSet parameter를 사용한다. 별도의 --set fixture가 누락된 PR 운영값을 가리지 않는다.
+python3 - "$validation_dir" <<'PY'
+import subprocess
+import sys
+from pathlib import Path
+
+import yaml
+
+appset = yaml.safe_load(Path("argocd/applications/preview/applicationset.yaml").read_text())
+source = appset["spec"]["template"]["spec"]["source"]
+chart = Path(source["path"])
+for number in (42, 43):
+    tag = "0123456789ab" if number == 42 else "123456789012"
+    digest = "sha256:" + "a" * 64
+    name = f"umc-product-server-pr-{number}"
+    args = ["helm", "template", f"umc-product-preview-{number}", str(chart), "--namespace", "preview"]
+    for value_file in source["helm"]["valueFiles"]:
+        args.extend(["-f", str(chart / value_file)])
+    for parameter in source["helm"]["parameters"]:
+        value = parameter["value"].replace("{{ .number }}", str(number))
+        value = value.replace("{{ .release.imageTag }}", tag)
+        value = value.replace("{{ .release.imageDigest }}", digest)
+        if "{{" in value:
+            raise SystemExit(f"unsupported Preview template expression: {parameter['name']}")
+        flag = "--set-string" if parameter.get("forceString") else "--set"
+        args.extend([flag, f"{parameter['name']}={value}"])
+    result = subprocess.run(args, check=True, capture_output=True, text=True)
+    Path(sys.argv[1], f"preview-pr-{number}-desired-state.yaml").write_text(result.stdout)
+    documents = [item for item in yaml.safe_load_all(result.stdout) if item]
+    deployment, = [item for item in documents if item["kind"] == "Deployment"]
+    ingress, = [item for item in documents if item["kind"] == "Ingress" and item["metadata"]["name"] == name]
+    docs, = [item for item in documents if item["kind"] == "Ingress" and item["metadata"]["name"] == name + "-docs"]
+    middleware, = [item for item in documents if item["kind"] == "Middleware"]
+    assert deployment["metadata"]["name"] == ingress["metadata"]["name"] == name
+    container = deployment["spec"]["template"]["spec"]["containers"][0]
+    assert container["image"] == f"ghcr.io/umc-product/umc-product-server@{digest}"
+    assert middleware["spec"]["basicAuth"] == {"secret": "docs-basic-auth", "removeHeader": True}
+    assert docs["metadata"]["annotations"]["traefik.ingress.kubernetes.io/router.middlewares"] == f"preview-{name}-docs-basic-auth@kubernetescrd"
+    assert [item["path"] for item in docs["spec"]["rules"][0]["http"]["paths"]] == ["/docs", "/docs-json"]
+    assert "traefik.ingress.kubernetes.io/router.middlewares" not in ingress["metadata"]["annotations"]
+    assert "docs-basic-auth" not in [item["secretRef"]["name"] for item in container["envFrom"]]
+    env = {item["name"]: item.get("value") for item in container["env"]}
+    assert env["DEMODAY_QR_BASE_URL"] == "https://university.neordinary.com"
+    assert env["DATABASE_URL"].endswith(f"/umc_product_pr{number}")
+    assert env["OPENAPI_ENABLE"] == "true"
+    assert env["APP_TEST_API_ENABLED"] == "false"
+    assert ingress["spec"]["rules"][0]["host"] == f"api-pr-{number}.university.neordinary.com"
+    assert ingress["spec"]["tls"][0]["secretName"] == "preview-wildcard-tls"
+    assert len([item for item in documents if item["kind"] == "Job"]) == 2
+    # 누락된 발행 digest로는 Preview를 열지 못한다.
+    invalid = subprocess.run(args + ["--set-string", "image.digest="], capture_output=True, text=True)
+    assert invalid.returncode != 0
+print("Preview ApplicationSet renders digest-pinned images and protected docs for both PRs")
+PY
 
 # test API 리소스는 testApi 값만으로 노출되지 않고 Deployment와 Ingress gate를 모두 따른다.
 helm template dev-umc-product-server charts/umc-product-server \
@@ -228,7 +284,6 @@ helm template dev-umc-product-server charts/umc-product-server \
 
 preview_args=(
   "${common_args[@]}"
-  --set-string image.digest=
   --set-string fullnameOverride=umc-product-server-pr-42
   --set-string createDatabase.name=umc_product_pr42
   --set-string env.DATABASE_URL=jdbc:postgresql://postgres-preview.preview.svc.cluster.local:5432/umc_product_pr42

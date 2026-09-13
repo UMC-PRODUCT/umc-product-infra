@@ -33,6 +33,9 @@ def valid_worksheets() -> dict[str, dict[str, str]]:
     values[".env.dev"]["DOCS_BASIC_AUTH_USERS"] = (
         "umc-docs:$2y$05$" + "b" * 53
     )
+    values[".env.preview"]["DOCS_BASIC_AUTH_USERS"] = (
+        "umc-docs:$2y$05$" + "c" * 53
+    )
     shared_ses = ("shared-nonprod-id", "shared-nonprod-secret")
     for env_file in (".env.dev", ".env.preview"):
         values[env_file]["SES_ACCESS_KEY_ID"] = shared_ses[0]
@@ -56,6 +59,17 @@ def serialize_env(env_file: str, values: dict[str, str]) -> str:
 
 
 class WorksheetParserTests(unittest.TestCase):
+    def test_preview_requires_its_own_docs_basic_auth_entry(self) -> None:
+        values = valid_worksheets()[".env.preview"]
+        document = serialize_env(".env.preview", values)
+        missing_docs = "\n".join(
+            line for line in document.splitlines()
+            if not line.startswith("DOCS_BASIC_AUTH_USERS=")
+        )
+
+        with self.assertRaisesRegex(uploader.BootstrapError, "DOCS_BASIC_AUTH_USERS"):
+            uploader.parse_env_text(missing_docs, ".env.preview")
+
     def test_preserves_value_characters_and_allowed_empty_property(self) -> None:
         values = valid_worksheets()[".env.prod"]
         special = "contains=padding#hash$dollar\\nliteral"
@@ -95,7 +109,7 @@ class PayloadTests(unittest.TestCase):
 
         payloads = uploader.build_payloads(values)
 
-        self.assertEqual(len(payloads), 29)
+        self.assertEqual(len(payloads), 30)
         self.assertIn("APPLE_WEB_CLIENT_ID", payloads["/umc-product/prod/app-oauth"])
         self.assertEqual(
             payloads["/umc-product/prod/app-oauth"]["APPLE_WEB_CLIENT_ID"], ""
@@ -103,10 +117,11 @@ class PayloadTests(unittest.TestCase):
         self.assertIsInstance(
             payloads["/umc-product/prod/app-fcm"]["FIREBASE_CONFIGURATION"], str
         )
-        self.assertEqual(
-            payloads["/umc-product/dev/docs-basic-auth"]["users"],
-            values[".env.dev"]["DOCS_BASIC_AUTH_USERS"],
-        )
+        for environment in ("prod", "dev", "preview"):
+            self.assertEqual(
+                payloads[f"/umc-product/{environment}/docs-basic-auth"],
+                {"users": values[f".env.{environment}"]["DOCS_BASIC_AUTH_USERS"]},
+            )
         self.assertEqual(
             payloads["/umc-product/prod/backup-s3"]["AWS_ACCESS_KEY_ID"],
             values[".env.prod"]["BACKUP_AWS_ACCESS_KEY_ID"],
@@ -149,6 +164,27 @@ class PayloadTests(unittest.TestCase):
                 ],
             },
         )
+
+    def test_rejects_invalid_preview_docs_htpasswd_without_exposing_it(self) -> None:
+        values = valid_worksheets()
+        sentinel = "PLAINTEXT_PREVIEW_DOCS_PASSWORD"
+        values[".env.preview"]["DOCS_BASIC_AUTH_USERS"] = sentinel
+
+        with self.assertRaises(uploader.BootstrapError) as raised:
+            uploader.validate_worksheet_values(values, "351284652562")
+
+        self.assertNotIn(sentinel, str(raised.exception))
+
+    def test_rejects_preview_docs_credentials_copied_from_prod_or_dev(self) -> None:
+        for source in (".env.prod", ".env.dev"):
+            with self.subTest(source=source):
+                values = valid_worksheets()
+                values[".env.preview"]["DOCS_BASIC_AUTH_USERS"] = values[source][
+                    "DOCS_BASIC_AUTH_USERS"
+                ]
+
+                with self.assertRaisesRegex(uploader.BootstrapError, "differ by environment"):
+                    uploader.validate_worksheet_values(values, "351284652562")
 
     def test_rejects_shared_route53_credentials(self) -> None:
         for cert_manager_key, external_dns_key in (

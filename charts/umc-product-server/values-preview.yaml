@@ -1,4 +1,5 @@
-# PR preview override. ApplicationSet이 PR 번호·head SHA·database 이름을 주입한다.
+# PR preview override. ApplicationSet이 PR 번호·성공한 이미지 digest·DB 이름과 활성화 값을 주입한다.
+# 이 파일만으로는 PR 정보가 없으므로 deployment/ingress 기본값을 false로 유지한다.
 
 environment: preview
 
@@ -36,6 +37,8 @@ probes:
 
 env:
   SPRING_PROFILES_ACTIVE: dev
+  # 문서 경로는 Preview 공용 Basic Auth를 적용한 별도 Ingress에서 제공한다.
+  OPENAPI_ENABLE: "true"
   SPRING_APPLICATION_NAME: preview-umc-product-bootstrap-required
   APP_ENVIRONMENT: preview-bootstrap-required
   S3_BUCKET_NAME: umc-product-preview-app-storage-351284652562-ap-northeast-2
@@ -47,6 +50,11 @@ env:
   DATABASE_USERNAME: umc_product_preview_app
   MEDIA_STORAGE_PURGE_ENABLED: "false"
   PRIVACY_RETENTION_ENABLED: "false"
+
+documentation:
+  enabled: true
+  basicAuth:
+    existingSecret: docs-basic-auth
 
 ingress:
   enabled: false
