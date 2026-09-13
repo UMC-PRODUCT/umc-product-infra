@@ -2,7 +2,7 @@
 
 목표는 S3 upload가 아니라 실제 restore 가능성을 확인하는 것이다.
 CronJob은 이 절차가 끝날 때까지 `suspend: true`로 유지한다.
-검증은 prod node 밖의 PostgreSQL 16에서 수행한다.
+검증은 prod node 밖에서 클러스터와 동일한 고정 PostgreSQL/PostGIS image로 수행한다.
 
 ## 전제
 
@@ -19,10 +19,13 @@ Secret 값을 셸 인자, Git, log에 출력하지 않는다.
 
 ## 1. 계약 확인
 
+1~2단계는 개인 관리자 공인 SSH로 접속한 IDC의 같은 Bash 세션에서 실행한다.
+클러스터 명령에는 `sudo k3s kubectl`을 사용하고 kubeconfig를 PC로 복사하지 않는다.
+
 ```bash
-kubectl get cronjob/pg-backup -n db \
+sudo k3s kubectl get cronjob/pg-backup -n db \
   -o custom-columns='NAME:.metadata.name,SUSPEND:.spec.suspend,SCHEDULE:.spec.schedule,TZ:.spec.timeZone'
-kubectl wait --for=condition=Ready externalsecret/backup-s3 -n db --timeout=180s
+sudo k3s kubectl wait --for=condition=Ready externalsecret/backup-s3 -n db --timeout=180s
 ```
 
 `SUSPEND`는 `true`여야 한다.
@@ -33,7 +36,7 @@ kubectl wait --for=condition=Ready externalsecret/backup-s3 -n db --timeout=180s
 ```bash
 set -euo pipefail
 
-active="$(kubectl get jobs -n db \
+active="$(sudo k3s kubectl get jobs -n db \
   -l app.kubernetes.io/name=pg-backup \
   -o jsonpath='{range .items[*]}{.metadata.name}{" "}{.status.active}{"\n"}{end}' \
   | awk '$2 + 0 > 0 {print $1}')"
@@ -41,19 +44,21 @@ test -z "$active"
 
 backup_started_epoch="$(date +%s)"
 backup_job="pg-backup-activation-$(date -u +%Y%m%d%H%M%S)"
-kubectl create job -n db --from=cronjob/pg-backup "$backup_job"
-kubectl wait --for=condition=Complete "job/$backup_job" -n db --timeout=7200s
+sudo k3s kubectl create job -n db --from=cronjob/pg-backup "$backup_job"
+sudo k3s kubectl wait --for=condition=Complete "job/$backup_job" -n db --timeout=7200s
 backup_finished_epoch="$(date +%s)"
 
-backup_pod_uid="$(kubectl get pod -n db -l "job-name=$backup_job" \
+backup_pod_uid="$(sudo k3s kubectl get pod -n db -l "job-name=$backup_job" \
   -o jsonpath='{.items[?(@.status.phase=="Succeeded")].metadata.uid}')"
 case "$backup_pod_uid" in
   ????????-????-????-????-????????????) ;;
   *) exit 1 ;;
 esac
 
-kubectl logs -n db "job/$backup_job" -c dump
-kubectl logs -n db "job/$backup_job" -c upload
+sudo k3s kubectl logs -n db "job/$backup_job" -c dump
+sudo k3s kubectl logs -n db "job/$backup_job" -c upload
+printf 'backup_pod_uid=%s\nbackup_started_epoch=%s\nbackup_finished_epoch=%s\n' \
+  "$backup_pod_uid" "$backup_started_epoch" "$backup_finished_epoch"
 ```
 
 Job이 실패하면 `suspend:true`를 유지한다.
@@ -61,10 +66,16 @@ deadline을 늘리기 전에 DB 크기, nodefs, dump 시간, upload 시간을 �
 
 ## 3. S3 object 검증
 
-다음 환경변수는 승인된 read identity의 환경에서 설정한다.
-값을 이 저장소에 기록하지 않는다.
+3~5단계는 prod node 밖의 로컬 Bash 세션에서 실행한다. 2단계에서 출력한 Pod UID와 시작·완료
+시각을 같은 이름의 로컬 변수로 설정하고, 별도의 승인된 read identity를 사용한다.
+Secret이나 kubeconfig는 전달하지 않으며 아래 입력값을 이 저장소에 기록하지 않는다.
 
 ```bash
+set -euo pipefail
+
+backup_pod_uid="${backup_pod_uid:?2단계의 성공한 Pod UID를 설정하세요}"
+backup_started_epoch="${backup_started_epoch:?2단계의 backup 시작 시각을 설정하세요}"
+backup_finished_epoch="${backup_finished_epoch:?2단계의 backup 완료 시각을 설정하세요}"
 BACKUP_BUCKET="${BACKUP_BUCKET:?backup bucket 이름을 설정하세요}"
 BACKUP_REGION="${BACKUP_REGION:?backup region을 설정하세요}"
 BACKUP_OWNER="${BACKUP_OWNER:?12자리 AWS account ID를 설정하세요}"
@@ -162,7 +173,7 @@ docker exec "$restore_container" psql -v ON_ERROR_STOP=1 -U postgres \
   -d umc_product_restore_verify \
   -c 'CREATE EXTENSION IF NOT EXISTS postgis; CREATE EXTENSION IF NOT EXISTS btree_gist;'
 docker exec -i "$restore_container" pg_restore \
-  --exit-on-error --no-owner --role=umc_product_app \
+  --exit-on-error --no-owner --no-acl --role=umc_product_app \
   -U postgres -d umc_product_restore_verify \
   < "$restore_dir/$backup_name"
 
@@ -175,6 +186,11 @@ restore_finished_epoch="$(date +%s)"
 
 애플리케이션 핵심 table 수와 대표 row count를 추가로 확인한다.
 개인정보 값은 결과 log에 출력하지 않는다.
+
+`--no-acl`은 dump에 포함된 grant/revoke를 복원하지 않는다. 위 데이터 복원만으로 권한 검증이
+끝난 것은 아니다. 검증 DB에 필요한 role과 grant를 Git의 role Job 계약에 맞춰 별도로 재현하고,
+앱 owner·권한과 조회 전용 role의 읽기 성공·쓰기 거부를 확인한다. extension 소유권도 대조하고
+복원 중 오류가 발생하면 예약 실행을 활성화하지 않는다.
 
 ## 5. RPO와 RTO 기록
 

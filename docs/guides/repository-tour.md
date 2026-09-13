@@ -56,11 +56,13 @@ Argo CD가 가져가게 한다.
   → K3s Traefik Ingress
   → Kubernetes Service
   → umc-product-server Pod
-  → PostgreSQL / AWS S3 / AWS SES
+  → PostgreSQL / AWS S3 / 이메일 provider(SES 또는 SMTP)
 ```
 
 Route53은 DNS만 담당하고 사용자 요청을 대신 통과시키거나 차단하지 않는다. 제공업체 상위
 방화벽과 UFW가 실제 서버의 public `443/tcp` 접근을 제한하며, Traefik과 앱 인증이 요청을 처리한다.
+메일 발송 경로는 환경별 values의 `EMAIL_PROVIDER`로 선택하며,
+전환·수신 검증 절차는 [Secret 운영 가이드](secrets.md#임시-gmail-smtp와-ses-복귀)를 따른다.
 
 ![요청 흐름](../diagrams/out/traffic-flow.png)
 
@@ -266,20 +268,24 @@ Ansible 명령 한 번이 성공했다고 서비스 배포가 끝난 것은 아�
 | 애플리케이션 | 고정 image digest, migration, probe, 핵심 기능 smoke test 통과 |
 | 운영 준비 | 외부 uptime 감시, alert 수신, backup RPO/RTO와 복구 절차 검증 |
 
-## 8. 현재 배포 gate 찾기
+## 8. 배포 gate와 운영 상태 확인
 
-현재 values와 새 IDC 준비 단계의 Application 제외 목록을 함께 확인한다.
+Git의 선언값과 실제 배포 상태를 구분한다. gate 값은 아래 원본에서 확인하고, 적용 여부는
+7절의 완료 기준과 각 가이드의 검증 절차로 확인한다.
 
-- prod/dev 앱: `deployment.enabled: true`, image tag·digest 고정; 새 IDC는 DB 복원 전 Application 생성 보류
-- prod/dev API Ingress: 환경별 `ingress.enabled: true`; 새 IDC는 DNS 전환 전 HTTPS 검증
-- DNS: Cafe24 이관 대상 public IPv4 `1.255.226.166`과 같은 `/32` filter
-- TLS: Let's Encrypt production issuer
-- Grafana: public Ingress 활성
-- backup: `suspend: true`
-- root: 초기 이관 중 child Application 오삭제를 막는 `prune: false`
+| 확인할 것 | 설정 원본과 검증 기준 |
+|---|---|
+| 앱 image·Deployment·API Ingress | [공통 values](../../charts/umc-product-server/values.yaml)와 환경별 [prod](../../charts/umc-product-server/values-prod.yaml)·[dev](../../charts/umc-product-server/values-dev.yaml)·[preview](../../charts/umc-product-server/values-preview.yaml)를 함께 확인한다. `image.tag`·`image.digest`, `deployment.enabled`, `ingress.enabled`가 기준이다. |
+| DNS 대상과 filter | 공통 values의 `externalDNS.target`과 [ExternalDNS](../../argocd/applications/platform/external-dns.yaml)의 `/32` target filter를 대조한다. 실제 record는 [DNS·TLS 가이드](domains-tls.md)로 검증한다. |
+| TLS | 공통·환경별 values의 `certificate`와 [ClusterIssuer](../../manifests/cert-manager/clusterissuers.yaml), [Preview Certificate](../../manifests/cert-manager/preview-wildcard-certificate.yaml)를 확인한다. issuer 선언만으로 발급 완료를 판단하지 않는다. |
+| Grafana 공개 접근 | [Grafana Application](../../argocd/applications/platform/observability/grafana.yaml)의 `ingress`와 [접근 가이드](monitoring-access.md)를 확인한다. |
+| backup | [CronJob](../../manifests/postgres/prod/backup-cronjob.yaml)의 `suspend`와 [활성화 runbook](../../runbooks/backup-activation.md)의 외부 restore 검증을 확인한다. |
+| root와 이관 단계 | [정상 root](../../bootstrap/root-app.yaml), [Prepare](../../bootstrap/root-app-prepare.yaml), [Verify](../../bootstrap/root-app-verify.yaml)의 제외 목록과 `prune`를 확인한다. `prune: false`에서 제외 목록을 바꿔도 기존 child Application은 중지되지 않는다. |
 
 각 gate는 독립적으로 관리한다. prod/dev는 검증된 image tag·digest가 준비되면 해당 환경의
 Deployment와 Ingress를 연 values를 Helm으로 사전 검증한 뒤 infra `main`에 직접 반영한다.
+새 IDC는 DB 복원 전 앱 Application 생성을 보류하고 DNS 전환 전에 HTTPS를 검증한다.
+이관 단계 전환은 [Cafe24 이전 runbook](../../runbooks/cafe24-migration.md)의 중단 조건을 따른다.
 
 ## 9. 실행 전에 사람이 확인할 외부 영역
 
@@ -292,8 +298,9 @@ Deployment와 Ingress를 연 values를 Helm으로 사전 검증한 뒤 infra `ma
 - Grafana production TLS·public Ingress 준비 상태, 팀원별 Viewer 계정과 개인 SSH·console 복구 경로
 - 운영자가 합의한 backup RPO/RTO와 외부 restore 위치
 
-특히 K3s의 `local-path` PVC는 **실제로 마운트된 디스크 경로**를 사용한다. 현재 임시 Azure의
-temporary disk를 영속 DB로 오인하지 말고, 운영 전에는 mount와 재부팅 후 지속성을 별도로 확인한다.
+특히 K3s의 `local-path` PVC는 **실제로 마운트된 디스크 경로**를 사용한다. 제공업체의 디스크
+유형과 서버의 mount를 대조해 temporary disk를 영속 DB로 오인하지 않도록 하고,
+운영 전에는 재부팅 후 데이터 지속성을 별도로 확인한다.
 
 ## 10. 안전하게 둘러보는 명령
 

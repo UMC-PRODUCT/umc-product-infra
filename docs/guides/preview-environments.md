@@ -1,8 +1,13 @@
 # PR 프리뷰
 
-대상은 내부의 신뢰된 same-repository PR뿐이다. fork와 외부 PR 코드는 build, preview, deploy하지 않는다.
+대상은 내부의 신뢰된 same-repository PR뿐이다. fork와 외부 PR에는 `preview` label을 붙이거나 Preview를 배포하지 않는다.
 동시 상한은 3개다. URL은 `https://api-pr-<PR번호>.university.neordinary.com`이며 모바일 앱이 직접 호출한다.
-현재 Deployment와 Ingress는 trusted image publish가 준비될 때까지 비활성이다.
+
+> [!IMPORTANT]
+> 이 문서는 **성공 이미지 연동을 적용한 Preview 운영 구조**를 설명한다. 이미지 발행, infra의 성공 이미지 선택,
+> 앱·Ingress gate와 공용 TLS 준비를 각각 확인해야 한다. PR 번호를 URL에 넣거나
+> `preview` label만 붙였다고 접속 준비가 끝난 것은 아니다.
+> 활성화 준비는 [사용 조건](#사용-조건)과 [운영 준비](#운영-준비)를 따른다.
 
 ## 사용 조건
 
@@ -13,15 +18,23 @@ PR은 다음 조건을 모두 만족해야 한다.
 - 작성자는 `MEMBER`, `OWNER`, `COLLABORATOR` 중 하나다.
 - maintainer가 head repository와 작성자 관계를 확인했다.
 - maintainer가 `preview` label을 붙였다.
-- 향후 backend trusted CI가 PR head SHA image를 GHCR에 push했다.
-- `values-preview.yaml`의 `deployment.enabled` gate를 켰다.
+- backend trusted CI가 해당 PR head SHA image를 GHCR에 발행하고 익명 pull을 검증했다.
+- infra ApplicationSet이 PR별 성공 기록에서 image tag·digest를 선택한다.
+- ApplicationSet이 PR별 값과 함께 `deployment.enabled`와 `ingress.enabled`를 `true`로 주입한다.
+  공통 `values-preview.yaml`만 직접 활성화하지 않는다.
 
-backend workflow는 same-repository와 author association을 fail-closed로 검사한다.
+백엔드의 `.github/workflows/publish-preview.yml`은 trusted PR을 별도 job에서 빌드·발행하고,
+성공한 SHA·tag·digest를 infra의 `argocd/preview-releases/pr-<번호>.json`에 기록한다.
+일반 PR CI 성공과 이 workflow의 발행·infra 갱신 성공은 별개다. 실제 Actions run과 infra commit을 확인한다.
+
+infra의 [ApplicationSet](../../argocd/applications/preview/applicationset.yaml)은 열린 PR·라벨과 성공 release 정보를
+함께 선택한다. 최초 성공 기록이 없으면 앱과 DB를 만들지 않고, 후속 빌드·발행 실패로 기록이
+바뀌지 않으면 마지막 성공 이미지를 유지한다. 최신 PR head와 배포된 SHA는 다를 수 있다.
 ApplicationSet PR generator는 author association을 직접 필터링하지 못하고 `preview` label을 본다.
 따라서 `preview` label은 신뢰 검토를 끝냈다는 보안 승인이다. fork나 외부 PR에 붙이지 않으며,
 외부 작성자는 label을 직접 붙일 권한을 갖지 않는다.
 trusted publish CI는 같은 12자리 head-SHA tag를 덮어쓰지 않는다. Preview는 registry digest를
-Git에 동적으로 전달하지 않으므로 tag 불변성은 publish 권한 경계에 의존한다.
+포함한 성공 release 정보를 Git에 기록하고, 배포 쪽에서도 이를 소비해야 한다.
 
 ## 수명주기
 
@@ -31,8 +44,9 @@ Preview 활성화 전 공용 TLS 준비
   -> Secret: preview/preview-wildcard-tls
 
 trusted PR + preview label
-  -> backend image:<head SHA 12자리>
-  -> ApplicationSet poll
+  -> backend image:<head SHA 12자리> 발행·익명 pull 검증
+  -> 성공 release 정보 Git 반영
+  -> ApplicationSet poll + 성공 release 선택
   -> Argo Application
   -> Service admission (quota, wave -2)
   -> createdb Job (wave -1)
@@ -46,9 +60,13 @@ label 제거 또는 PR close
   -> Application 삭제
 ```
 
-ApplicationSet은 PR을 120초마다 확인한다. 이름은 Application `umc-product-preview-<PR번호>`,
+ApplicationSet은 PR과 Git 성공 기록을 각각 120초마다 확인한다. 이름은 Application `umc-product-preview-<PR번호>`,
 workload `umc-product-server-pr-<PR번호>`, database `umc_product_pr<PR번호>`,
 관측 service `preview-umc-product-pr<PR번호>`다.
+
+성공 기록은 PR 종료 후에도 남을 수 있다. 열린 PR과 라벨이 없으면 기록만으로 앱을 만들지 않는다.
+반대로 열린 PR의 성공 기록을 삭제하면 앱·DB 삭제로 이어질 수 있으므로 일시 정지 용도로 지우지 않는다.
+PR을 다시 열더라도 이미 삭제한 DB 데이터는 복구되지 않는다.
 
 ## 격리 범위
 
@@ -70,7 +88,7 @@ credential, namespace, NetworkPolicy, database role을 함께 분리한다.
 
 ## 확인 방법
 
-활성 PR 27은 Route53에 `api-pr-27.university.neordinary.com` exact A record와 ExternalDNS TXT ownership
+예를 들어 활성화한 PR 27은 Route53에 `api-pr-27.university.neordinary.com` exact A record와 ExternalDNS TXT ownership
 record를 가진다. Route53은 DNS만 제공하며 모바일 앱은 조회된 IDC public IPv4의 Traefik `443/TCP`로
 직접 HTTPS 요청한다.
 TLS는 `preview` namespace의 `*.university.neordinary.com` 공용 Certificate가 만든 `preview-wildcard-tls` Secret을 사용한다.
@@ -82,14 +100,17 @@ Grafana public gate를 통과한 뒤 일반 maintainer는 VPN 없이
 kubectl은 인프라 관리자만 사용한다. 자세한 경계는
 [모니터링 접근 가이드](monitoring-access.md)를 따른다.
 
+클러스터 명령은 개인 관리자 SSH로 접속한 IDC에서 실행한다. port-forward는 해당 SSH 세션에서
+유지하고, readiness 확인은 IDC의 다른 SSH 세션에서 실행한다. kubeconfig를 PC에 복사하지 않는다.
+
 ```bash
-kubectl get application -n argocd umc-product-preview-27
-kubectl get certificate -n preview preview-wildcard
-kubectl get secret -n preview preview-wildcard-tls
-kubectl get deployment/umc-product-server-pr-27 service/umc-product-server-pr-27 \
+sudo k3s kubectl get application -n argocd umc-product-preview-27
+sudo k3s kubectl get certificate -n preview preview-wildcard
+sudo k3s kubectl get deployment/umc-product-server-pr-27 service/umc-product-server-pr-27 \
   job/umc-product-server-pr-27-createdb -n preview
-kubectl port-forward -n preview deployment/umc-product-server-pr-27 \
+sudo k3s kubectl port-forward -n preview deployment/umc-product-server-pr-27 \
   18080:8080 19090:9090
+# IDC의 다른 SSH 세션에서 실행
 curl -fsS http://127.0.0.1:19090/actuator/health/readiness
 ```
 
@@ -112,8 +133,8 @@ createdb Job은 앱보다 먼저 실행하며 owner는 `umc_product_preview_app`
 admin Secret은 platform `secrets` Application이 상시 관리한다.
 
 ```bash
-kubectl get job -n preview umc-product-server-pr-27-createdb
-kubectl logs -n preview job/umc-product-server-pr-27-createdb
+sudo k3s kubectl get job -n preview umc-product-server-pr-27-createdb
+sudo k3s kubectl logs -n preview job/umc-product-server-pr-27-createdb
 ```
 
 ## 개인 DB 접속
@@ -130,24 +151,27 @@ PR close/label 제거 시 Argo CD가 Application 리소스를 prune한 뒤 `Post
 같은 `createDatabase.name`을 삭제한다. render/runtime은 `^umc_product_pr[0-9]+$`만 허용하고
 `postgres`, template, bootstrap, prod, dev를 거부한다. cleanup은 접속/파일 시각을 추측하지 않는다.
 
-dropdb Job은 연결을 강제 종료하지 않는다. 연결, Secret, DB 장애로 DROP이 실패하면 Application은
+dropdb Job은 `DROP DATABASE ... WITH (FORCE)`로 해당 PR DB의 기존 연결을 강제 종료하고
+DB 전체를 삭제한다. DataGrip의 작업 중 연결도 끊기며, 삭제된 데이터는 백업 없이는 복구할 수 없다.
+다른 PR이나 dev/prod DB 연결은 종료하지 않는다. 권한·Secret·DB 장애, prepared transaction,
+활성 logical replication slot 또는 subscription 등으로 DROP이 실패하면 Application은
 `DeletionError`로 남고, 실패 Job도 원인 확인용으로 남는다. 원인을 고친 뒤 Application 삭제를 재시도한다.
 
 ```bash
-kubectl get application -n argocd umc-product-preview-27
-kubectl get job -n preview umc-product-server-pr-27-dropdb
-kubectl logs -n preview job/umc-product-server-pr-27-dropdb
+sudo k3s kubectl get application -n argocd umc-product-preview-27
+sudo k3s kubectl get job -n preview umc-product-server-pr-27-dropdb
+sudo k3s kubectl logs -n preview job/umc-product-server-pr-27-dropdb
 ```
 
 수동 DROP은 hook 복구 불가 시만 인프라 관리자가 대상 이름을 재확인하고 preview bootstrap
 database에 접속해 수행한다.
 
 ```bash
-kubectl exec -it -n preview postgres-preview-0 -- sh -ceu '
+sudo k3s kubectl exec -it -n preview postgres-preview-0 -- sh -ceu '
   target_db=umc_product_pr27
   suffix="${target_db#umc_product_pr}"
   case "$suffix" in ""|*[!0-9]*) exit 64 ;; esac
-  exec dropdb -U "$POSTGRES_USER" "$target_db"
+  exec dropdb --force -U "$POSTGRES_USER" "$target_db"
 '
 ```
 
@@ -159,6 +183,11 @@ kubectl exec -it -n preview postgres-preview-0 -- sh -ceu '
 - `/umc-product/preview/app-db`는 shared preview app password를 가진다.
 - `/umc-product/preview/postgres-preview-secrets`는 preview 관리자 자격증명을 가진다.
 - GHCR package는 public이고 Pod는 anonymous pull한다. `ghcr-pull` Secret을 만들거나 주입하지 않는다.
+- ApplicationSet은 `DEMODAY_QR_BASE_URL=https://university.neordinary.com`을 주입한다.
+  QR이 여는 웹 주소이며 기존 웹의 API 목적지를 PR API로 바꾸는 설정은 아니다.
+  PR별 image·DB·URL 값 없이 공통 values만 활성화하면 안 된다.
+- Preview 이메일은 Gmail SMTP가 아니라 SES다. 샌드박스 상태에서는 검증된 수신자만 사용할 수
+  있으므로, dev의 Gmail 메일 테스트 성공을 Preview 이메일 준비 완료로 판단하지 않는다.
 - preview namespace의 app/DB Secret과 argocd token ExternalSecret이 `Ready=True`인지 확인한다.
 - preview namespace의 `*.university.neordinary.com` Certificate가 `letsencrypt-production`을 사용하고,
   최신 generation에서 `Ready=True`이며 `preview-wildcard-tls`가 존재하는지 확인한다.
@@ -169,5 +198,7 @@ kubectl exec -it -n preview postgres-preview-0 -- sh -ceu '
 ## 알려진 tradeoff
 
 한 namespace/PostgreSQL로 메모리를 아끼지만 PR 사이 credential과 DB trust boundary는 없다.
-SHA tag로 ApplicationSet이 즉시 프리뷰를 만들지만 prod/dev의 immutable digest 수준은 아니다.
-PostDelete hook은 정확한 PR database만 지우며, 연결이 남으면 자동 정리보다 안전한 실패를 선택한다.
+성공 이미지 연동은 빌드 실패 이미지의 선택을 막지만, 기동·Flyway 실패나 DB 변경을 되돌려 주지는 않는다.
+배포 전략과 DB 복구 절차는 별도로 검증한다.
+PostDelete hook은 정확한 PR database의 연결을 강제 종료하고 DB를 지운다. 테스트 결과를
+보관해야 한다면 PR 종료나 label 제거 전에 별도로 저장해야 한다.

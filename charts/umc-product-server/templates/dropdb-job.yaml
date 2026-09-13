@@ -81,10 +81,11 @@ spec:
                 ""|*[!0-9]*) reject_target ;;
               esac
 
-              # PostDelete 시점에도 외부 연결이 남아 있으면 DROP은 실패한다. 강제로
-              # 세션을 끊지 않고 Job/Application을 실패 상태로 남기는 fail-safe 동작이다.
+              # 해당 PR DB의 DataGrip 등 기존 연결을 강제 종료하고 DB를 삭제한다.
+              # 다른 DB 연결은 건드리지 않는다. 권한·prepared transaction 등의 문제로
+              # 삭제할 수 없으면 Job/Application을 실패 상태로 남겨 원인을 확인한다.
               psql -v ON_ERROR_STOP=1 --set=db="$TARGET_DB" <<'SQL'
-              DROP DATABASE IF EXISTS :"db";
+              DROP DATABASE IF EXISTS :"db" WITH (FORCE);
               SQL
               echo "preview database 삭제 완료: $TARGET_DB"
           env:

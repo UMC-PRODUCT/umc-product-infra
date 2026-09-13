@@ -46,7 +46,7 @@ Argo CD는 비공유 `admin`과 공용 조회 계정 `umc-viewer`를 사용한�
 - ExternalDNS: `external-dns.kubernetes.io/managed-by=umc-infra` annotation이 붙은 Ingress의 exact A record와 TXT ownership record
 - cert-manager: API·Grafana·Argo CD host별 TLS Secret, Preview 공용 wildcard TLS Secret, Let's Encrypt 갱신
 - Argo CD: controller, ClusterIssuer, Certificate, Ingress desired state
-- 제공업체 방화벽과 UFW: public `443/tcp`만 외부에 허용하고 `22/tcp`, `6443/tcp`는 차단
+- 제공업체 방화벽과 UFW: 공인 SSH `22/tcp`와 HTTPS `443/tcp`를 허용하고 DB `5432/tcp`와 Kubernetes API `6443/tcp`는 비공개로 유지
 
 wildcard DNS record는 만들지 않는다. ExternalDNS는 `api-pr-27.university.neordinary.com` 같은
 exact record를 PR마다 만들고 PR 삭제 시 TXT ownership 범위에서 정리한다.
@@ -107,18 +107,24 @@ challenge TXT 작성과 변경 상태 조회, ExternalDNS에는 exact A/TXT reco
 10. 외부에서 DNS 결과가 고정 IDC IPv4인지, HTTPS 인증서 체인과 API 인증이 정상인지 검증한다.
 11. Preview는 production wildcard Certificate가 `Ready=True`인 것을 확인한 뒤 trusted PR에만 연다.
 
+관리자 PC에서 DNS 위임을 확인한다.
+
 ```bash
 dig +short NS university.neordinary.com
 dig +short SOA university.neordinary.com
+```
 
-kubectl wait --for=condition=Ready externalsecret/route53-credentials \
+클러스터 명령은 개인 관리자 공인 SSH로 접속한 IDC에서 실행한다. kubeconfig를 PC로 복사하지 않는다.
+
+```bash
+sudo k3s kubectl wait --for=condition=Ready externalsecret/route53-credentials \
   -n cert-manager --timeout=180s
-kubectl wait --for=condition=Ready externalsecret/route53-credentials \
+sudo k3s kubectl wait --for=condition=Ready externalsecret/route53-credentials \
   -n external-dns --timeout=180s
-kubectl get clusterissuer
-kubectl get certificate -A
-kubectl get ingress -A
-kubectl logs -n external-dns deployment/external-dns --since=10m
+sudo k3s kubectl get clusterissuer
+sudo k3s kubectl get certificate -A
+sudo k3s kubectl get ingress -A
+sudo k3s kubectl logs -n external-dns deployment/external-dns --since=10m
 ```
 
 Secret 값은 출력하지 않는다. ClusterIssuer 실패는 cert-manager Challenge·event에서,
@@ -169,19 +175,21 @@ cert-manager와 ExternalDNS access key는 하나씩 회전하며 동시에 폐�
 4. cert-manager는 staging challenge 또는 선택한 Certificate 갱신, ExternalDNS는 controller restart 후 exact record reconcile로 새 key를 검증한다.
 5. CloudTrail에서 이전 key 사용이 더 이상 없고 두 controller가 정상임을 확인한 뒤 이전 key를 비활성화·폐기한다.
 
+다음 명령은 개인 관리자 공인 SSH로 접속한 IDC에서 실행한다.
+
 ```bash
 namespace="${DNS_CREDENTIAL_NAMESPACE:?cert-manager 또는 external-dns를 지정하세요}"
 case "$namespace" in cert-manager|external-dns) ;; *) exit 64 ;; esac
 rotation_id="$(date +%s)"
-kubectl annotate externalsecret/route53-credentials -n "$namespace" \
+sudo k3s kubectl annotate externalsecret/route53-credentials -n "$namespace" \
   external-secrets.io/force-sync="$rotation_id" --overwrite
-kubectl wait --for=condition=Ready externalsecret/route53-credentials \
+sudo k3s kubectl wait --for=condition=Ready externalsecret/route53-credentials \
   -n "$namespace" --timeout=180s
 
 if test "$namespace" = external-dns; then
-  kubectl rollout restart deployment/external-dns -n external-dns
-  kubectl rollout status deployment/external-dns -n external-dns --timeout=300s
-  kubectl logs -n external-dns deployment/external-dns --since=10m
+  sudo k3s kubectl rollout restart deployment/external-dns -n external-dns
+  sudo k3s kubectl rollout status deployment/external-dns -n external-dns --timeout=300s
+  sudo k3s kubectl logs -n external-dns deployment/external-dns --since=10m
 fi
 ```
 
