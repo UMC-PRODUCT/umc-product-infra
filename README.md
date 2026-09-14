@@ -1,5 +1,7 @@
 # UMC Product Infrastructure
 
+[![Views](https://hits.sh/github.com/UMC-PRODUCT/umc-product-infra.svg?style=for-the-badge&label=views&color=4db6ac&labelColor=282828)](https://hits.sh/github.com/UMC-PRODUCT/umc-product-infra/)
+
 UMC Product의 단일 노드 K3s 서버, 애플리케이션 배포, PostgreSQL, DNS/TLS와 모니터링을 관리하는 저장소다.
 
 - **Ansible**은 서버 초기 구성과 SSH 접근을 관리한다.
