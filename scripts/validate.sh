@@ -318,7 +318,7 @@ if command -v ansible-playbook >/dev/null; then
     cd ansible
     for playbook in playbooks/ssh-access.yml playbooks/bootstrap.yml; do
       ansible-playbook --syntax-check \
-        -i inventories/idc/hosts.example.yml "$playbook"
+        -i inventories/idc-new/hosts.example.yml "$playbook"
     done
   )
 else

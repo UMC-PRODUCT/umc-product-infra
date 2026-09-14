@@ -34,7 +34,7 @@
           - common_public_tcp_ports | max <= 65535
           - common_public_tcp_ports == [22, 443]
         fail_msg: >-
-          Copy inventories/idc/hosts.example.yml to hosts.yml, replace every
+          Copy inventories/idc-new/hosts.example.yml to hosts.yml, replace every
           CHANGE_ME value, complete playbooks/ssh-access.yml first, connect
           through the public IPv4 as a personal administrator, keep 5432/6443
           private, and set bootstrap_confirm=true and ssh_access_finalize=true.

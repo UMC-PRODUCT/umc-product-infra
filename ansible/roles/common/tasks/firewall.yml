@@ -6,7 +6,7 @@
       - common_public_tcp_ports == [22, 443]
       - not (ssh_access_finalize | default(false) | bool) or (ssh_access_public_verified | default(false) | bool)
     fail_msg: >-
-      Declare exactly [22, 443]. Removing the legacy management rule requires
+      Declare exactly [22, 443]. Finalizing public SSH access requires
       a verified fresh public-key SSH connection with the personal administrator.
 
 # access-only 실행도 CIDR을 검증한다. /0 등 잘못된 입력이 모든 포트를 여는 것을 막는다.
@@ -41,18 +41,8 @@
   delegate_to: localhost
   become: false
 
-# 전환 첫 단계는 기존 관리 경로를 보존한다. 새 서버에 Tailscale을 설치하지 않는다.
-- name: Inspect the legacy management interface
-  ansible.builtin.stat:
-    path: /sys/class/net/tailscale0
-  register: common_legacy_tailscale_interface
-
 - name: Initialize the desired inbound firewall rules
   ansible.builtin.set_fact:
-    common_expected_legacy_ufw_rules: >-
-      {{ ['ufw allow in on tailscale0']
-         if (common_legacy_tailscale_interface.stat.exists
-             and not (ssh_access_finalize | default(false) | bool)) else [] }}
     common_expected_public_ufw_rules:
       - ufw limit 22/tcp
       - ufw allow 443/tcp
@@ -71,8 +61,7 @@
 - name: Combine the desired inbound UFW rules
   ansible.builtin.set_fact:
     common_expected_inbound_ufw_rules: >-
-      {{ common_expected_legacy_ufw_rules
-         + common_expected_public_ufw_rules
+      {{ common_expected_public_ufw_rules
          + common_expected_internal_ufw_rules }}
 
 - name: Read configured UFW rules before any firewall mutation
@@ -108,21 +97,7 @@
       safely. Resolve it through the provider console or model it explicitly
       before rerunning; an earlier deny can override the management path.
 
-# 공개키 인증은 ssh_access 역할에서 먼저 적용한다. 기존 경로는 검증 완료 단계에서만 제거한다.
-- name: Preserve an existing legacy management interface during migration
-  ansible.builtin.command:
-    argv:
-      - ufw
-      - allow
-      - in
-      - 'on'
-      - tailscale0
-      - comment
-      - umc-legacy-management
-  when: common_expected_legacy_ufw_rules | length > 0
-  register: common_legacy_ufw_rule
-  changed_when: "'Rule added' in common_legacy_ufw_rule.stdout"
-
+# 공개키 인증은 ssh_access 역할에서 먼저 적용한다.
 - name: Rate limit new public SSH connections
   ansible.builtin.command:
     argv:
@@ -283,11 +258,8 @@
         common_effective_ufw_status.stdout_lines
         | select('match', '^443/tcp(?: \\(v6\\))?\\s+ALLOW(?: IN)?\\s+Anywhere(?: \\(v6\\))?(?:\\s|$)')
         | list | length > 0
-      - >-
-        not (ssh_access_finalize | default(false) | bool) or
-        ('on tailscale0' not in common_effective_ufw_status.stdout)
     fail_msg: >-
       UFW must limit public SSH on 22/tcp, allow HTTPS on 443/tcp and both
       internal K3s CIDRs, and keep public HTTP, PostgreSQL and Kubernetes API
-      closed. The finalized state must not retain the legacy management rule.
+      closed.
   when: not ansible_check_mode

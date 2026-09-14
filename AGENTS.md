@@ -30,10 +30,11 @@ Git에서 변경하고 Argo CD로 수렴시킨다.
   local TCP forwarding만 허용하고 shell·명령 실행·sudo를 차단한다. DB 계정 권한은 별도다.
 - 외부에는 SSH `22/tcp`와 HTTPS `443/tcp`만 허용한다. DB `5432/tcp`와 Kubernetes API
   `6443/tcp`는 공개하지 않으며, 제공업체 상위 방화벽은 별도로 검증한다.
-- 최초/전환 시 `ansible/playbooks/ssh-access.yml`을 `ssh_access_finalize: false`로 실행해
+- 새 서버 최초 구성 시 `ansible/playbooks/ssh-access.yml`을 `ssh_access_finalize: false`로 실행해
   기존 관리 경로를 보존한다. 개인 관리자 공인 SSH·sudo와 DB 터널을 확인한 뒤 inventory를
   개인 관리자·공인 IP로 바꾸고 `ssh_access_finalize: true`로 마무리한다. 검증 전에 기존
-  접속 경로나 Tailscale을 제거하지 않고 제공업체 console 복구 경로를 확보한다.
+  관리자 접속 경로를 제거하지 않고 제공업체 console 복구 경로를 확보한다.
+  운영 서버에 팀원만 추가할 때는 `ssh_access_finalize: true`를 유지한다.
 - 팀원 제거는 SSH 로그인 차단·기존 세션 종료·계정 제거뿐 아니라 개인 DB role의 새 로그인
   차단과 기존 DB 세션 종료도 포함한다. 단순 공개키 삭제만으로 회수 완료라고 판단하지 않는다.
 - cluster 조회는 대상 IDC의 `sudo k3s kubectl`을 사용하고 root 전용 kubeconfig를 복사하지 않는다.
@@ -64,7 +65,8 @@ ansible-lint playbooks/bootstrap.yml playbooks/ssh-access.yml
 
 | 작업 | 먼저 볼 파일 |
 |---|---|
-| 서버 최초 설치·재구성 | `ansible/README.md` |
+| 인프라 팀 운영·SSH 계정 등록·회수 | `docs/guides/infra-operations.md` |
+| 서버 최초 설치·재구성 | `docs/guides/ansible-bootstrap.md` |
 | Secret 추가·변경·회전 | `docs/guides/secrets.md` |
 | DNS·TLS·Route 53 | `docs/guides/domains-tls.md` |
 | backup 최초 활성화 | `runbooks/backup-activation.md` |

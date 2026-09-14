@@ -4,7 +4,7 @@
 어디까지 완료되어야 실제 서비스가 배포된 것인지** 이해하기 위한 안내서다.
 실행 명령보다 구조를 먼저 설명한다. 배포 절차서가 아니므로 처음부터 끝까지 읽지 말고,
 낯선 계층이나 용어가 있는 절만 찾아본다. 실제 준비 여부는 각 작업 가이드의 사전 조건과
-검증 명령으로 확인한다.
+검증 명령으로 확인한다. 계정 등록·회수 등 실제 작업은 [인프라 팀 운영 가이드](infra-operations.md)를 따른다.
 
 ## 먼저 기억할 한 문장
 
@@ -28,7 +28,7 @@ Git의 Kubernetes 선언을 계속 맞춘다.**
 
 ```text
 관리자 PC
-  ├─ 최초/전환: 기존 접속을 보존하며 개인 관리자 공인 SSH 검증
+  ├─ 최초 설치: 기존 관리자 세션을 보존하며 개인 관리자 공인 SSH 검증
   └─ 개인 관리자 OpenSSH로 Ansible
       ├─ Ubuntu 서버의 OpenSSH·UFW·커널 설정
       ├─ K3s 설치
@@ -88,7 +88,8 @@ Route53은 DNS만 담당하고 사용자 요청을 대신 통과시키거나 차
 |---|---|
 | 전체 계층과 폴더 | 이 문서의 1절과 3절 |
 | 왜 단일 K3s와 GitOps를 쓰는지 | [K3s 아키텍처 결정 기록](../architecture/k3s.md) |
-| 빈 서버 설치 명령 | [Ansible README](../../ansible/README.md) |
+| 빈 서버 설치 명령 | [서버 초기 구성](ansible-bootstrap.md) |
+| 운영 서버의 팀원 SSH 등록·회수 | [인프라 팀 운영 가이드](infra-operations.md) |
 | Argo CD 이후 생성되는 것 | `bootstrap/root-app.yaml`, `argocd/projects.yaml`, `argocd/applications/` |
 | 환경별 애플리케이션 차이 | `charts/umc-product-server/values-*.yaml` |
 | Secret 공급 경로 | [비밀값 관리](secrets.md), `charts/umc-secrets/` |
@@ -107,8 +108,8 @@ Ansible은 공인 IP의 OpenSSH에 개인 관리자 키로 접속해 초기 작�
 
 ```text
 ansible/
-├── inventories/idc/hosts.yml       # 어느 서버에 접속할지; 로컬 전용
-├── playbooks/ssh-access.yml        # 개인 계정 준비 → 공인 SSH 검증 → 기존 경로 정리
+├── inventories/idc-new/hosts.yml       # 어느 서버에 접속할지; 로컬 전용
+├── playbooks/ssh-access.yml        # 개인 계정·키·SSH 터널 접근 정책
 ├── playbooks/bootstrap.yml         # 개인 관리자 공인 SSH로 전체 실행
 └── roles/
     ├── ssh_access/                  # 개인 계정·키·SSH 터널 권한
@@ -180,7 +181,7 @@ CloudFormation을 사용한다. Azure VM이나 Kubernetes 리소스까지 관리
 |---|---|---|
 | controller | Ansible 명령을 실행하는 관리자 PC | 현재 노트북 |
 | managed host | 개인 관리자 공인 SSH로 설정되는 대상 서버 | 대상 IDC 한 대 |
-| inventory | 접속 대상과 환경 입력 | `inventories/idc/hosts.yml` |
+| inventory | 접속 대상과 환경 입력 | `inventories/idc-new/hosts.yml` |
 | playbook | 역할을 어떤 순서로 실행할지 | `playbooks/bootstrap.yml` |
 | role | 한 책임의 task·기본값·template 묶음 | `roles/k3s/` |
 | task | 패키지 설치, 파일 배치 같은 한 단계 | 각 role의 `tasks/main.yml` |
@@ -189,13 +190,14 @@ CloudFormation을 사용한다. Azure VM이나 Kubernetes 리소스까지 관리
 | `become: true` | 대상 서버에서 sudo 권한 사용 | bootstrap play 전체 |
 | idempotent | 같은 작업을 다시 해도 같은 상태로 수렴 | 재실행 가능한 task 설계 |
 
-실제 순서는 다음과 같다.
+새 서버 최초 설치 순서는 다음과 같다. 이미 운영 중인 서버의 팀원 등록은
+[SSH 계정 등록](infra-operations.md#새-팀원-ssh-계정-등록)을 따르고, 초기 준비 단계를 다시 실행하지 않는다.
 
 ```text
 ssh-access.yml을 finalize=false로 실행
   → 개인 관리자 공인 SSH·sudo, DB 터널 권한 검증
   → inventory를 공인 IP·개인 관리자로 변경
-  → finalize=true로 root SSH 차단·기존 VPN 제거
+  → finalize=true로 root 직접 SSH 차단
 bootstrap.yml의 pre_tasks
   → inventory·현재 개인 관리자 공인 OpenSSH 연결 검사
   → ssh_access

@@ -1014,7 +1014,7 @@
             <div class="phase-body">
               <span class="status-chip is-wait">idc</span>
               <h3>Server bootstrap</h3>
-              <p>고정 IP 확보 → 기존 접속을 유지하며 개인 SSH 계정 준비 → 공인 SSH·sudo·DB 터널 검증 → root SSH 차단·기존 VPN 제거 → Ansible bootstrap.</p>
+              <p>고정 IP 확보 → 기존 관리자 세션을 유지하며 개인 SSH 계정 준비 → 공인 SSH·sudo 검증 → root 직접 SSH 차단 → Ansible bootstrap. DB 구성 후 터널 권한도 검증한다.</p>
               <ul class="clean-list">
                 <li>8 vCPU · 32GiB · 512GB 기준</li>
                 <li>K3s + Argo CD + ESO secret-zero</li>
@@ -1215,7 +1215,7 @@
 └── <span class="hl">scripts/</span>         <span class="ann">bootstrap · generation · validation</span></pre>
 
           <div class="task-router" aria-label="작업별 문서 바로가기">
-            <a class="task-link" href="../ansible/README.md"><strong>새 서버 설치</strong><span>Ansible quick start와 개인 SSH 접근</span></a>
+            <a class="task-link" href="guides/ansible-bootstrap.md"><strong>새 서버 설치</strong><span>Ansible 초기 구성과 개인 SSH 접근</span></a>
             <a class="task-link" href="guides/secrets.md"><strong>Secret 작업</strong><span>AWS source 생성, 동기화, 회전 핵심</span></a>
             <a class="task-link" href="guides/domains-tls.md"><strong>DNS · TLS</strong><span>Route 53, Public IP, Certificate 활성화</span></a>
             <a class="task-link" href="guides/preview-environments.md"><strong>PR Preview</strong><span>trusted PR 조건과 database lifecycle</span></a>
