@@ -17,7 +17,26 @@ UMC Product의 단일 노드 K3s 서버, 애플리케이션 배포, PostgreSQL, 
 - 인프라 담당자는 [팀 운영 가이드](docs/guides/infra-operations.md)에서 시작한다.
 - 새 서버 설치는 [초기 구성 가이드](docs/guides/ansible-bootstrap.md)를 따른다. 운영 서버의 팀원 추가와는 별개다.
 
-[인프라 다이어그램](#인프라-다이어그램) · [환경과 배포](#환경과-배포) · [코드 위치](#무엇을-어디서-수정하나)
+[작업별 가이드](#작업별-가이드) · [인프라 다이어그램](#인프라-다이어그램) · [환경과 배포](#환경과-배포) · [코드 위치](#무엇을-어디서-수정하나)
+
+## 작업별 가이드
+
+### 백엔드 개발자
+
+- **DB 연결:** [DataGrip 설정](docs/guides/infra-operations.md#datagrip-접속). 개인 SSH 계정과 허용된 DB 접속 정보를 먼저 전달받는다.
+- **PR 검증:** [Preview 사용 조건](docs/guides/preview-environments.md#사용-조건). PR 번호별 URL·DB와 삭제 시 주의점을 확인한다.
+- **장애 조사:** [상황별 대시보드](observability/README.md#어떤-상황에-어떤-대시보드를-볼까). 전체 → 앱·DB·Pod → 로그·트레이스 순으로 좁힌다.
+- **도구 계정·접속:** [Grafana](docs/guides/monitoring-access.md#팀원-계정), [Argo CD](docs/guides/ansible-bootstrap.md#argo-cd-공개-접속과-복구).
+
+### 인프라 담당자
+
+- **처음 구조를 읽을 때:** [저장소 가이드](docs/guides/repository-tour.md), [아키텍처와 설계 이유](docs/architecture/k3s.md).
+- **새 서버 설치:** [Ansible 실행 안내](ansible/README.md), [초기 구성 절차](docs/guides/ansible-bootstrap.md). 운영 서버의 팀원 추가와는 별개다.
+- **SSH 계정 등록과 회수:** [개인 계정과 DB 터널](docs/guides/infra-operations.md#개인-계정과-db-터널), [팀원 등록](docs/guides/infra-operations.md#새-팀원-ssh-계정-등록), [접근 회수](docs/guides/infra-operations.md#팀원-회수).
+- **Secret·DNS·TLS 변경:** [Secret 운영](docs/guides/secrets.md), [도메인과 TLS](docs/guides/domains-tls.md).
+- **모니터링 수정:** [대시보드·알림 원본 관리](observability/README.md#대시보드와-알림-원본-관리), [스택 배포 구조](argocd/applications/platform/observability/README.md).
+- **백업 준비·복원 검증:** [Backup runbook](runbooks/backup-activation.md).
+- **서버 이전·DB 복원:** [Cafe24 이전 runbook](runbooks/cafe24-migration.md). DB 복원과 DNS 전환 순서를 임의로 바꾸지 않는다.
 
 ## 인프라 다이어그램
 
