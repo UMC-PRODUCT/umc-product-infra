@@ -5,7 +5,7 @@
 수정 방법은 [관측 원본 README](../../observability/README.md)를 먼저 본다.
 
 Grafana의 canonical URL은 `https://grafana.university.neordinary.com`이며 UMC 팀원이 인터넷에서 접속한다.
-VPN은 팀원의 Grafana 접속 조건이 아니다. 공개 HTTPS 뒤에서 Grafana 자체 로그인을 사용하고,
+공개 HTTPS 뒤에서 Grafana 자체 로그인을 사용하고,
 익명 접근과 자체 회원가입은 끈다. 운영자가 사람별 계정을 만들고 기본 권한은 `Viewer`로 둔다.
 
 저장소 desired state에는 고정 IDC public IPv4, production Certificate와 public Ingress가 함께
@@ -95,7 +95,7 @@ exporter를 연결해 확인할 때만 선택한다.
 
 ## 팀원 계정
 
-public gate를 통과한 뒤 팀원은 VPN, SSH, kubeconfig 없이 canonical URL에 접속한다.
+public gate를 통과한 뒤 팀원은 웹 브라우저로 canonical URL에 접속한다.
 로그인 계정은 다음 원칙으로 관리한다.
 
 - 관리자 계정을 공유하지 않고 사람마다 별도 local account를 만든다.

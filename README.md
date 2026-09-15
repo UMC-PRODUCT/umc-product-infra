@@ -1,21 +1,42 @@
 # UMC Product Infrastructure
 
+[![Views](https://hits.sh/github.com/UMC-PRODUCT/umc-product-infra.svg?style=for-the-badge&label=views&color=4db6ac&labelColor=282828)](https://hits.sh/github.com/UMC-PRODUCT/umc-product-infra/)
+
 UMC Product의 단일 노드 K3s 서버, 애플리케이션 배포, PostgreSQL, DNS/TLS와 모니터링을 관리하는 저장소다.
 
 - **Ansible**은 서버 초기 구성과 SSH 접근을 관리한다.
 - **Argo CD**는 Git에 반영된 Helm values와 manifest를 읽어 Kubernetes에 배포한다.
 - **CloudFormation**은 IAM·S3·SES 등 AWS 외부 자원을 관리한다.
 
-## 읽는 순서
+## 문서 안내
 
-계정과 비밀값은 승인된 팀 내 채널로 전달받는다. 도구 로그인, API 문서 비밀번호, 애플리케이션 Access Token,
-SSH 계정과 DB 계정은 서로 별개다. DB 접속은 [DataGrip SSH 터널 안내](docs/guides/ansible-bootstrap.md#datagrip-접속)를 따른다.
+이 README는 **인프라 구성과 각 코드의 역할**을 설명한다.
+팀원의 접속·계정 등록·배포·점검 방법은 [운영 문서 목차](docs/README.md)에서 찾는다.
 
-장애 원인을 모르겠다면 Grafana의 `UMC PRODUCT System Overview`에서 시작한다.
-[상황별 대시보드 안내](observability/README.md#어떤-상황에-어떤-대시보드를-볼까)에서 상세 화면을 고를 수 있다.
+- 구조가 처음이라면 [저장소 설명](docs/guides/repository-tour.md)과 [설계 이유](docs/architecture/k3s.md)를 읽는다.
+- 인프라 담당자는 [팀 운영 가이드](docs/guides/infra-operations.md)에서 시작한다.
+- 새 서버 설치는 [초기 구성 가이드](docs/guides/ansible-bootstrap.md)를 따른다. 운영 서버의 팀원 추가와는 별개다.
 
-[인프라 다이어그램](#인프라-다이어그램) · [환경과 배포](#환경과-배포) ·
-[수정 위치](#무엇을-어디서-수정하나) · [작업별 가이드](#작업별-가이드) · [변경과 검증](#변경과-검증)
+[작업별 가이드](#작업별-가이드) · [인프라 다이어그램](#인프라-다이어그램) · [환경과 배포](#환경과-배포) · [코드 위치](#무엇을-어디서-수정하나)
+
+## 작업별 가이드
+
+### 백엔드 개발자
+
+- **DB 연결:** [DataGrip 설정](docs/guides/infra-operations.md#datagrip-접속). 개인 SSH 계정과 허용된 DB 접속 정보를 먼저 전달받는다.
+- **PR 검증:** [Preview 사용 조건](docs/guides/preview-environments.md#사용-조건). PR 번호별 URL·DB와 삭제 시 주의점을 확인한다.
+- **장애 조사:** [상황별 대시보드](observability/README.md#어떤-상황에-어떤-대시보드를-볼까). 전체 → 앱·DB·Pod → 로그·트레이스 순으로 좁힌다.
+- **도구 계정·접속:** [Grafana](docs/guides/monitoring-access.md#팀원-계정), [Argo CD](docs/guides/ansible-bootstrap.md#argo-cd-공개-접속과-복구).
+
+### 인프라 담당자
+
+- **처음 구조를 읽을 때:** [저장소 가이드](docs/guides/repository-tour.md), [아키텍처와 설계 이유](docs/architecture/k3s.md).
+- **새 서버 설치:** [Ansible 실행 안내](ansible/README.md), [초기 구성 절차](docs/guides/ansible-bootstrap.md). 운영 서버의 팀원 추가와는 별개다.
+- **SSH 계정 등록과 회수:** [개인 계정과 DB 터널](docs/guides/infra-operations.md#개인-계정과-db-터널), [팀원 등록](docs/guides/infra-operations.md#새-팀원-ssh-계정-등록), [접근 회수](docs/guides/infra-operations.md#팀원-회수).
+- **Secret·DNS·TLS 변경:** [Secret 운영](docs/guides/secrets.md), [도메인과 TLS](docs/guides/domains-tls.md).
+- **모니터링 수정:** [대시보드·알림 원본 관리](observability/README.md#대시보드와-알림-원본-관리), [스택 배포 구조](argocd/applications/platform/observability/README.md).
+- **백업 준비·복원 검증:** [Backup runbook](runbooks/backup-activation.md).
+- **서버 이전·DB 복원:** [Cafe24 이전 runbook](runbooks/cafe24-migration.md). DB 복원과 DNS 전환 순서를 임의로 바꾸지 않는다.
 
 ## 인프라 다이어그램
 
@@ -107,46 +128,17 @@ PR 삭제 시 이 공용 인증서는 삭제하지 않는다.
 [Secret 운영 가이드](docs/guides/secrets.md)의 AWS Secrets Manager → ESO 동기화 → 소비자 반영 순서를 따른다.
 서버 구매·호스팅 계약과 백엔드 애플리케이션 코드는 이 저장소에서 관리하지 않는다.
 
-## 작업별 가이드
+## 변경과 운영 절차
 
-### 백엔드 개발자
+인프라 설정은 원본 수정 → 로컬 검증 → PR·CI → `main` 병합 → Argo CD 반영 확인 순서로 관리한다.
+SSH 계정과 AWS 자원은 Git에 올리는 것만으로 적용되지 않으므로 별도 실행·검증이 필요하다.
 
-- **DB 연결:** [DataGrip 설정](docs/guides/ansible-bootstrap.md#datagrip-접속). 개인 SSH 계정과 허용된 DB 접속 정보를 먼저 전달받는다.
-- **PR 검증:** [Preview 사용 조건](docs/guides/preview-environments.md#사용-조건). PR 번호별 URL·DB와 삭제 시 주의점을 확인한다.
-- **장애 조사:** [상황별 대시보드](observability/README.md#어떤-상황에-어떤-대시보드를-볼까). 전체 → 앱·DB·Pod → 로그·트레이스 순으로 좁힌다.
-- **도구 계정·접속:** [Grafana](docs/guides/monitoring-access.md#팀원-계정), [Argo CD](docs/guides/ansible-bootstrap.md#argo-cd-공개-접속과-복구).
+- [인프라 팀 운영 가이드](docs/guides/infra-operations.md): 계정 등록·회수, 작업별 적용 방식, 배포·점검.
+- [문서 목차](docs/README.md): DB 접속, 모니터링, Secret·DNS·TLS와 복구 절차.
+- [검증 도구 안내](scripts/README.md#5-저장소-전체-검증): `./scripts/validate.sh`의 검사 범위와 필요한 도구.
 
-### 인프라 담당자
-
-- **처음 구조를 읽을 때:** [저장소 가이드](docs/guides/repository-tour.md), [아키텍처와 설계 이유](docs/architecture/k3s.md).
-- **서버 설치·SSH 계정 등록과 회수:** [Ansible 실행 안내](ansible/README.md), [개인 계정과 DB 터널](docs/guides/ansible-bootstrap.md#개인-계정과-db-터널).
-- **Secret·DNS·TLS 변경:** [Secret 운영](docs/guides/secrets.md), [도메인과 TLS](docs/guides/domains-tls.md).
-- **모니터링 수정:** [대시보드·알림 원본 관리](observability/README.md#대시보드와-알림-원본-관리), [스택 배포 구조](argocd/applications/platform/observability/README.md).
-- **백업 준비·복원 검증:** [Backup runbook](runbooks/backup-activation.md).
-- **서버 이전·DB 복원:** [Cafe24 이전 runbook](runbooks/cafe24-migration.md). DB 복원과 DNS 전환 순서를 임의로 바꾸지 않는다.
-
-## 변경과 검증
-
-일반 인프라 변경은 원본 수정 → 로컬 검증 → PR·CI → `main` 병합 → Argo CD 반영 확인 순서로 진행한다.
-자동 이미지 갱신 계정의 권한은 [GitHub 배포 가이드](docs/guides/github-trust-root.md)에서 별도로 관리한다.
-
-저장소 루트에서 실행한다.
-
-```bash
-./scripts/validate.sh
-```
-
-검사 범위와 필요한 도구는 [검증 도구 안내](scripts/README.md#5-저장소-전체-검증)에 있다.
-로컬 검사에서 도구 부족으로 skip된 항목을 전체 성공으로 판단하지 말고,
-[GitHub Actions](https://github.com/UMC-PRODUCT/umc-product-infra/actions)의 `Static validation`도 확인한다.
-
-- Secret·개인키·DB 덤프·실제 사용자 정보는 커밋하지 않는다.
-- 대시보드·알림은 `observability/` 원본을 수정하고 생성물을 함께 갱신한다.
-- GitOps 관리 자원을 서버에서만 수정하고 끝내지 않는다.
-- 삭제·복원·키 회전은 해당 가이드의 중단 조건과 복구 절차를 먼저 확인한다.
-
-이 README는 작업의 시작점이다. 배포 진행률과 일회성 점검 결과는 Issue·PR 등 작업 기록에 남기고,
-설정은 Git 원본에서, 실제 반영 여부는 Argo CD와 서비스에서 확인한다.
+비밀값·개인키·실제 inventory·DB 덤프는 Git에 넣지 않는다.
+README에는 구성 설명을 유지하고, 배포 진행률과 일회성 점검 결과는 Issue·PR에 기록한다.
 
 ## 라이선스
 

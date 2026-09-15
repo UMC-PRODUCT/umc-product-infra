@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ast
+import configparser
 import re
 import subprocess
 import sys
@@ -28,6 +29,20 @@ def command_argv(task: dict[str, object]) -> list[str]:
         return []
     argv = command.get("argv")
     return argv if isinstance(argv, list) else []
+
+
+class AnsibleInventoryContractTests(unittest.TestCase):
+    def test_default_inventory_is_the_current_cafe24_inventory(self) -> None:
+        config = configparser.ConfigParser(interpolation=None)
+        config.read(ROOT / "ansible" / "ansible.cfg", encoding="utf-8")
+        self.assertEqual(config["defaults"]["inventory"], "inventories/idc-new/hosts.yml")
+
+    def test_validation_uses_the_remaining_safe_example_inventory(self) -> None:
+        inventories = ROOT / "ansible" / "inventories"
+        self.assertFalse((inventories / "idc" / "hosts.example.yml").exists())
+        self.assertTrue((inventories / "idc-new" / "hosts.example.yml").is_file())
+        validation = (ROOT / "scripts" / "validate.sh").read_text(encoding="utf-8")
+        self.assertIn("-i inventories/idc-new/hosts.example.yml", validation)
 
 
 class K3sInstallerContractTests(unittest.TestCase):
@@ -199,8 +214,6 @@ class PublicSshBootstrapContractTests(unittest.TestCase):
             ["ssh_access", "common", "k3s", "argocd", "external_secrets_bootstrap"],
         )
         text = path.read_text(encoding="utf-8")
-        self.assertNotIn("tailscale_hostname", text)
-        self.assertNotIn("/usr/bin/tailscale", text)
         self.assertIn("ssh_access_finalize | default(false) | bool", text)
         self.assertIn("common_public_tcp_ports == [22, 443]", text)
 
@@ -215,19 +228,25 @@ class PublicSshBootstrapContractTests(unittest.TestCase):
             if task.get("ansible.builtin.include_role", {}).get("name") == "common"
         )
         self.assertEqual(firewall["ansible.builtin.include_role"]["tasks_from"], "firewall.yml")
-        retire = next(
-            task for task in tasks
-            if task.get("ansible.builtin.include_role", {}).get("tasks_from") == "retire-vpn.yml"
+        self.assertEqual(
+            [task["ansible.builtin.include_role"] for task in tasks
+             if "ansible.builtin.include_role" in task],
+            [{"name": "common", "tasks_from": "firewall.yml"}],
         )
-        self.assertEqual(retire["when"], "ssh_access_finalize | bool")
-        self.assertTrue(any(
-            "ansible.builtin.wait_for_connection" in task
-            for task in tasks[tasks.index(firewall) + 1:tasks.index(retire)]
-        ))
-        self.assertTrue(any(
-            "ansible.builtin.wait_for_connection" in task
-            for task in tasks[tasks.index(retire) + 1:]
-        ))
+        reset = next(task for task in tasks
+                     if task.get("ansible.builtin.meta") == "reset_connection")
+        reconnect = next(task for task in tasks if "ansible.builtin.wait_for_connection" in task)
+        sudo = next(task for task in tasks if task.get("ansible.builtin.command") == "sudo -n true")
+        private_ports = next(task for task in tasks if "ansible.builtin.wait_for" in task)
+        self.assertLess(tasks.index(firewall), tasks.index(reset))
+        self.assertLess(tasks.index(reset), tasks.index(reconnect))
+        self.assertLess(tasks.index(reconnect), tasks.index(sudo))
+        self.assertLess(tasks.index(sudo), tasks.index(private_ports))
+        self.assertIs(sudo["become"], False)
+        self.assertEqual(private_ports["loop"], [5432, 6443])
+        self.assertEqual(private_ports["ansible.builtin.wait_for"]["host"], "{{ ssh_access_public_host }}")
+        self.assertEqual(private_ports["ansible.builtin.wait_for"]["state"], "stopped")
+        self.assertEqual(private_ports["delegate_to"], "localhost")
 
     def test_key_only_authentication_and_tunnel_only_sessions_are_explicit(self) -> None:
         template = (
@@ -314,9 +333,6 @@ class PublicSshBootstrapContractTests(unittest.TestCase):
         facts = initial["ansible.builtin.set_fact"]
         self.assertEqual(facts["common_expected_public_ufw_rules"],
                          ["ufw limit 22/tcp", "ufw allow 443/tcp"])
-        self.assertIn("common_legacy_tailscale_interface.stat.exists",
-                      facts["common_expected_legacy_ufw_rules"])
-        self.assertIn("not (ssh_access_finalize", facts["common_expected_legacy_ufw_rules"])
         limits = [index for index, task in enumerate(tasks)
                   if command_argv(task)[:3] == ["ufw", "limit", "22/tcp"]]
         cleanup_index = next(index for index, task in enumerate(tasks)
@@ -348,7 +364,19 @@ class PublicSshBootstrapContractTests(unittest.TestCase):
             "ufw limit 22/tcp", "ufw allow 443/tcp",
             "ufw allow from 10.42.0.0/16", "ufw allow from 10.43.0.0/16",
         ]
-        stale = ["ufw allow in on tailscale0", "ufw allow 22/tcp"]
+        combine = next(task for task in tasks if task.get("name")
+                       == "Combine the desired inbound UFW rules")
+        for finalize in (False, True):
+            templar = Templar(loader=DataLoader(), variables={
+                "common_expected_public_ufw_rules": expected[:2],
+                "common_expected_internal_ufw_rules": expected[2:],
+                "ssh_access_finalize": finalize,
+            })
+            declared = templar.template(trust_as_template(
+                combine["ansible.builtin.set_fact"]["common_expected_inbound_ufw_rules"]
+            ))
+            self.assertEqual(declared, expected)
+        stale = ["ufw allow 5432/tcp", "ufw allow 22/tcp"]
         configured = [rule + " comment 'managed rule'" for rule in stale + expected]
         configured += ["Added user rules (see 'ufw status' for running firewall):",
                        "ufw allow out 443/tcp", "ufw limit out 25/tcp"]
@@ -432,16 +460,6 @@ class PublicSshBootstrapContractTests(unittest.TestCase):
                 for action in ("ALLOW", "LIMIT"):
                     self.assertRegex(f"{port}/tcp{suffix} {action} IN Anywhere{suffix}", private_ports)
         self.assertNotRegex("8080/tcp ALLOW IN Anywhere", private_ports)
-
-    def test_legacy_vpn_removal_is_guarded_and_retains_recovery_identity(self) -> None:
-        tasks = load_tasks("ansible/roles/ssh_access/tasks/retire-vpn.yml")
-        conditions = tasks[0]["ansible.builtin.assert"]["that"]
-        self.assertIn("ssh_access_finalize | bool", conditions)
-        self.assertIn("ssh_access_public_verified | default(false) | bool", conditions)
-        package = next(task["ansible.builtin.apt"] for task in tasks if "ansible.builtin.apt" in task)
-        self.assertEqual(package["name"], "tailscale")
-        self.assertEqual(package["state"], "absent")
-        self.assertFalse(package["purge"])
 
     def test_direct_edge_exposes_only_https_and_trusts_no_forwarded_proxy(self) -> None:
         common_tasks = (

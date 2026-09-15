@@ -40,10 +40,10 @@
 | D21 | `api.university.neordinary.com`, `api-dev.university.neordinary.com`, `api-pr-<PR>.university.neordinary.com`, `grafana.university.neordinary.com` | 모바일 직접 호출과 환경 식별이 명확한 exact host 계약 | API gateway 또는 별도 cluster 도입 시 재검토 |
 | D22 | `university.neordinary.com` child zone을 Route 53으로 위임하고 exact record는 ExternalDNS가 관리 | DNS 권한과 workload record lifecycle 분리; Terraform은 사용하지 않음 | 상위 DNS 운영 주체나 도메인 변경 시 재검토 |
 | D23 | Route 53 direct A record + cert-manager DNS-01; Preview는 `*.university.neordinary.com` Certificate와 `preview-wildcard-tls`를 공유 | 별도 proxy 없이 DNS·TLS 계층을 단순화하고 PR별 인증서 발급·갱신을 제거 | WAF·CDN·DDoS proxy가 실제로 필요해질 때 별도 edge 도입 |
-| D24 | API와 Grafana는 direct HTTPS로 공개하고 Grafana는 local login + 기본 Viewer 계정을 사용 | 팀원은 VPN 없이 dashboard를 보고 익명 접근·회원가입은 차단 | 인원이 늘어 계정 회수가 어렵거나 조직 SSO·MFA가 필요할 때 재검토 |
+| D24 | API와 Grafana는 direct HTTPS로 공개하고 Grafana는 local login + 기본 Viewer 계정을 사용 | 팀원은 브라우저로 dashboard를 보고 익명 접근·회원가입은 차단 | 인원이 늘어 계정 회수가 어렵거나 조직 SSO·MFA가 필요할 때 재검토 |
 | D25 | 8 vCPU, 32GiB RAM, 512GB NVMe에서 시작하고 Service quota를 DB 생성보다 먼저 예약해 preview를 최대 3개로 제한 | DB·관측 스택과 transient Job 여유를 포함한 단일 노드 운영 기준 | 관측치로 request 또는 동시 실행 수를 조정할 때 재산정 |
 | D26 | Preview는 native Google/Kakao/Apple token login만 검증 | 모바일 앱은 provider token을 API에 직접 전달해 동적 callback이 불필요 | browser OAuth가 필요해질 때 callback 설계를 별도 검토 |
-| D27 | 공인 SSH 개인 계정·공개키와 DB 터널 전용 권한, 외부 22·443만 허용 | 동적 팀원 IP와 VPN 구독 없이 접근·개인별 회수; root/비밀번호 SSH 금지 | 중앙 신원·MFA·기기 정책 또는 공개 SSH 노출 축소가 필요할 때 VPN/접근 proxy 재검토 |
+| D27 | 공인 SSH 개인 계정·공개키와 DB 터널 전용 권한, 외부 22·443만 허용 | 고정 팀원 IP 없이 개인 키로 접근·개인별 회수; root/비밀번호 SSH 금지 | 중앙 신원·MFA·기기 정책 또는 공개 SSH 노출 축소가 필요할 때 접근 제어 방식 재검토 |
 
 ## 신뢰 경계
 

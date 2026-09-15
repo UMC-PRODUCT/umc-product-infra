@@ -94,7 +94,7 @@ record를 가진다. Route53은 DNS만 제공하며 모바일 앱은 조회된 I
 TLS는 `preview` namespace의 `*.university.neordinary.com` 공용 Certificate가 만든 `preview-wildcard-tls` Secret을 사용한다.
 모바일 직접 호출 API에는 별도 앞단 로그인 정책을 적용하지 않는다.
 
-Grafana public gate를 통과한 뒤 일반 maintainer는 VPN 없이
+Grafana public gate를 통과한 뒤 일반 maintainer는 웹 브라우저로
 `https://grafana.university.neordinary.com`에 개인 `Viewer` 계정으로 로그인해
 `preview-umc-product-pr<번호>`의 log, metric, trace를 본다. gate 전 local-only health 점검과
 kubectl은 인프라 관리자만 사용한다. 자세한 경계는
