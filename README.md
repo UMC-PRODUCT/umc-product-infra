@@ -8,35 +8,20 @@ UMC Product의 단일 노드 K3s 서버, 애플리케이션 배포, PostgreSQL, 
 - **Argo CD**는 Git에 반영된 Helm values와 manifest를 읽어 Kubernetes에 배포한다.
 - **CloudFormation**은 IAM·S3·SES 등 AWS 외부 자원을 관리한다.
 
-## 문서 안내
-
-이 README는 **인프라 구성과 각 코드의 역할**을 설명한다.
-팀원의 접속·계정 등록·배포·점검 방법은 [운영 문서 목차](docs/README.md)에서 찾는다.
-
-- 구조가 처음이라면 [저장소 설명](docs/guides/repository-tour.md)과 [설계 이유](docs/architecture/k3s.md)를 읽는다.
-- 인프라 담당자는 [팀 운영 가이드](docs/guides/infra-operations.md)에서 시작한다.
-- 새 서버 설치는 [초기 구성 가이드](docs/guides/ansible-bootstrap.md)를 따른다. 운영 서버의 팀원 추가와는 별개다.
-
-[작업별 가이드](#작업별-가이드) · [인프라 다이어그램](#인프라-다이어그램) · [환경과 배포](#환경과-배포) · [코드 위치](#무엇을-어디서-수정하나)
-
 ## 작업별 가이드
+
+처음 읽는다면 [저장소 설명](docs/repository-tour.md)에서 도구와 코드의 역할을 살펴본다.
 
 ### 백엔드 개발자
 
-- **DB 연결:** [DataGrip 설정](docs/guides/infra-operations.md#datagrip-접속). 개인 SSH 계정과 허용된 DB 접속 정보를 먼저 전달받는다.
-- **PR 검증:** [Preview 사용 조건](docs/guides/preview-environments.md#사용-조건). PR 번호별 URL·DB와 삭제 시 주의점을 확인한다.
-- **장애 조사:** [상황별 대시보드](observability/README.md#어떤-상황에-어떤-대시보드를-볼까). 전체 → 앱·DB·Pod → 로그·트레이스 순으로 좁힌다.
-- **도구 계정·접속:** [Grafana](docs/guides/monitoring-access.md#팀원-계정), [Argo CD](docs/guides/ansible-bootstrap.md#argo-cd-공개-접속과-복구).
+- [DB 접속](docs/guides/db-access.md): 공개키 전달부터 DataGrip 연결까지.
+- [Preview 사용](docs/guides/preview-environments.md): PR별 API·DB 사용과 종료 시 주의사항.
+- [Grafana·Argo CD 사용](docs/guides/monitoring.md): 로그인, 대시보드 선택, 로그·배포 상태 조회.
 
 ### 인프라 담당자
 
-- **처음 구조를 읽을 때:** [저장소 가이드](docs/guides/repository-tour.md), [아키텍처와 설계 이유](docs/architecture/k3s.md).
-- **새 서버 설치:** [Ansible 실행 안내](ansible/README.md), [초기 구성 절차](docs/guides/ansible-bootstrap.md). 운영 서버의 팀원 추가와는 별개다.
-- **SSH 계정 등록과 회수:** [개인 계정과 DB 터널](docs/guides/infra-operations.md#개인-계정과-db-터널), [팀원 등록](docs/guides/infra-operations.md#새-팀원-ssh-계정-등록), [접근 회수](docs/guides/infra-operations.md#팀원-회수).
-- **Secret·DNS·TLS 변경:** [Secret 운영](docs/guides/secrets.md), [도메인과 TLS](docs/guides/domains-tls.md).
-- **모니터링 수정:** [대시보드·알림 원본 관리](observability/README.md#대시보드와-알림-원본-관리), [스택 배포 구조](argocd/applications/platform/observability/README.md).
-- **백업 준비·복원 검증:** [Backup runbook](runbooks/backup-activation.md).
-- **서버 이전·DB 복원:** [Cafe24 이전 runbook](runbooks/cafe24-migration.md). DB 복원과 DNS 전환 순서를 임의로 바꾸지 않는다.
+- [계정·서버·배포 관리](docs/README.md#인프라-담당자): 하려는 작업에 맞는 관리자 절차를 찾는다.
+- [백업·이전·복구](docs/README.md#위험-작업과-복구): 데이터나 서비스에 영향을 주는 작업의 사전 조건을 확인한다.
 
 ## 인프라 다이어그램
 
@@ -59,23 +44,20 @@ infra `main`에 직접 반영하여 K3s에 배포하는 경로다.
 
 ### 3. GitOps tree
 
-Argo CD root Application부터 환경과 platform workload까지의 동기화 순서다.
-그림에 생략된 Reloader·Argo 접속 구성·모니터링 통합도 있으므로, 정확한 목록과 wave는
-[`argocd/applications/`](argocd/applications/)와 [AppProject 선언](argocd/projects.yaml)을 기준으로 확인한다.
+Argo CD root Application부터 환경과 platform workload까지의 구성과 sync wave를 보여준다.
 
 [![UMC Product GitOps 구조](docs/diagrams/out/gitops-tree.png)](docs/diagrams/out/gitops-tree.png)
 
 ### 4. Secret supply chain
 
 AWS Secrets Manager → ESO → namespace별 Secret → workload 경로다. ESO 최초 접속 키는 Ansible로 별도 주입한다.
-그림의 고정 개수 대신 [Secret 매핑 원본](charts/umc-secrets/values.yaml)에서 구성 목록을 확인한다.
 
 [![UMC Product Secret 공급 경로](docs/diagrams/out/secret-supply-chain.png)](docs/diagrams/out/secret-supply-chain.png)
 
 ### 5. Branch flow
 
 기능 브랜치가 dev와 prod로 승격되는 경로다. 운영 복구는 정상 동작하던 image tag·digest를 Git에 반영한다.
-그림의 UI rollback을 영구 복구 절차로 사용하지 않으며, 이미지 rollback과 DB 복원은 별개 작업이다.
+이미지 rollback과 DB 복원은 별개 작업이다.
 
 [![UMC Product 브랜치 흐름](docs/diagrams/out/branch-flow.png)](docs/diagrams/out/branch-flow.png)
 
@@ -83,8 +65,7 @@ AWS Secrets Manager → ESO → namespace별 Secret → workload 경로다. ESO 
 
 승인된 내부 PR의 Preview 환경과 DB가 생성·삭제되는 수명주기다.
 사용 전 [Preview 사용 조건](docs/guides/preview-environments.md#사용-조건)을 확인한다.
-TLS는 그림의 PR별 Certificate와 달리 [공용 wildcard Certificate](manifests/cert-manager/preview-wildcard-certificate.yaml)를 사용하며,
-PR 삭제 시 이 공용 인증서는 삭제하지 않는다.
+TLS는 공용 wildcard Certificate를 사용하며, PR 삭제 시 이 공용 인증서는 삭제하지 않는다.
 
 [![UMC Product Preview 환경](docs/diagrams/out/preview-env.png)](docs/diagrams/out/preview-env.png)
 
@@ -98,16 +79,9 @@ PR 삭제 시 이 공용 인증서는 삭제하지 않는다.
 | prod | 운영 | `main` | `app` / `db` |
 | preview | 승인된 PR 검증 | 내부 PR | `preview` |
 
-### 애플리케이션 배포
-
-1. 백엔드의 대상 브랜치에 변경을 병합한다.
-2. 백엔드 CI가 검증한 이미지를 GHCR에 발행하고, 해당 환경의 image tag·digest를 infra `main`에 반영한다.
-3. Argo CD가 변경된 values를 읽어 배포한다.
-4. Argo CD의 동기화·Pod 상태와 해당 환경의 API 응답을 확인한다.
-
-일상 배포마다 Ansible을 다시 실행하지 않는다. Preview는 위 브랜치 배포와 별도 흐름이므로
-[사용 조건과 수명주기](docs/guides/preview-environments.md)를 먼저 확인한다.
-이미지 발행·infra 반영 권한·rollback은 [GitHub 배포 가이드](docs/guides/github-trust-root.md)를 따른다.
+prod/dev는 백엔드 CI가 이미지를 발행하고 infra values의 tag·digest를 갱신하면 Argo CD가 배포한다.
+일상 배포에 Ansible을 다시 실행하지 않는다. 실행·확인·rollback은
+[배포 가이드](docs/operations/deployment.md), PR별 흐름은 [Preview 가이드](docs/guides/preview-environments.md)를 따른다.
 
 ## 무엇을 어디서 수정하나
 
@@ -122,23 +96,12 @@ PR 삭제 시 이 공용 인증서는 삭제하지 않는다.
 | 모니터링 스택 설정 | [관측 스택 배포 설정](argocd/applications/platform/observability/) |
 | 대시보드·알림 규칙 | [observability/](observability/) — 원본 수정 후 생성물 갱신 |
 | AWS IAM·S3·SES 자원 | [cloud/aws/](cloud/aws/) |
-| 작업 절차·생성 및 검증 도구 | [docs/](docs/), [runbooks/](runbooks/), [scripts/](scripts/README.md) |
+| 사용자·운영·복구 절차 | [docs/](docs/) |
+| 생성 및 검증 도구 | [scripts/](scripts/README.md) |
 
 비밀값 변경은 로컬 `.env.*` 편집만으로 배포되지 않는다.
-[Secret 운영 가이드](docs/guides/secrets.md)의 AWS Secrets Manager → ESO 동기화 → 소비자 반영 순서를 따른다.
+[Secret 운영 가이드](docs/operations/secrets.md)의 AWS Secrets Manager → ESO 동기화 → 소비자 반영 순서를 따른다.
 서버 구매·호스팅 계약과 백엔드 애플리케이션 코드는 이 저장소에서 관리하지 않는다.
-
-## 변경과 운영 절차
-
-인프라 설정은 원본 수정 → 로컬 검증 → PR·CI → `main` 병합 → Argo CD 반영 확인 순서로 관리한다.
-SSH 계정과 AWS 자원은 Git에 올리는 것만으로 적용되지 않으므로 별도 실행·검증이 필요하다.
-
-- [인프라 팀 운영 가이드](docs/guides/infra-operations.md): 계정 등록·회수, 작업별 적용 방식, 배포·점검.
-- [문서 목차](docs/README.md): DB 접속, 모니터링, Secret·DNS·TLS와 복구 절차.
-- [검증 도구 안내](scripts/README.md#5-저장소-전체-검증): `./scripts/validate.sh`의 검사 범위와 필요한 도구.
-
-비밀값·개인키·실제 inventory·DB 덤프는 Git에 넣지 않는다.
-README에는 구성 설명을 유지하고, 배포 진행률과 일회성 점검 결과는 Issue·PR에 기록한다.
 
 ## 라이선스
 

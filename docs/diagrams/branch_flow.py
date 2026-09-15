@@ -1,7 +1,7 @@
 """브랜치 하나가 올라가는 경로 — 기능 브랜치부터 prod 까지, 그리고 되돌리기.
 
 cicd_flow.py 는 "push 하면 어떻게 배포되나"를 그린다. 이 그림은 그 앞단이다:
-기능 브랜치를 따서 develop을 거쳐 prod까지 올리는 순서와, 잘못됐을 때 되돌리는 두 경로.
+기능 브랜치를 따서 develop을 거쳐 prod까지 올리는 순서와, Git에서 image를 되돌리는 경로.
 
 앱 승격은 사람이 결정하고, 각 환경의 infra tag+digest 변경은 사전 Helm 검증 후
 main에 직접 push한다. dev/prod 갱신은 직렬화하며 force push하지 않는다.
@@ -48,8 +48,8 @@ def build(theme: dict) -> None:
             update_dev = Git("values-dev.yaml 갱신\nSHA tag + digest")
             update_prod = Git("values-prod.yaml 갱신\nSHA tag + digest")
             checks = GithubActions("사전 Helm 검증\nlint --strict · template")
-            infra_main = Github("origin/main\nbot direct push\nserial · non-force")
-            rollback_values = Git("known-good tag + digest\nvalues 복구")
+            infra_main = Github("origin/main\nGit desired state")
+            rollback_values = Git("known-good tag + digest\nvalues 복구 · DB 복원은 별도")
 
         argo = Argocd("ArgoCD\nself-heal")
 
@@ -74,19 +74,18 @@ def build(theme: dict) -> None:
         main_br >> Edge(label="자동 트리거", color=AUTO, fontcolor=AUTO) >> cd_prod
         cd_prod >> Edge(label="SHA image + values 갱신", color=AUTO, fontcolor=AUTO) >> update_prod
         update_prod >> Edge(label="Helm lint + template", color=AUTO, fontcolor=AUTO) >> checks
-        checks >> Edge(label="commit → direct push", color=AUTO, fontcolor=AUTO) >> infra_main
+        checks >> Edge(label="CI bot direct push\nserial · non-force", color=AUTO, fontcolor=AUTO) >> infra_main
         argo >> Edge(label="infra main pull", color=AUTO, fontcolor=AUTO,
                      style="dashed") >> infra_main
         argo >> Edge(label="values-dev", color=AUTO, fontcolor=AUTO) >> dev_pod
         argo >> Edge(label="values-prod", color=AUTO, fontcolor=AUTO) >> prod_pod
 
-        # 되돌리는 길 — 즉시 Argo CD rollback과 Git 기준값 복구
+        # 되돌리는 길 — 알려진 정상 image를 Git 기준값으로 복원한다.
         prod_pod >> Edge(label="문제 발견", color=BACK, fontcolor=BACK, style="dotted") >> me
-        me >> Edge(label="ⓐ ArgoCD UI 에서 이전 버전 선택\n(빠름 · Git 은 그대로)",
-                   color=BACK, fontcolor=BACK) >> argo
-        me >> Edge(label="ⓑ known-good tag+digest로 values 복구\n(Git 이 정답지로 남음)",
+        me >> Edge(label="known-good tag+digest로 values 복구\nGit에 기록 후 동기화",
                    color=BACK, fontcolor=BACK) >> rollback_values
-        rollback_values >> Edge(label="사전 Helm 검증", color=BACK, fontcolor=BACK) >> checks
+        rollback_values >> Edge(label="Helm 사전 검증 후\nmain에 복구 commit 반영",
+                                color=BACK, fontcolor=BACK) >> infra_main
 
 
 if __name__ == "__main__":

@@ -10,7 +10,9 @@
 - `charts/`, `manifests/`: Kubernetes desired state다. 정상 변경은 Git을 통해 Argo CD가 적용한다.
 - `cloud/aws/`: AWS IAM·S3·SES CloudFormation이다.
 - `observability/`: 사람이 수정하는 dashboard·alert 원본이다.
-- `runbooks/`: 데이터 손실이나 서비스 중단 위험이 있는 운영 절차다.
+- `docs/guides/`: 백엔드 등 사용자의 접속·조회·Preview 사용 안내다.
+- `docs/operations/`: 관리자의 계정·설정 변경 절차다.
+- `docs/runbooks/`: 데이터 손실이나 서비스 중단 위험이 있는 운영 절차다.
 
 Ansible은 애플리케이션의 일상 배포 도구가 아니다. 앱 image, Helm values와 Kubernetes manifest는
 Git에서 변경하고 Argo CD로 수렴시킨다.
@@ -65,11 +67,11 @@ ansible-lint playbooks/bootstrap.yml playbooks/ssh-access.yml
 
 | 작업 | 먼저 볼 파일 |
 |---|---|
-| 인프라 팀 운영·SSH 계정 등록·회수 | `docs/guides/infra-operations.md` |
-| 서버 최초 설치·재구성 | `docs/guides/ansible-bootstrap.md` |
-| Secret 추가·변경·회전 | `docs/guides/secrets.md` |
-| DNS·TLS·Route 53 | `docs/guides/domains-tls.md` |
-| backup 최초 활성화 | `runbooks/backup-activation.md` |
+| SSH 계정 등록·회수 | `docs/operations/ssh-access.md` |
+| 서버 최초 설치·재구성 | `docs/operations/ansible-bootstrap.md` |
+| Secret 추가·변경·회전 | `docs/operations/secrets.md` |
+| DNS·TLS·Route 53 | `docs/operations/domains-tls.md` |
+| backup 최초 활성화 | `docs/runbooks/backup-activation.md` |
 
 문서의 고정 계약과 코드가 다르면 코드를 먼저 확인하고, 차이를 사용자에게 알린 뒤 둘을 함께
 수정한다. 날짜별 진행률과 일회성 감사 결과는 저장소 문서가 아니라 Issue나 Project에서 관리한다.

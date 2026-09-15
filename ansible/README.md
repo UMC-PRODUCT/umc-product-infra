@@ -6,9 +6,9 @@ DB는 SSH 터널로 접속한다. DB 5432와 Kubernetes API 6443은 외부에 �
 
 실행 절차는 docs에서 관리한다.
 
-- 운영 서버의 팀원 등록·회수: [인프라 팀 운영 가이드](../docs/guides/infra-operations.md).
-- 빈 서버 최초 설치: [초기 구성 가이드](../docs/guides/ansible-bootstrap.md).
-- 서버 이전·DB 복원·DNS 전환: [이전 runbook](../runbooks/cafe24-migration.md).
+- 운영 서버의 팀원 등록·회수: [인프라 팀 운영 가이드](../docs/operations/ssh-access.md).
+- 빈 서버 최초 설치: [초기 구성 가이드](../docs/operations/ansible-bootstrap.md).
+- 서버 이전·DB 복원·DNS 전환: [이전 runbook](../docs/runbooks/cafe24-migration.md).
 - 전체 문서: [운영 문서 목차](../docs/README.md).
 
 ## 두 playbook의 역할
@@ -46,4 +46,4 @@ SSH·UFW 변경 전 기존 관리자 세션과 제공업체 console 복구 경�
 
 UFW 인바운드 허용·제한 규칙은 선언값으로 수렴하므로 선언하지 않은 규칙은 삭제될 수 있다.
 Ansible 실패가 자동 롤백을 뜻하지 않는다.
-명령과 성공·거부 검증 기준은 [운영 가이드](../docs/guides/infra-operations.md)를 따른다.
+명령과 성공·거부 검증 기준은 [운영 가이드](../docs/operations/ssh-access.md)를 따른다.
