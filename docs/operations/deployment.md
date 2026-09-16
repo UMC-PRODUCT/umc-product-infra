@@ -1,7 +1,55 @@
-# GitHub trust root
+# 배포와 GitHub 권한 관리
 
-Argo CD가 `UMC-PRODUCT/umc-product-infra`의 `main`을 자동 반영하므로 branch write는 사실상 cluster-admin 권한이다.
-저장소의 public 여부와 write 권한은 별개다.
+배포 담당자가 앱·인프라 변경을 반영하고 결과를 확인하는 절차다. 명령은 별도 표시가 없으면
+관리자 PC의 infra 저장소 루트에서 실행한다. 새 서버 설치와 SSH 계정 변경은 이 배포 흐름에 포함하지 않는다.
+
+## 앱 배포
+
+1. 백엔드 저장소에서 개발 검증은 `develop`, 운영 승격은 `main`을 대상으로 PR을 검토·병합한다.
+   운영 반영 전 dev 검증 결과와 DB migration 유무를 확인한다. DB 변경이 있으면 백업·호환성·복구 계획을 먼저 준비한다.
+2. 백엔드 Actions에서 테스트 성공뿐 아니라 **이미지 발행과 infra 갱신 성공**까지 확인한다.
+3. infra commit에서 해당 환경의 `image.tag`·`image.digest`가 발행된 이미지와 일치하는지 확인한다.
+   dev는 `charts/umc-product-server/values-dev.yaml`, prod는 `values-prod.yaml`을 사용한다.
+4. Argo CD의 대상 Application이 그 infra revision에 `Synced`·`Healthy`인지 확인한다.
+   Pod가 Ready인지, 실행 이미지가 의도한 digest인지 확인하고 해당 환경 API의 핵심 기능을 테스트한다.
+
+CI 실패, infra 쓰기 실패, ImagePull 오류, 기동·Flyway 실패는 서로 다른 단계의 문제다.
+앞 단계가 실패했으면 다음 환경으로 승격하지 않는다. 조회 방법은 [Grafana·Argo CD 가이드](../guides/monitoring.md)를 따른다.
+Preview는 [별도 사용 조건](../guides/preview-environments.md)과 [활성화 준비](../runbooks/preview-operations.md)를 따른다.
+
+## 인프라 설정 변경
+
+1. [코드 위치](../../README.md#무엇을-어디서-수정하나)에서 원본을 찾고 작업 브랜치에서 수정한다.
+   관측 생성물은 원본과 함께 갱신하고, 비밀값·실제 inventory는 커밋하지 않는다.
+2. `git diff --check`와 `./scripts/validate.sh`를 실행한다. 건너뛴 검사도 확인한다.
+3. PR에 변경 대상, 예상 영향, 검증 결과와 복구 방법을 적는다. `Static validation`과 리뷰를 통과한 뒤 병합한다.
+4. GitOps 관리 대상은 Argo CD의 revision·동기화·리소스 상태 및 실제 기능으로 확인한다.
+
+Ansible 소유 설정과 AWS CloudFormation은 Git 병합만으로 적용되지 않는다.
+각 [운영 절차](../README.md#인프라-담당자)의 실행·검증 단계를 따르고, 일상 앱 배포에 전체 bootstrap을 실행하지 않는다.
+
+## 이미지 rollback
+
+1. 실패 환경·현재 infra revision·앱 digest와 오류를 기록하고 추가 배포를 중지한다.
+2. Git 이력에서 마지막 정상 `image.tag`와 `image.digest` **쌍**을 찾는다. 다른 환경의 values로 덮어쓰지 않는다.
+3. 이전 앱이 현재 DB 스키마와 호환되는지 확인한다. 호환되지 않으면 이미지 rollback을 중단하고 DB 복구를 별도로 계획한다.
+4. 대상 환경의 tag·digest만 복구하는 변경을 만들고 아래 검사를 수행한 뒤 PR로 반영한다.
+
+```bash
+git diff --check
+./scripts/validate.sh
+```
+
+5. Argo CD가 복구 commit과 이미지로 수렴하는지, Pod Ready와 API 기능이 회복됐는지 확인한다.
+
+Git 변경 없는 UI rollback이나 수동 Pod 교체는 자동 동기화·self-heal 때문에 영구 복구가 아니다.
+이미지 복구는 이미 수행된 migration이나 삭제된 데이터를 되돌리지 않는다. DB 복원은
+[백업 검증](../runbooks/backup-activation.md)과 승인된 복구 절차를 따른다.
+
+## GitHub 권한 경계
+
+Argo CD가 infra의 `main`을 자동 반영하므로 해당 브랜치의 쓰기 권한은 클러스터에 큰 영향을 준다.
+저장소 공개 여부와 쓰기 권한은 별개다. 아래는 유지할 보호 정책이며 실제 적용 여부는 GitHub에서 확인한다.
 
 ## 권장 보호 규칙
 
@@ -27,7 +75,7 @@ workflow 표시명은 `Validate infrastructure`, check context는 job `Static va
 실행되는 이 check는 Argo CD 동기화를 사전 차단하지 못하므로, backend workflow의
 정확한 파일 제한과 Helm 사전 검증이 배포 gate다.
 
-## 적용 순서
+## GitHub 최초 설정
 
 1. `UMC-PRODUCT/umc-product-infra` 저장소를 만들고 초기 버전을 `main`에 올린다.
 2. `Static validation`이 실제 `main` SHA에서 성공했는지 확인한다.
@@ -53,7 +101,7 @@ protection 적용과는 별도로 관리한다.
 - image: public `ghcr.io/umc-product/umc-product-server:<12-char-sha>`; cluster는 credential 없이 anonymous pull
 - prod/dev deploy: registry digest 확인 → 선택 values 갱신 → Helm 사전 검증 → infra `main` direct push
 - preview: trusted PR image 발행·익명 pull 검증 → 해당 PR의 `argocd/preview-releases/pr-<번호>.json`에 SHA·tag·digest 기록
-  → ApplicationSet이 성공 release를 소비하는지 확인. 상세 전제는 [Preview 가이드](preview-environments.md#사용-조건)를 따른다.
+  → ApplicationSet이 성공 release를 소비하는지 확인. 상세 전제는 [Preview 운영 절차](../runbooks/preview-operations.md#이미지-발행과-배포-연결)를 따른다.
 - infra write credential: `umc-product-infra` 한 저장소만 허용한 fine-grained token 또는 GitHub App
 - permission: `Contents: Read and write`만 부여, 만료와 회전 적용
 - prod/dev updater는 `values-prod.yaml` 또는 `values-dev.yaml` 중 선택된 파일 하나 외의 변경을 거부
@@ -78,7 +126,7 @@ fork code를 trusted publish workflow에서 실행하거나 image를 배포하�
 
 preview의 `preview` label은 maintainer의 trust 승인이다. ApplicationSet은 author association을 필터링하지 못하므로 backend CI가 same-repository와 author association을 먼저 fail-closed로 검사해야 한다.
 
-## 확인
+## GitHub 보호 규칙 확인
 
 ```bash
 gh api repos/UMC-PRODUCT/umc-product-infra/branches/main/protection
@@ -94,6 +142,3 @@ gh api repos/UMC-PRODUCT/umc-product-infra \
 - linear history와 conversation resolution은 on이다.
 - force push와 branch deletion은 off다.
 - merge commit과 rebase merge는 off다.
-
-영구 rollback은 known-good tag+digest를 복원하고 사전 검증한 infra `main` commit으로 한다.
-자동 동기화·self-heal 환경에서는 Git 변경 없는 UI 조작을 영구 복구 절차로 사용하지 않는다.

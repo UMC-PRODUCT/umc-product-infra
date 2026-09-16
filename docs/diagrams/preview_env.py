@@ -9,7 +9,7 @@ AWS 인증과 ESO 내부 동작은 secret_supply_chain.py로 분리한다. 이 �
 from diagrams import Cluster, Diagram, Edge
 from diagrams.k8s.clusterconfig import Quota
 from diagrams.k8s.compute import Deployment, Job, StatefulSet
-from diagrams.k8s.network import Ingress
+from diagrams.k8s.network import Ingress, Service
 from diagrams.k8s.podconfig import Secret
 from diagrams.onprem.ci import GithubActions
 from diagrams.onprem.client import User
@@ -41,17 +41,17 @@ def build(theme: dict) -> None:
         developer = User("개발자", fontcolor=fg)
 
         with Cluster("umc-product-server", graph_attr=ca):
-            pr = Github("same-repo trusted PR #42\npreview 라벨 = 보안 승인", fontcolor=fg)
-            build = GithubActions("trusted publish CI\nauthor + head repo 검증", fontcolor=fg)
+            pr = Github("same-repo trusted PR #42\ndevelop 대상 · preview 라벨", fontcolor=fg)
+            build = GithubActions("선행 구현: trusted PR image CI\nauthor + head repo 검증", fontcolor=fg)
 
         image = Docker(
-            "public GHCR\nghcr.io/umc-product/umc-product-server\n:<PR head SHA>",
+            "public GHCR\numc-product/umc-product-server\n:<PR head SHA 12자리>",
             fontcolor=fg,
         )
 
         with Cluster("선행 설치 · PR마다 반복하지 않음", graph_attr=ca):
             appset = Argocd(
-                "ApplicationSet\nPull Request generator\n120초 polling",
+                "ApplicationSet\nPR label + targetBranch 필터\n120초 polling · CI 성공 필터 없음",
                 fontcolor=fg,
             )
             shared_secrets = Secret(
@@ -59,17 +59,20 @@ def build(theme: dict) -> None:
                 fontcolor=fg,
             )
 
+        with Cluster("ns argocd · PR마다 생성·삭제", graph_attr=ca):
+            application = Argocd("Application\numc-product-preview-42", fontcolor=fg)
+
         with Cluster("k3s · namespace preview", graph_attr=ca):
             quota = Quota(
-                "preview-budget\nDeployment · Certificate 최대 3\nnamespace 자원 상한",
+                "preview-budget\nDeployment 최대 3 · Service 최대 5\n공용 Certificate 1",
                 fontcolor=fg,
             )
-            with Cluster("PR마다 생성 · PR 종료 시 삭제", graph_attr=ca):
-                application = Argocd("Application\npr-42", fontcolor=fg)
-                certificate = Secret(
-                    "Let's Encrypt Certificate\napi-pr-42.university.neordinary.com",
-                    fontcolor=fg,
-                )
+            certificate = Secret(
+                "공용 wildcard Certificate\n*.university.neordinary.com\nPR 삭제 후에도 유지",
+                fontcolor=fg,
+            )
+            with Cluster("활성화 후 PR별 리소스 · 현재 Deployment/Ingress gate: false", graph_attr=ca):
+                service = Service("umc-product-server-pr-42\nService quota로 자리 확보", fontcolor=fg)
                 ingress = Ingress(
                     "api-pr-42.university.neordinary.com\nExternalDNS exact record",
                     fontcolor=fg,
@@ -96,8 +99,10 @@ def build(theme: dict) -> None:
             color=MANUAL,
             fontcolor=MANUAL,
         ) >> pr
-        pr >> Edge(label="② 자동 빌드", color=AUTO, fontcolor=AUTO) >> build
-        build >> Edge(label="PR SHA tag", color=AUTO, fontcolor=AUTO) >> image
+        pr >> Edge(label="② 구현 필요: trusted build", color=RISK, fontcolor=RISK,
+                   style="dashed") >> build
+        build >> Edge(label="PR SHA tag 게시", color=RISK, fontcolor=RISK,
+                      style="dashed") >> image
 
         appset >> Edge(
             label="③ PR 감지",
@@ -107,17 +112,18 @@ def build(theme: dict) -> None:
         ) >> pr
         appset >> Edge(label="④ Application 생성", color=AUTO, fontcolor=AUTO) >> application
 
-        application >> Edge(label="wave -2", color=AUTO, fontcolor=AUTO) >> certificate
-        certificate >> Edge(label="TLS Secret", color=AUTO, fontcolor=AUTO) >> ingress
-        application >> Edge(color=AUTO) >> ingress
-        application >> Edge(color=AUTO) >> app
-        application >> Edge(color=AUTO) >> create_db
+        application >> Edge(label="wave -2", color=AUTO, fontcolor=AUTO) >> service
+        certificate >> Edge(label="preview-wildcard-tls", color=AUTO, fontcolor=AUTO) >> ingress
+        application >> Edge(label="wave 1", color=AUTO, fontcolor=AUTO) >> ingress
+        application >> Edge(label="wave 0", color=AUTO, fontcolor=AUTO) >> app
+        application >> Edge(label="wave -1", color=AUTO, fontcolor=AUTO) >> create_db
         quota >> Edge(
             label="admission 제한",
             color=RISK,
             fontcolor=RISK,
             style="dashed",
         ) >> app
+        quota >> Edge(color=RISK, style="dashed") >> service
         quota >> Edge(color=RISK, style="dashed") >> certificate
         app >> Edge(
             label="anonymous image pull",
@@ -148,12 +154,13 @@ def build(theme: dict) -> None:
             color=AUTO,
             fontcolor=AUTO,
         ) >> postgres
-        ingress >> Edge(
-            label="⑤ 모바일 직접 호출\npublic API · no Access",
+        developer >> Edge(
+            label="⑤ 모바일 직접 호출\nHTTPS · 앱 API 인증",
             color=MANUAL,
             fontcolor=MANUAL,
             style="dotted",
-        ) >> developer
+            constraint="false",
+        ) >> ingress
 
         developer >> Edge(
             label="⑥ PR 닫기/라벨 제거\nApplication과 PR 리소스 삭제",

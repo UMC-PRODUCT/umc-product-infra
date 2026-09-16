@@ -4,7 +4,7 @@
 어디까지 완료되어야 실제 서비스가 배포된 것인지** 이해하기 위한 안내서다.
 실행 명령보다 구조를 먼저 설명한다. 배포 절차서가 아니므로 처음부터 끝까지 읽지 말고,
 낯선 계층이나 용어가 있는 절만 찾아본다. 실제 준비 여부는 각 작업 가이드의 사전 조건과
-검증 명령으로 확인한다. 계정 등록·회수 등 실제 작업은 [인프라 팀 운영 가이드](infra-operations.md)를 따른다.
+검증 명령으로 확인한다. 실제 작업은 [문서 목차](README.md)에서 사용자 안내와 관리자 절차를 구분해 찾는다.
 
 ## 먼저 기억할 한 문장
 
@@ -20,7 +20,7 @@ Git의 Kubernetes 선언을 계속 맞춘다.**
 | 서버 bootstrap | OS, 개인 계정·OpenSSH/UFW, K3s, Argo CD, ESO 최초 자격증명 | `ansible/` | 앱 버전의 지속 배포 |
 | GitOps | 클러스터 안의 선언 상태를 Git과 일치시킴 | `bootstrap/`, `argocd/` | 서버나 AWS 계정 생성 |
 | workload | 앱, DB, DNS/TLS controller, 관측 스택 | `charts/`, `manifests/` | 실제 secret 값을 Git에 저장 |
-| 운영 절차 | 점검·복구·검증 | `docs/`, `runbooks/`, `scripts/` | 선언 상태를 대신함 |
+| 운영 절차 | 점검·복구·검증 | `docs/operations/`, `docs/runbooks/`, `scripts/` | 선언 상태를 대신함 |
 
 ## 1. 전체 흐름
 
@@ -43,7 +43,7 @@ Ansible은 최초 설치 뒤에도 같은 설정을 다시 적용하는 복구 �
 업데이트할 때마다 Ansible을 실행하지는 않는다. 앱과 클러스터 리소스 변경은 Git에 반영하고
 Argo CD가 가져가게 한다.
 
-![GitOps 구성도](../diagrams/out/gitops-tree.png)
+![GitOps 구성도](diagrams/out/gitops-tree.png)
 
 ### 요청 한 번: 모바일·웹에서 백엔드까지
 
@@ -62,9 +62,9 @@ Argo CD가 가져가게 한다.
 Route53은 DNS만 담당하고 사용자 요청을 대신 통과시키거나 차단하지 않는다. 제공업체 상위
 방화벽과 UFW가 실제 서버의 public `443/tcp` 접근을 제한하며, Traefik과 앱 인증이 요청을 처리한다.
 메일 발송 경로는 환경별 values의 `EMAIL_PROVIDER`로 선택하며,
-전환·수신 검증 절차는 [Secret 운영 가이드](secrets.md#임시-gmail-smtp와-ses-복귀)를 따른다.
+전환·수신 검증 절차는 [Secret 운영 가이드](operations/secrets.md#임시-gmail-smtp와-ses-복귀)를 따른다.
 
-![요청 흐름](../diagrams/out/traffic-flow.png)
+![요청 흐름](diagrams/out/traffic-flow.png)
 
 ### 비밀값 한 개: 로컬 worksheet에서 Pod까지
 
@@ -80,21 +80,21 @@ Route53은 DNS만 담당하고 사용자 요청을 대신 통과시키거나 차
 `.env.*`는 배포 파일이 아니라 **로컬에서 값을 모으기 위한 임시 원장**이다. Git에 올리거나
 서버로 복사하지 않는다. Git에는 AWS secret의 경로와 key 계약만 둔다.
 
-![비밀값 공급 흐름](../diagrams/out/secret-supply-chain.png)
+![비밀값 공급 흐름](diagrams/out/secret-supply-chain.png)
 
 ## 2. 필요한 부분 찾기
 
 | 궁금한 것 | 볼 곳 |
 |---|---|
 | 전체 계층과 폴더 | 이 문서의 1절과 3절 |
-| 왜 단일 K3s와 GitOps를 쓰는지 | [K3s 아키텍처 결정 기록](../architecture/k3s.md) |
-| 빈 서버 설치 명령 | [서버 초기 구성](ansible-bootstrap.md) |
-| 운영 서버의 팀원 SSH 등록·회수 | [인프라 팀 운영 가이드](infra-operations.md) |
+| 왜 단일 K3s와 GitOps를 쓰는지 | [K3s 아키텍처 결정 기록](architecture/k3s.md) |
+| 빈 서버 설치 명령 | [서버 초기 구성](operations/ansible-bootstrap.md) |
+| 운영 서버의 팀원 SSH 등록·회수 | [SSH 계정 관리](operations/ssh-access.md) |
 | Argo CD 이후 생성되는 것 | `bootstrap/root-app.yaml`, `argocd/projects.yaml`, `argocd/applications/` |
 | 환경별 애플리케이션 차이 | `charts/umc-product-server/values-*.yaml` |
-| Secret 공급 경로 | [비밀값 관리](secrets.md), `charts/umc-secrets/` |
-| DNS와 인증서 | [도메인과 TLS](domains-tls.md) |
-| backup 활성화와 복원 연습 | `runbooks/` |
+| Secret 공급 경로 | [비밀값 관리](operations/secrets.md), `charts/umc-secrets/` |
+| DNS와 인증서 | [도메인과 TLS](operations/domains-tls.md) |
+| backup 활성화와 복원 연습 | `docs/runbooks/` |
 
 파일을 볼 때는 세부 값보다 먼저 **어느 계층이 소유하고 다음에 누가 소비하는지**를 찾는다.
 
@@ -168,11 +168,12 @@ CloudFormation을 사용한다. Azure VM이나 Kubernetes 리소스까지 관리
 `manifests/observability/`는 스크립트가 Kubernetes ConfigMap으로 만든 결과다. 생성물을 직접
 고치면 다음 생성 때 덮이므로 원본을 수정한 뒤 생성·검증한다.
 
-### `docs/`, `runbooks/`, `scripts/`
+### `docs/`와 `scripts/`
 
 - `docs/architecture/`: 결정과 전제. “왜”를 기록한다.
-- `docs/guides/`: 정상 작업 순서. “어떻게”를 기록한다.
-- `runbooks/`: backup 활성화처럼 데이터에 영향을 주는 작업의 명령과 중단 조건을 기록한다.
+- `docs/guides/`: DB 연결·Preview·모니터링을 사용하는 팀원의 안내다.
+- `docs/operations/`: 계정·배포·설정을 변경하는 관리자의 정상 작업 순서다.
+- `docs/runbooks/`: backup 활성화처럼 데이터에 영향을 주는 작업의 명령과 중단 조건을 기록한다.
 - `scripts/`: 반복 생성, 계약 검사, 일회성 AWS bootstrap을 자동화한다.
 
 ## 4. Ansible을 처음 볼 때 알아둘 것
@@ -191,7 +192,7 @@ CloudFormation을 사용한다. Azure VM이나 Kubernetes 리소스까지 관리
 | idempotent | 같은 작업을 다시 해도 같은 상태로 수렴 | 재실행 가능한 task 설계 |
 
 새 서버 최초 설치 순서는 다음과 같다. 이미 운영 중인 서버의 팀원 등록은
-[SSH 계정 등록](infra-operations.md#새-팀원-ssh-계정-등록)을 따르고, 초기 준비 단계를 다시 실행하지 않는다.
+[SSH 계정 등록](operations/ssh-access.md#새-팀원-ssh-계정-등록)을 따르고, 초기 준비 단계를 다시 실행하지 않는다.
 
 ```text
 ssh-access.yml을 finalize=false로 실행
@@ -216,7 +217,7 @@ UFW·SSH·K3s가 자동으로 원상복구되지는 않는다. 그래서 실행 
 관리 계약은 공인 `22/tcp`에서 개인 키만 허용하고 root·비밀번호 SSH 로그인을 차단하는 것이다.
 관리자 `admin`은 root에 준하는 sudo 권한이므로 운영 담당자로 제한한다. 백엔드 `db_tunnel`은
 지정 DB 목적지 forwarding만 허용한다. DB `5432/tcp`와 Kubernetes API `6443/tcp`는 공개하지 않는다.
-개인 키 등록·퇴임 시 기존 SSH/DB 세션 회수는 [상세 가이드](ansible-bootstrap.md#개인-계정과-db-터널)를 따른다.
+개인 키 등록·퇴임 시 기존 SSH/DB 세션 회수는 [SSH 계정 관리](operations/ssh-access.md)를 따른다.
 
 ## 5. Argo CD, Helm, Kubernetes의 관계
 
@@ -277,17 +278,17 @@ Git의 선언값과 실제 배포 상태를 구분한다. gate 값은 아래 원
 
 | 확인할 것 | 설정 원본과 검증 기준 |
 |---|---|
-| 앱 image·Deployment·API Ingress | [공통 values](../../charts/umc-product-server/values.yaml)와 환경별 [prod](../../charts/umc-product-server/values-prod.yaml)·[dev](../../charts/umc-product-server/values-dev.yaml)·[preview](../../charts/umc-product-server/values-preview.yaml)를 함께 확인한다. `image.tag`·`image.digest`, `deployment.enabled`, `ingress.enabled`가 기준이다. |
-| DNS 대상과 filter | 공통 values의 `externalDNS.target`과 [ExternalDNS](../../argocd/applications/platform/external-dns.yaml)의 `/32` target filter를 대조한다. 실제 record는 [DNS·TLS 가이드](domains-tls.md)로 검증한다. |
-| TLS | 공통·환경별 values의 `certificate`와 [ClusterIssuer](../../manifests/cert-manager/clusterissuers.yaml), [Preview Certificate](../../manifests/cert-manager/preview-wildcard-certificate.yaml)를 확인한다. issuer 선언만으로 발급 완료를 판단하지 않는다. |
-| Grafana 공개 접근 | [Grafana Application](../../argocd/applications/platform/observability/grafana.yaml)의 `ingress`와 [접근 가이드](monitoring-access.md)를 확인한다. |
-| backup | [CronJob](../../manifests/postgres/prod/backup-cronjob.yaml)의 `suspend`와 [활성화 runbook](../../runbooks/backup-activation.md)의 외부 restore 검증을 확인한다. |
-| root와 이관 단계 | [정상 root](../../bootstrap/root-app.yaml), [Prepare](../../bootstrap/root-app-prepare.yaml), [Verify](../../bootstrap/root-app-verify.yaml)의 제외 목록과 `prune`를 확인한다. `prune: false`에서 제외 목록을 바꿔도 기존 child Application은 중지되지 않는다. |
+| 앱 image·Deployment·API Ingress | [공통 values](../charts/umc-product-server/values.yaml)와 환경별 [prod](../charts/umc-product-server/values-prod.yaml)·[dev](../charts/umc-product-server/values-dev.yaml)·[preview](../charts/umc-product-server/values-preview.yaml)를 함께 확인한다. `image.tag`·`image.digest`, `deployment.enabled`, `ingress.enabled`가 기준이다. |
+| DNS 대상과 filter | 공통 values의 `externalDNS.target`과 [ExternalDNS](../argocd/applications/platform/external-dns.yaml)의 `/32` target filter를 대조한다. 실제 record는 [DNS·TLS 가이드](operations/domains-tls.md)로 검증한다. |
+| TLS | 공통·환경별 values의 `certificate`와 [ClusterIssuer](../manifests/cert-manager/clusterissuers.yaml), [Preview Certificate](../manifests/cert-manager/preview-wildcard-certificate.yaml)를 확인한다. issuer 선언만으로 발급 완료를 판단하지 않는다. |
+| Grafana 공개 접근 | [Grafana Application](../argocd/applications/platform/observability/grafana.yaml)의 `ingress`와 [접근 가이드](operations/tool-access.md)를 확인한다. |
+| backup | [CronJob](../manifests/postgres/prod/backup-cronjob.yaml)의 `suspend`와 [활성화 runbook](runbooks/backup-activation.md)의 외부 restore 검증을 확인한다. |
+| root와 이관 단계 | [정상 root](../bootstrap/root-app.yaml), [Prepare](../bootstrap/root-app-prepare.yaml), [Verify](../bootstrap/root-app-verify.yaml)의 제외 목록과 `prune`를 확인한다. `prune: false`에서 제외 목록을 바꿔도 기존 child Application은 중지되지 않는다. |
 
 각 gate는 독립적으로 관리한다. prod/dev는 검증된 image tag·digest가 준비되면 해당 환경의
 Deployment와 Ingress를 연 values를 Helm으로 사전 검증한 뒤 infra `main`에 직접 반영한다.
 새 IDC는 DB 복원 전 앱 Application 생성을 보류하고 DNS 전환 전에 HTTPS를 검증한다.
-이관 단계 전환은 [Cafe24 이전 runbook](../../runbooks/cafe24-migration.md)의 중단 조건을 따른다.
+이관 단계 전환은 [Cafe24 이전 runbook](runbooks/cafe24-migration.md)의 중단 조건을 따른다.
 
 ## 9. 실행 전에 사람이 확인할 외부 영역
 

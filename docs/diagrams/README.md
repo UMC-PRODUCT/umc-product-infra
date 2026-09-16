@@ -2,7 +2,7 @@
 
 이 디렉터리는 UMC 인프라의 **구조 설명 그림**을 관리한다. 그림을 보기만 한다면 아래 목록을
 열면 되고, 수정·재생성할 때만
-[다이어그램 유지보수 가이드](../guides/diagram-maintenance.md)를 따른다.
+[다이어그램 유지보수 가이드](../operations/diagram-maintenance.md)를 따른다.
 
 > [!NOTE]
 > 그림은 실시간 배포 상태가 아니다. 활성화 조건은 환경별 values와 가이드에서,
@@ -12,10 +12,11 @@
 
 | 목적 | 시작 위치 |
 |---|---|
-| 인프라 구조를 이해하고 싶다 | 아래 목표 구조 그림을 순서대로 본다 |
-| Python 그림을 수정하고 싶다 | [목표 구조 그림 재생성](../guides/diagram-maintenance.md#2-목표-구조-그림-재생성) |
+| 인프라 구조를 이해하고 싶다 | 아래 구조 그림을 순서대로 본다 |
+| 배포·이미지 복구 절차를 확인하고 싶다 | [배포 운영 가이드](../operations/deployment.md) |
+| Python 그림을 수정하고 싶다 | [그림 재생성](../operations/diagram-maintenance.md) |
 
-## 목표 구조 그림
+## 구조 그림
 
 처음에는 `traffic-flow`로 사용자 요청 경로를 보고, `gitops-tree`로 배포 주체를 본 뒤,
 `secret-supply-chain`으로 비밀값 경계를 확인하는 순서가 가장 이해하기 쉽다.
@@ -32,23 +33,17 @@
 선의 의미는 각 연결의 라벨을 기준으로 읽는다. 점선에는 DNS 조회·Git 조회·Secret 참조도 포함되므로
 선 모양만으로 활성 여부를 판단하지 않는다.
 
-그림을 읽을 때 함께 확인할 차이:
-
-- GitOps 그림의 고정 개수와 wave 요약은 전체 목록이 아니다. Reloader·Argo 접속 구성·모니터링 통합을
-  포함한 목록은 [`argocd/applications/`](../../argocd/applications/)와 [프로젝트 선언](../../argocd/projects.yaml)을 확인한다.
-- SecretStore·ExternalSecret·AWS source 개수는 [Secret 매핑 원본](../../charts/umc-secrets/values.yaml)을 기준으로 한다.
-- Preview 그림의 PR별 인증서 대신 [공용 wildcard 인증서](../../manifests/cert-manager/preview-wildcard-certificate.yaml)를 사용한다.
-  PR별 앱·DB 삭제와 공용 인증서 수명주기는 분리된다.
-- Branch 그림의 UI rollback 대신 정상 image tag·digest를 Git에 반영하는
-  [복구 절차](../guides/github-trust-root.md)를 따른다. DB 복원은 이미지 rollback과 별개다.
+Preview 그림은 [공용 wildcard 인증서](../../manifests/cert-manager/preview-wildcard-certificate.yaml)와
+PR별 앱·DB의 수명주기를 분리한다. PR 조회 조건은 라벨과 대상 브랜치이며 이미지 빌드 성공을
+확인하는 필터는 없다. 활성화 전 준비와 운영 절차는 [배포 운영 가이드](../operations/deployment.md)를 따른다.
 
 ## 파일 구조
 
 ```text
 docs/diagrams/
-├── *_flow.py, *_tree.py, *_env.py  # 목표 구조 source
+├── *_flow.py, *_tree.py, *_env.py  # 구조 설명 source
 ├── theme.py                         # 공통 style
 └── out/                              # commit하는 PNG
 ```
 
-목표 구조 script를 바꿨다면 PNG를 함께 재생성한다. `.venv/`는 commit하지 않는다.
+구조 script를 바꿨다면 PNG를 함께 재생성한다. `.venv/`는 commit하지 않는다.

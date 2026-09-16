@@ -46,7 +46,7 @@ ansible-playbook -i "${TARGET_INVENTORY:?새 서버 inventory 절대 경로 필�
 ```
 
 개인 관리자 재접속을 확인한 뒤에만 기존 세션을 닫고 `bootstrap_confirm: true`로 전환한다.
-상세 접근 검증은 [SSH 초기 구성](../docs/guides/ansible-bootstrap.md)을 따른다.
+상세 접근 검증은 [SSH 초기 구성](../operations/ansible-bootstrap.md)을 따른다.
 
 ```bash
 ansible -i "${TARGET_INVENTORY:?새 서버 inventory 절대 경로 필요}" k3s_servers -m ansible.builtin.ping
@@ -176,7 +176,7 @@ ansible -i "${TARGET_INVENTORY:?새 서버 inventory 절대 경로 필요}" k3s_
 dev와 승인된 Preview host도 실제 배포 목록에 맞춰 점검한다. 새 앱의 readiness, DB 연결·업무
 읽기/승인된 쓰기, dashboard·datasource와 익명 접근 차단을 검증한다. Grafana는 사람별 계정과
 권한을 확인하고, Argo CD는 `admin` 로그인과 `umc-viewer`의 조회 성공·변경 권한 거부를 확인한다.
-계정과 SSH 복구 경로는 [Argo CD 접근 가이드](../docs/guides/ansible-bootstrap.md#argo-cd-로컬-계정)를 따른다.
+계정과 SSH 복구 경로는 [Argo CD 접근 가이드](../operations/tool-access.md#argo-cd-로컬-계정)를 따른다.
 
 ## 7. DNS를 마지막으로 전환
 
@@ -205,5 +205,5 @@ restore까지 검증한 뒤 별도 폐기 승인을 받는다. 앱/DB 자동 복
 | 기존 DB 종료 후, 새 앱 시작 전 | 기존 DB/PVC와 dump를 보존한다. 원본의 쓰기 재개는 새 writer 부재를 검증한 뒤 승인한다. |
 | Verify 또는 DNS 전환 이후 | 양쪽 writer를 동시에 켜지 않는다. 새 데이터 변경·외부 부작용을 평가하고 데이터 정합성 복구 계획을 승인받는다. DNS만 되돌리거나 이전 dump를 덮어쓰지 않는다. |
 
-Secret 준비는 [Secret 운영](../docs/guides/secrets.md), 후속 backup 검증은
+Secret 준비는 [Secret 운영](../operations/secrets.md), 후속 backup 검증은
 [backup 활성화](backup-activation.md)를 따른다. 이 문서의 대상·중단 조건을 먼저 적용한다.

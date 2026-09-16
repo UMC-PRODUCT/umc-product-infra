@@ -4,8 +4,8 @@
 여기서는 **무엇이 어떤 순서로 배포되는지**를 설명한다.
 
 Dashboard와 alert 원본을 수정하려면 [원본 관리 README](../../../../observability/README.md),
-Grafana 접속·외부 공개·운영 절차는 [모니터링 접근 가이드](../../../../docs/guides/monitoring-access.md)를
-본다.
+팀원 조회 방법은 [Grafana·Argo CD 사용](../../../../docs/guides/monitoring.md),
+계정·외부 공개 운영은 [도구 접근 관리](../../../../docs/operations/tool-access.md)를 본다.
 
 ## 신호 흐름
 
@@ -34,9 +34,11 @@ Collector에는 별도 sampler를 두지 않는다. 애플리케이션이 보낸
 5. [`loki.yaml`](loki.yaml), [`tempo.yaml`](tempo.yaml): log와 trace 저장
 6. [`grafana.yaml`](grafana.yaml): 기존 Grafana의 datasource, dashboard와 외부 접근
 
+## 배포 순서와 수집 범위
+
 `monitoring-config`는 wave 1, 관측 chart는 wave 2, `monitoring-integrations`는 wave 3이다.
 CRD와 Operator가 먼저 준비된 다음 ServiceMonitor·PrometheusRule을 적용한다. 기존 standalone
-Prometheus 전환은 [마이그레이션 runbook](../../../../runbooks/monitoring-operator-migration.md)을 따른다.
+Prometheus 전환은 [마이그레이션 runbook](../../../../docs/runbooks/monitoring-operator-migration.md)을 따른다.
 
 `prometheus` Application은 `kube-prometheus-stack` chart 하나로 Prometheus Operator, CRD,
 Prometheus, Alertmanager, node-exporter, kube-state-metrics와 Kubernetes 기본 dashboard·rule을
@@ -48,6 +50,8 @@ Prometheus는 같은 namespace의 `release: prometheus` monitor·rule만 선택�
 대상 namespace의 Service label과 이름 있는 port를 선택한다. kubelet/cAdvisor와 kube-state-metrics로
 클러스터 workload 사용량과 상태를 수집한다. SQLite K3s에 없는 etcd·scheduler·controller-manager·
 kube-proxy 독립 endpoint와 관련 rule은 끈다.
+
+## 권한과 알림 설정
 
 Operator의 쓰기 권한은 `monitoring` Role에만 있고 cluster 권한은 node·namespace·storageclass
 조회뿐이다. Prometheus와 kube-state-metrics의 cluster 권한도 명시적인 읽기 전용 목록을 쓴다.
@@ -96,8 +100,8 @@ backup을 대신하지 않는다.
 datasource 같은 수신 경로도 필요한 monitoring 내부 통신만 연다. egress default-deny는 아직
 적용하지 않았으므로 outbound 제한은 별도 보강 항목이다.
 
-Grafana의 목표 접근 경로는 `grafana.university.neordinary.com` public HTTPS + Grafana login이다.
+Grafana는 승인된 host의 public HTTPS와 자체 로그인을 사용한다.
 익명 접근과 회원가입은 끄고 팀원마다 기본 `Viewer` 계정을 발급한다. desired state의 production
 Certificate와 public Ingress는 같은 Grafana Application에 있으며, Argo CD가 Certificate 준비를
 기다린 뒤 Ingress를 적용한다. 활성화 검증과 계정 운영은
-[모니터링 접근 가이드](../../../../docs/guides/monitoring-access.md)를 따른다.
+[모니터링 접근 가이드](../../../../docs/operations/tool-access.md)를 따른다.

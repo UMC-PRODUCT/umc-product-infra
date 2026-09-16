@@ -1,8 +1,8 @@
 # Ansible로 새 서버 초기 구성
 
 빈 Ubuntu 서버 한 대에 개인 SSH 접근과 K3s·Argo CD, ESO 최초 접근 자격증명을 준비하는 절차다.
-이미 운영 중인 서버의 팀원 등록·회수는 [인프라 팀 운영 가이드](infra-operations.md)를 따른다.
-기존 서비스와 데이터를 옮기는 작업은 [Cafe24 이전 runbook](../../runbooks/cafe24-migration.md)의
+이미 운영 중인 서버의 팀원 등록·회수는 [SSH 접근 운영](ssh-access.md)을 따른다.
+기존 서비스와 데이터를 옮기는 작업은 [Cafe24 이전 runbook](../runbooks/cafe24-migration.md)의
 별도 inventory·DB 복원·DNS 전환 순서를 적용한다.
 
 ```text
@@ -103,7 +103,7 @@ ssh -o IdentitiesOnly=yes -i /absolute/path/to/private-key ADMIN_USER@NEW_PUBLIC
 ```
 
 fingerprint와 대상 서버를 대조하고 새 로그인·sudo 성공을 확인한다. 실패하면 다음 단계로
-넘어가지 않는다. DB가 이미 준비됐다면 [DataGrip 검증](infra-operations.md#datagrip-접속)에서
+넘어가지 않는다. DB가 이미 준비됐다면 [DB 접근 가이드](../guides/db-access.md)에서
 승인된 DB 연결 성공과 shell·미승인 forwarding 거부도 확인한다.
 
 검증 후 새 서버 inventory의 `ansible_host`를 `ssh_access_public_host`와 같은 공인 IP,
@@ -150,7 +150,7 @@ inventory·Git·명령행 인자·로그에 값을 넣지 않는다. 준비 방�
 core 설치 후 새 서버에서 Node `Ready`, Argo CD 준비, Application/ApplicationSet 목록이 비어 있는지
 확인한다. GitOps를 시작할 준비가 되면 Git revision, AWS source, DNS·TLS와 DB 준비 순서를
 확인하고 `bootstrap_root_app_enabled: true`로 바꿔 같은 bootstrap 명령을 재실행한다.
-이전 작업은 정상 root를 바로 열지 말고 [이전 runbook](../../runbooks/cafe24-migration.md)의
+이전 작업은 정상 root를 바로 열지 말고 [이전 runbook](../runbooks/cafe24-migration.md)의
 Prepare → Verify → DNS 전환 순서와 root 경로 override를 유지한다.
 
 ## 4. 완료 검증
@@ -184,69 +184,24 @@ core만 설치했거나 DB가 아직 없으면 앱·DB 검증까지 끝났다고
 ## 개인 계정과 DB 터널
 
 운영 서버의 권한 구분·공개키 준비·전체 허용 계정 보존·SSH 적용은
-[인프라 팀 운영 가이드](infra-operations.md#개인-계정과-db-터널)를 따른다.
+[SSH 접근 운영](ssh-access.md)을 따른다.
 접속 계정만 바꾸려면 `ssh-access.yml`을 사용하며 전체 bootstrap을 재실행하지 않는다.
 
 ### DataGrip 접속
 
-관리자 DB Service IP 조회 명령, 환경별 Database 이름, SSH/SSL과 General의 입력값은
-[DataGrip 상세 절차](infra-operations.md#datagrip-접속)에 있다. SSH 개인키와 PostgreSQL
-계정·비밀번호는 서로 다른 자격증명이다.
+관리자의 DB Service IP 조회와 터널 허용 목적지 준비는 [SSH 접근 운영](ssh-access.md)을 따른다.
+환경별 Database 이름, SSH/SSL과 General의 입력값은 [DB 접근 가이드](../guides/db-access.md)에 있다.
+SSH 개인키와 PostgreSQL 계정·비밀번호는 서로 다른 자격증명이다.
 
 ### 팀원 회수
 
 `state: absent` 적용, 기존 SSH 터널 종료 검증과 사용한 DB role에 따른 별도 회수·회전 검토는
-[팀원 회수 절차](infra-operations.md#팀원-회수)를 따른다. 목록에서 항목만 지워 회수 완료로 간주하지 않는다.
+[팀원 회수 절차](ssh-access.md#팀원-회수)를 따른다. 목록에서 항목만 지워 회수 완료로 간주하지 않는다.
 
 ## 운영과 문제 해결
 
-### Argo CD 로컬 계정
-
-Argo CD core 계정·권한은 [bootstrap Helm values](../../ansible/roles/argocd/files/argo-cd-values.yaml)에서
-관리한다. `admin`은 운영자만 사용하고 공유하지 않는다. 팀 공용 `umc-viewer`는 로그인과
-`role:readonly` 조회만 허용하며, 배포·설정 변경 권한과 API token 발급 권한은 주지 않는다.
-익명 접근과 로그인 사용자의 기본 권한은 끈다. 공개 Ingress는 core chart가 아니라 별도
-`argocd-access` Application이 [DNS·TLS 계약](domains-tls.md#argo-cd-공개-https)에 따라 관리한다.
-
-로컬 계정에는 MFA나 GitHub 팀 연동이 없다. 공유 계정은 사용자를 개인별로 구분하거나 회수할 수
-없고, 조회 전용이어도 자기 비밀번호는 변경할 수 있다. 공유 대상 변경·유출 시 운영자가 비밀번호를
-회전하고 승인된 비밀 전달 수단으로 다시 전달한다. 기존 admin은 계정·권한 검증과 복구에 사용한다.
-
-계정 정의와 RBAC만 Git에 저장한다. 비밀번호는 runtime `argocd-secret`에서 별도 관리하며
-평문·해시 모두 values, Git, shell 인자, 로그에 넣지 않는다. 로그인한 운영자는 Argo CD CLI의
-대화형 입력으로 `argocd account update-password --account umc-viewer`를 실행할 수 있다.
-현재 비밀번호 질문에는 로그인한 운영자 계정의 비밀번호를 입력한다.
-
-반영 전 고정 chart의 렌더와 diff를 검토하고, 반영 후 admin 로그인, viewer의 조회 성공과
-변경 권한 거부, 기존 health gate 보존을 확인한다. 계정만 바꾸기 위해 전체 bootstrap을 재실행하거나
-runtime Secret을 Git manifest로 덮어쓰지 않는다.
-
-### Argo CD 공개 접속과 복구
-
-일반 접속은 `https://argo.university.neordinary.com`을 사용한다. 공용 조회 계정으로 CLI에
-로그인할 때는 `argocd login argo.university.neordinary.com --grpc-web --username umc-viewer`를
-실행하고 비밀번호를 대화형으로 입력한다. TLS는 Traefik에서 종료하며 외부 `80/tcp`는 열지 않는다.
-
-DNS·Ingress 장애 시 운영자는 개인 관리자 공인 SSH로 IDC에 접속해 loopback에만 HTTP를 연다.
-core의 `server.insecure=true` 적용 후에는 backend가 HTTP이므로 이 복구 경로에 HTTPS를 쓰지 않는다.
-
-```bash
-# IDC의 SSH 세션에서 유지한다.
-sudo k3s kubectl -n argocd port-forward --address 127.0.0.1 service/argocd-server 18080:80
-```
-
-관리자 PC의 별도 terminal에서 같은 IDC로 SSH tunnel을 유지한다. 아래 두 변수에는 승인된
-개인 관리자 SSH 사용자와 서버 공인 주소를 사용한다.
-
-```bash
-ssh -N -L 127.0.0.1:18080:127.0.0.1:18080 "$IDC_SSH_USER@$IDC_NODE_HOST"
-```
-
-다른 관리자 PC terminal에서 `argocd login 127.0.0.1:18080 --plaintext --username admin`으로
-복구 작업을 수행한다. `--plaintext`는 SSH로 암호화된 이 loopback 경로에만 사용한다.
-복구 후 port-forward와 tunnel을 종료한다. Kubernetes API나 `--address 0.0.0.0`을
-열어 우회하지 않는다. Helm 배포 성공만으로 인증 검증이 끝나지는 않으므로 공개 로그인과
-viewer의 변경 권한 거부를 다시 확인한다.
+Grafana·Argo CD 계정 발급·회수, 공개 접속 검증과 장애 시 SSH 복구는
+[도구 접근 운영](tool-access.md)을 따른다.
 
 ### 재실행과 오류 확인
 

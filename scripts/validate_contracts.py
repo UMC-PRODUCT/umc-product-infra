@@ -1698,7 +1698,7 @@ def validate_repository_identity() -> None:
         "manifests/postgres/preview",
         "manifests/observability",
         "observability",
-        "runbooks",
+        "docs/runbooks",
     ]
     for directory in required_directories:
         require((ROOT / directory).is_dir(), f"missing directory: {directory}")

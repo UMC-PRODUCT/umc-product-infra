@@ -1,4 +1,4 @@
-# 도메인과 TLS 운영 계약
+# DNS와 TLS 운영
 
 운영 도메인은 `university.neordinary.com`을 사용한다. 상위 `neordinary.com`에서
 이 하위 도메인을 Route 53 public hosted zone으로 NS 위임한다. Route 53은
@@ -30,15 +30,15 @@ ExternalDNS는 API, Grafana와 Argo CD record만 소유한다.
 | prod API | `api.university.neordinary.com` | Route 53 A record → public direct HTTPS, API 인증 |
 | dev API | `api-dev.university.neordinary.com` | Route 53 A record → public direct HTTPS, API 인증 |
 | PR preview API | `api-pr-<PR>.university.neordinary.com` | Route 53 exact A record → public direct HTTPS, API 인증 |
-| Grafana | `grafana.university.neordinary.com` | Route 53 A record → public direct HTTPS, Grafana 로그인 필수 |
-| Argo CD | `argo.university.neordinary.com` | Route 53 A record → public direct HTTPS, Argo CD 로그인 필수 |
+| Grafana | 관리자가 전달하는 Grafana host | Route 53 A record → public direct HTTPS, Grafana 로그인 필수 |
+| Argo CD | 관리자가 전달하는 Argo CD host | Route 53 A record → public direct HTTPS, Argo CD 로그인 필수 |
 
 prod/dev/preview API는 모바일 앱이 직접 호출한다. Route 53은 요청을 대신 차단하지
 않으므로 abuse 방어는 앱 인증, Traefik rate limit, 상위 방화벽과 로그 감시로
 별도 구성한다. Grafana도 public HTTPS로 열지만 익명 접근과 회원가입은 끄고 운영자가
 발급한 사람별 Grafana 계정만 사용한다. 기본 Organization role은 `Viewer`다.
 Argo CD는 비공유 `admin`과 공용 조회 계정 `umc-viewer`를 사용한다. 익명 접근은 끄며,
-로컬 계정에는 MFA나 GitHub 팀 제한이 없다. 계정 관리는 [Argo CD 로컬 계정](ansible-bootstrap.md#argo-cd-로컬-계정)을 따른다.
+로컬 계정에는 MFA나 GitHub 팀 제한이 없다. 계정 관리는 [Argo CD 로컬 계정](tool-access.md#argo-cd-로컬-계정)을 따른다.
 
 ## 책임 분리
 
@@ -64,8 +64,8 @@ Hosted Zone ID와 고정 public IPv4는 cert-manager, ExternalDNS와 Ingress 설
 - Grafana Ingress `external-dns.kubernetes.io/target`: `1.255.226.166`
 - Argo CD Ingress `external-dns.kubernetes.io/target`: `1.255.226.166`
 
-이 값은 새 Cafe24 IDC의 이관 대상이다. Git 설정만으로 실제 DNS 전환이나 외부 접속 검증이
-완료된 것은 아니며, 전환 gate를 통과한 뒤 live A/TXT record와 HTTPS를 확인한다.
+IP 변경 시 위 네 위치를 함께 수정한다. Git 설정만으로 실제 DNS 전환이나 외부 접속 검증이
+완료된 것은 아니므로, 적용 후 live A/TXT record와 HTTPS를 확인한다.
 
 Hosted Zone ID와 public IPv4는 비밀값이 아니라 Git에 둔다. IP를 미리 넣어도 Ingress가 없으면
 ExternalDNS가 A record를 만들지 않는다. `203.0.113.10` 같은 TEST-NET 주소는 CI의 합성 렌더
@@ -102,7 +102,7 @@ challenge TXT 작성과 변경 상태 조회, ExternalDNS에는 exact A/TXT reco
 7. production Certificate를 적용한다. 같은 Application의 Ingress도 함께 활성화했다면 Argo CD가
    Certificate의 최신 generation `Ready=True`를 기다린 뒤 다음 sync wave를 적용한다.
 8. Grafana exact A/TXT record, 인증서 체인, 로그인 필수 상태와 팀원 `Viewer` 계정을
-   [모니터링 접근 가이드](monitoring-access.md)대로 검증한다.
+   [모니터링 접근 가이드](tool-access.md)대로 검증한다.
 9. 첫 GHCR image tag·digest가 준비되면 prod/dev별 Deployment와 API Ingress를 같은 PR에서 켠다.
 10. 외부에서 DNS 결과가 고정 IDC IPv4인지, HTTPS 인증서 체인과 API 인증이 정상인지 검증한다.
 11. Preview는 production wildcard Certificate가 `Ready=True`인 것을 확인한 뒤 trusted PR에만 연다.
@@ -136,9 +136,9 @@ Argo CD core의 URL·HTTP backend·계정은 Ansible Helm release가 소유한�
 `argocd-access` Application은 `argocd` namespace의 Certificate, Ingress와 server NetworkPolicy만
 관리하며, 좁은 AppProject 권한으로 core ConfigMap이나 Secret을 수정하지 않는다.
 
-1. Route 53 IAM에 `argo.university.neordinary.com` A record,
-   `_external-dns.a-argo.university.neordinary.com` ownership TXT와
-   `_acme-challenge.argo.university.neordinary.com` DNS-01 TXT의 exact 권한을 반영한다.
+1. 승인된 Argo CD host의 A record, `_external-dns.a-<argo-host>` ownership TXT와
+   `_acme-challenge.<argo-host>` DNS-01 TXT의 exact 권한을 Route 53 IAM에 반영한다.
+   실제 host는 Argo CD core values, Certificate·Ingress, IAM 허용 목록에서 일치시킨다.
 2. 기존 계정 로그인과 SSH 복구 경로를 확인한다. server NetworkPolicy가 먼저 생성된 것을 확인한 뒤
    검토한 core Helm values를 적용한다.
    다른 구성요소의 기존 NetworkPolicy는 유지한다. chart의 server 전체 허용 정책을 함께 남기면
@@ -149,9 +149,8 @@ Argo CD core의 URL·HTTP backend·계정은 Ansible Helm release가 소유한�
    TLS는 Traefik의 `websecure`에서 종료하고, backend는 ClusterIP Service의 `http` port를 거쳐
    server `8080/TCP`로 연결한다. `server.insecure=true`는 이 내부 구간에만 해당하며 public HTTP를 열지 않는다.
 
-공개 CLI 접속은 `argocd login argo.university.neordinary.com --grpc-web --username umc-viewer`를
-사용하고 비밀번호는 대화형으로 입력한다. 공개 주소에 `--plaintext`나 인증서 검증 생략 옵션을 쓰지 않는다.
-접속 중단 시 [SSH를 통한 복구 경로](ansible-bootstrap.md#argo-cd-공개-접속과-복구)를 사용한다.
+CLI 로그인과 접속 중단 시 SSH 복구는 [도구 접근 운영](tool-access.md#argo-cd-공개-접속과-복구)을 따른다.
+공개 주소에 `--plaintext`나 인증서 검증 생략 옵션을 쓰지 않는다.
 긴급 공개 차단은 Git에서 Ingress만 제거하고, Certificate·NetworkPolicy·계정 Secret은 보존한다.
 
 ## 변경과 복구
