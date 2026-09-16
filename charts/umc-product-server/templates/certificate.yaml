@@ -1,3 +1,4 @@
+{{/* 앱 기동 gate와 독립적으로 TLS 인증서를 준비한다. 실제 발급 완료는 cert-manager 상태로 확인한다. */}}
 {{- if .Values.certificate.enabled }}
 {{- $host := required "certificate.enabled=true이면 ingress.host가 필수" .Values.ingress.host }}
 {{- $issuerName := required "certificate.enabled=true이면 certificate.issuerRef.name이 필수" .Values.certificate.issuerRef.name }}

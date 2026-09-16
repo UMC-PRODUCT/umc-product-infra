@@ -1,5 +1,5 @@
 ---
-# 민감값의 조회, 입력, 비교, 적용은 no_log 계약을 유지한다.
+# ESO의 Git 설정이 고정 이름을 참조하므로 bootstrap namespace와 Secret 이름 변경을 막는다.
 - name: Require the repository External Secrets bootstrap identity contract
   ansible.builtin.assert:
     that:
@@ -10,6 +10,8 @@
       external-secrets and Secret aws-bootstrap. Update every consumer together
       instead of overriding these role defaults.
 
+# 역할 변수에 값이 없으면 Ansible을 실행하는 제어 노드의 환경변수를 읽는다. 서버의 환경변수가 아니다.
+# no_log로 두 자격증명이 Ansible 실행 결과에 노출되지 않게 한다.
 - name: Resolve the AWS bootstrap access key from variables or the controller environment
   ansible.builtin.set_fact:
     external_secrets_bootstrap_effective_access_key_id: >-
@@ -22,6 +24,7 @@
          else lookup('ansible.builtin.env', 'ESO_AWS_SECRET_ACCESS_KEY') }}
   no_log: true
 
+# access key ID가 없으면 제어 노드에서 입력받는다. echo: false와 no_log로 화면 입력과 실행 결과를 숨긴다.
 - name: Prompt for the AWS bootstrap access key ID when absent
   ansible.builtin.pause:
     prompt: ESO AWS access key ID
@@ -31,6 +34,7 @@
   no_log: true
   become: false
 
+# secret access key가 없으면 제어 노드에서 비표시 입력받고 no_log로 Ansible 결과도 숨긴다.
 - name: Prompt for the AWS bootstrap secret access key when absent
   ansible.builtin.pause:
     prompt: ESO AWS secret access key
@@ -40,6 +44,7 @@
   no_log: true
   become: false
 
+# 기존에 지정한 값을 우선하고 비어 있던 항목만 prompt 입력으로 채운다. 합친 자격증명도 no_log로 숨긴다.
 - name: Merge any prompted AWS bootstrap values
   ansible.builtin.set_fact:
     external_secrets_bootstrap_effective_access_key_id: >-
@@ -52,6 +57,7 @@
          else external_secrets_bootstrap_secret_key_prompt.user_input }}
   no_log: true
 
+# 두 자격증명이 모두 채워졌는지 검사해 빈 Secret 적용을 막으며 실패 결과에도 값을 노출하지 않는다.
 - name: Reject empty AWS bootstrap credentials
   ansible.builtin.assert:
     that:
@@ -60,6 +66,7 @@
     fail_msg: AWS bootstrap credentials cannot be empty.
   no_log: true
 
+# 대상 서버에서 ESO namespace 존재 여부를 선언과 비교한다. diff 0=동일, 1=차이만 정상으로 본다.
 - name: Compare the External Secrets namespace bootstrap state
   ansible.builtin.command:
     argv:
@@ -95,7 +102,7 @@
   changed_when: true
 
 # Secret manifest는 프로세스 인자나 임시 파일이 아닌 stdin으로 전달한다.
-# no_log로 명령 결과까지 숨기며 diff rc=0/1 외의 값만 오류로 처리한다.
+# no_log로 민감한 diff 결과를 숨긴다. diff 0=동일, 1=차이만 정상이며 다른 반환값은 오류다.
 - name: Compare the AWS bootstrap Secret without exposing its data
   ansible.builtin.command:
     argv:
@@ -131,6 +138,8 @@
   failed_when: external_secrets_bootstrap_diff.rc not in [0, 1]
   no_log: true
 
+# 차이가 있을 때만 stdin으로 Secret을 적용하고 기존 ESO가 새 키를 읽도록 재시작 handler에 알린다.
+# no_log로 적용 결과도 숨기며 자격증명을 포함한 manifest를 로그에 남기지 않는다.
 - name: Reconcile the AWS bootstrap Secret when it differs
   ansible.builtin.command:
     argv:
@@ -166,7 +175,7 @@
   no_log: true
   notify: Restart External Secrets after AWS credential rotation
 
-# fact를 비우는 것은 후속 오사용을 줄일 뿐 메모리의 안전한 삭제를 보장하지 않는다.
+# 자격증명과 prompt 결과 fact를 비워 후속 task의 오사용을 줄인다. 메모리의 안전한 삭제를 보장하지는 않는다.
 - name: Remove AWS bootstrap values from in-memory host variables
   ansible.builtin.set_fact:
     external_secrets_bootstrap_effective_access_key_id: ''

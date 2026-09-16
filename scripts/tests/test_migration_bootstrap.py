@@ -15,6 +15,7 @@ def load(path: str):
     return yaml.safe_load((ROOT / path).read_text(encoding="utf-8"))
 
 
+# 이관 준비·검증 단계에서 앱 쓰기와 DNS 전환이 앞서 열리지 않는지 확인한다.
 class MigrationBootstrapTests(unittest.TestCase):
     def test_staged_roots_only_change_directory_exclusions(self):
         normal = load("bootstrap/root-app.yaml")

@@ -1,9 +1,11 @@
 ---
+# 퇴임 계정의 승인 키 파일을 지워 해당 키로 새 인증을 하지 못하게 한다.
 - name: Remove the retired account's public keys
   ansible.builtin.file:
     path: "/etc/ssh/authorized_keys/{{ ssh_access_retired.name }}"
     state: absent
 
+# 키 삭제로 끊기지 않는 기존 SSH 세션·터널을 닫기 위해 해당 사용자의 모든 프로세스를 종료한다.
 - name: Terminate processes including established tunnels for the retired account
   ansible.builtin.command:
     argv: [pkill, -KILL, -u, "{{ ssh_access_retired.name }}"]
@@ -12,6 +14,7 @@
   failed_when: ssh_access_terminated.rc not in [0, 1]
   when: ssh_access_retired.name in ansible_facts.getent_passwd
 
+# Linux 계정을 삭제하되 남은 파일을 검토할 수 있도록 홈 디렉터리 등 사용자 파일은 보존한다.
 - name: Delete the retired Linux account while preserving its files for review
   ansible.builtin.user:
     name: "{{ ssh_access_retired.name }}"
@@ -19,6 +22,7 @@
     remove: false
     force: false
 
+# SSH 회수와 별개로 개인 PostgreSQL 로그인 차단·DB 세션 종료가 필요함을 운영자에게 알린다.
 - name: Report the separate database offboarding boundary
   ansible.builtin.debug:
     msg: >-

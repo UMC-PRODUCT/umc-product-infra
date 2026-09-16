@@ -10,6 +10,7 @@ global:
   image:
     tag: v3.5.0
 
+# Helm release 삭제가 Application 등 custom resource 정의의 삭제로 이어지지 않게 보존한다.
 crds:
   install: true
   keep: true
@@ -24,6 +25,7 @@ configs:
     accounts.umc-viewer: login
     accounts.umc-viewer.enabled: true
   rbac:
+    # 모든 로그인 사용자에게 기본 권한을 주지 않고 아래 명시된 역할만 연결한다.
     policy.default: ""
     policy.csv: |
       g, umc-viewer, role:readonly
@@ -31,6 +33,7 @@ configs:
     # 외부 TLS는 Traefik이 종료한다. 내부 HTTP는 argocd-access의 NetworkPolicy로 제한한다.
     server.insecure: true
 
+# Git desired state와 클러스터를 비교·동기화하는 controller의 자원을 단일 노드에 맞춘다.
 controller:
   networkPolicy:
     create: true
@@ -42,6 +45,7 @@ controller:
       cpu: "1"
       memory: 1Gi
 
+# PR 등 generator 입력을 바탕으로 Application을 생성하는 별도 controller다.
 applicationSet:
   networkPolicy:
     create: true
@@ -53,6 +57,7 @@ applicationSet:
       cpu: 500m
       memory: 256Mi
 
+# chart가 제공하는 인증 연동 구성요소의 자원 상한이다. 이 값만으로 외부 SSO가 구성되지는 않는다.
 dex:
   networkPolicy:
     create: true
@@ -89,6 +94,7 @@ redis:
       cpu: 500m
       memory: 256Mi
 
+# Redis 인증 Secret 생성 hook도 단일 노드의 작은 자원 예산 안에서 실행한다.
 redisSecretInit:
   resources:
     requests:
@@ -98,6 +104,7 @@ redisSecretInit:
       cpu: 100m
       memory: 64Mi
 
+# 저장소 checkout·manifest 렌더 담당이며 Pod에 Kubernetes API 토큰을 자동 주입하지 않는다.
 repoServer:
   networkPolicy:
     create: true
@@ -120,6 +127,7 @@ repoServer:
       cpu: "1"
       memory: 512Mi
 
+# UI/API는 ClusterIP로 제공하고 공개 HTTPS 경계는 별도 argocd-access Application이 관리한다.
 server:
   service:
     type: ClusterIP

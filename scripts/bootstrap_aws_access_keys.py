@@ -43,6 +43,7 @@ class IssuedKey:
     secret_access_key: str
 
 
+# AWS 응답은 메모리에서만 처리하고 실패 시 원본 stdout/stderr 대신 작업 이름만 보고한다.
 class AwsCli:
     def __init__(self, profile: str, region: str) -> None:
         self.profile = profile
@@ -89,6 +90,7 @@ class AwsCli:
             raise BootstrapError("AWS CLI returned an unexpected response")
         return parsed
 
+    # 기존 로그인 세션을 배제하고 새 키 자체가 기대한 IAM 사용자로 인증되는지 확인한다.
     def identity_with_key(self, issued_key: IssuedKey) -> dict[str, Any]:
         environment = self._environment()
         for name in (
@@ -178,6 +180,8 @@ def repo_root() -> Path:
     return Path(result.stdout.strip()).resolve()
 
 
+# 최초 발급 대상 필드는 모두 비어 있어야 한다. 기존 키의 교체·회전에는 쓰지 않는다.
+# Git 비추적 여부와 소유자·0600 권한을 확인한 로컬 원장만 읽는다.
 def read_env_file(path: Path, root: Path) -> str:
     expected_path = root / ".env.prod"
     if path.resolve() != expected_path.resolve():
@@ -227,6 +231,7 @@ def read_env_file(path: Path, root: Path) -> str:
     return contents
 
 
+# 생성·갱신이 끝난 stack의 Output만 사용해 아직 준비 중인 자원에 키를 발급하지 않는다.
 def stack_outputs(aws: AwsCli, stack_name: str) -> dict[str, str]:
     response = aws.json(
         ["cloudformation", "describe-stacks", "--stack-name", stack_name]
@@ -260,6 +265,7 @@ def require_outputs(
         )
 
 
+# 이름만 맞는 다른 환경의 stack을 사용하지 않도록 계정·region·bucket·발신자를 함께 대조한다.
 def validate_stack_contracts(
     storage: dict[str, str],
     ses: dict[str, str],
@@ -299,6 +305,7 @@ def validate_stack_contracts(
         raise BootstrapError("backup writer IAM user mismatch")
 
 
+# 기존 키가 하나라도 있으면 중단한다. 이 경계가 최초 발급과 키 회전을 구분한다.
 def validate_iam_user_has_no_keys(aws: AwsCli, user_name: str, account_id: str) -> None:
     response = aws.json(["iam", "get-user", "--user-name", user_name])
     user = response.get("User")
@@ -355,6 +362,7 @@ def create_access_key(aws: AwsCli, label: str, user_name: str) -> IssuedKey:
     return IssuedKey(label, user_name, key_id, secret)
 
 
+# IAM 전파 지연만 제한적으로 재시도하며 다른 사용자·계정으로 인증되면 즉시 실패한다.
 def validate_issued_key(aws: AwsCli, issued_key: IssuedKey, account_id: str) -> None:
     expected_arn = f"arn:aws:iam::{account_id}:user/{issued_key.user_name}"
     delays = (1, 2, 3, 5, 8)
@@ -389,6 +397,7 @@ def replace_env_assignments(contents: str, values: dict[str, str]) -> str:
     return updated
 
 
+# 같은 디렉터리의 0600 임시 파일을 fsync한 뒤 교체해 부분 기록과 느슨한 권한을 피한다.
 def atomic_write(path: Path, contents: str) -> None:
     descriptor = -1
     temporary_path: Path | None = None
@@ -445,6 +454,7 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+# 대상 계정과 기존 자원을 먼저 검증하고, 새 키 검증이 모두 끝난 뒤 원장을 기록한다.
 def main() -> int:
     args = parse_args()
     if args.region != SEOUL_REGION:
@@ -539,6 +549,7 @@ def main() -> int:
         fsync_directory(env_path.parent)
     except BaseException:
         if not committed:
+            # 원장에 기록하기 전 실패한 경우에만 이번 실행에서 응답을 받은 새 키를 회수한다.
             rollback_failed = False
             for issued_key in reversed(issued):
                 try:

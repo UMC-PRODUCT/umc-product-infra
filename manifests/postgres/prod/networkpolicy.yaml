@@ -31,7 +31,7 @@ spec:
               - key: app.kubernetes.io/component
                 operator: NotIn
                 values: [database-bootstrap, database-cleanup]
-        # DB namespace의 명시된 bootstrap/backup Job만 허용한다.
+        # DB namespace의 명시된 bootstrap·backup Job과 exporter Pod를 허용한다.
         - podSelector:
             matchLabels:
               app.kubernetes.io/name: postgres-app-role
@@ -53,6 +53,7 @@ spec:
       ports:
         - { protocol: TCP, port: 5432 }
 ---
+# DB namespace의 Pod가 CoreDNS에 질의하는 경로다. 외부 서비스로의 일반 송신까지 허용하지 않는다.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -77,6 +78,7 @@ spec:
         - { protocol: UDP, port: 53 }
         - { protocol: TCP, port: 53 }
 ---
+# role 생성 Job 세 종류가 같은 namespace의 PostgreSQL 5432에 접속하도록 송신을 허용한다.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -102,6 +104,7 @@ spec:
       ports:
         - { protocol: TCP, port: 5432 }
 ---
+# exporter는 PostgreSQL로만 query를 보내며 DNS 허용은 위 공통 정책에서 받는다.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -126,6 +129,7 @@ spec:
       ports:
         - { protocol: TCP, port: 5432 }
 ---
+# monitoring의 Prometheus Pod만 exporter metrics 9187을 수집할 수 있게 두 selector를 함께 적용한다.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -153,6 +157,7 @@ spec:
       ports:
         - { protocol: TCP, port: 9187 }
 ---
+# backup Pod의 DB 읽기와 S3 업로드에 필요한 송신 경로다. AWS 인증·버킷 권한은 별도 IAM이 제한한다.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:

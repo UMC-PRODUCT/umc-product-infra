@@ -25,6 +25,7 @@ spec:
         - { protocol: UDP, port: 53 }
         - { protocol: TCP, port: 53 }
 ---
+# PR 앱은 Traefik에서 요청을 받고 공유 DB·관측 gateway·공개 HTTPS로만 나가도록 경로를 선언한다.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -105,6 +106,7 @@ spec:
       ports:
         - { protocol: TCP, port: 443 }
 ---
+# 공유 DB의 5432는 같은 namespace의 PR 앱과 DB 생성·삭제·role 초기화 Job에 연다.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -140,6 +142,7 @@ spec:
       ports:
         - { protocol: TCP, port: 5432 }
 ---
+# PR 삭제 뒤에도 남는 baseline으로 DB 정리 Job의 5432 송신을 허용한다. DNS는 첫 정책이 담당한다.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:

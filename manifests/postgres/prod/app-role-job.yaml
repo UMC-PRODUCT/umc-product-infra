@@ -1,4 +1,5 @@
 # 운영 애플리케이션 전용 PostgreSQL role. 앱에는 관리자 postgres-secrets를 주지 않는다.
+# 실행할 때 DB·public schema 소유권과 앱 role 비밀번호·권한을 실제 변경하므로 대상 DB와 Secret을 함께 확인한다.
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -9,7 +10,7 @@ metadata:
     app.kubernetes.io/component: database-bootstrap
     environment: prod
   annotations:
-    # Job spec은 불변이다. manifest 변경 시 Argo CD가 안전하게 재생성한다.
+    # 불변 Job을 갱신하려고 삭제 후 재생성한다. 다시 실행되는 SQL의 영향도 함께 검토한다.
     argocd.argoproj.io/sync-options: Force=true,Replace=true
     argocd.argoproj.io/sync-wave: "1"
 spec:
@@ -35,6 +36,7 @@ spec:
         - name: psql
           image: postgis/postgis:18-3.6@sha256:60f6ad1d21ea86a67d47780b9a0d1e1d200500f62b19293fa834d0dea80b8677
           command: ["sh", "-ec"]
+          # DB 응답을 기다린 뒤 확장과 앱 role을 준비한다. SQL 오류 시 중단하지만 앞선 SQL을 자동 롤백하지 않는다.
           args:
             - |
               database_ready=false

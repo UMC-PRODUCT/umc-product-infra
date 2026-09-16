@@ -1,4 +1,5 @@
 ---
+# AWS 밖의 K3s에서 ESO가 환경별 IAM role을 AssumeRole할 최초 자격증명의 저장 위치다.
 external_secrets_bootstrap_namespace: external-secrets
 external_secrets_bootstrap_secret_name: aws-bootstrap
 

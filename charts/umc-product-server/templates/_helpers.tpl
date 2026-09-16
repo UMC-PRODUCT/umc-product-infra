@@ -1,3 +1,4 @@
+{{/* 리소스 이름과 label을 공통화해 Service 선택자와 Deployment Pod label이 어긋나지 않게 한다. */}}
 {{- define "umc-product-server.name" -}}
 {{- .Chart.Name -}}
 {{- end }}
@@ -21,6 +22,7 @@ app.kubernetes.io/managed-by: {{ .Release.Service }}
 environment: {{ required "environment 는 필수 (prod | dev | preview)" .Values.environment }}
 {{- end }}
 
+{{/* 변경 가능한 image 버전은 선택자에 넣지 않아 배포 때마다 대상 식별자가 바뀌지 않게 한다. */}}
 {{- define "umc-product-server.selectorLabels" -}}
 app.kubernetes.io/name: {{ include "umc-product-server.name" . }}
 app.kubernetes.io/instance: {{ .Release.Name }}

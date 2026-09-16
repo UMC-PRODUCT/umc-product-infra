@@ -1,5 +1,6 @@
 # 프리뷰 공유 PostgreSQL — PR 마다 database 를 나눠 쓴다
 # wave 0: 시크릿(-1) 이후, 프리뷰 앱보다 먼저
+# PR Application과 수명이 다르다. 이 공유 DB Application을 지우면 여러 PR이 함께 영향을 받는다.
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:

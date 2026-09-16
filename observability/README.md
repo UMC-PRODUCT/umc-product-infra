@@ -33,6 +33,31 @@ manifests/observability-integrations/ # ServiceMonitor, 생성된 PrometheusRule
 [Argo CD observability README](../argocd/applications/platform/observability/README.md), Grafana 접속과
 운영 절차는 [도구 접근 운영](../docs/operations/tool-access.md)을 본다.
 
+## 원본을 읽는 순서
+
+Dashboard JSON은 주석을 지원하지 않으므로 `title`과 `description`으로 화면의 패널을 찾는다.
+`apiVersion: dashboard.grafana.app/v2`인 원본은 다음 순서로 읽으면 된다.
+
+1. `metadata.name`과 `spec.description`: 대시보드 식별자와 목적. 식별자를 바꾸면 기존 링크도 확인한다.
+2. `spec.variables`: 상단 필터의 선택지와 기본값. Service·Instance가 어떤 label을 조회하는지 확인한다.
+3. `spec.elements`의 패널: `data.spec.queries` 아래 datasource와 `expr`/`query`가 실제 조회 조건이다.
+4. 패널의 `vizConfig`와 `spec.layout`: 조회 결과의 단위·표시 방식과 배치다. 숫자를 바꾸기 전에 쿼리 단위와 맞는지 확인한다.
+
+`cache.json`, `graphql.json`, `k6-load-test.json`은 기존 형식이다. 각각 `uid`,
+`templating.list`, `panels[].targets`, `panels[].gridPos`에서 같은 역할을 찾는다.
+
+알림 YAML은 `expr`(발동 조건) → `for`(조건 유지 시간) → `labels`(분류·라우팅) →
+`annotations`(담당자에게 보낼 설명) 순서로 읽는다. `for: 0m`은 대기 없이 평가 결과를 반영한다는
+뜻이며 메일·Discord 도착 시간을 보장하지 않는다. `record`는 계산 결과를 새 메트릭으로 저장하는
+규칙이지 알림이 아니다. 특히 `umc_product_service_fallback_info`의 고정 선택지는 앱 생존 여부와 무관하다.
+
+Prometheus 규칙의 `api`는 요청·지연, `database-cache`는 HikariCP·캐시,
+`observability`는 수집·전달 실패를 다룬다. 원본에 있는 규칙이 모두 배포되는 것은 아니므로 아래
+변환 규칙을 함께 확인한다. Loki는 일반 문자열 로그와 JSON 구조화 로그를 구분해 조회한다.
+예외 이름이 잡혔다는 것만으로 원인을 단정하지 말고 해당 로그와 trace를 함께 본다.
+
+알림 원본은 주석도 생성물에 복사된다. 원본 주석을 수정할 때도 아래 생성·검증 절차를 따른다.
+
 ## Dashboard 배포 허용 목록
 
 다음 UMC 원본 여덟 개를 Grafana sidecar가 읽는 ConfigMap으로 생성하며 `UMC Product` folder에 둔다.

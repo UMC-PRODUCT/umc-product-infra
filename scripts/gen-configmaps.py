@@ -214,6 +214,7 @@ def prometheus_rule(content: str) -> str:
     )
 
 
+# UMC 식별자와 현재 K3s 지표 계약을 확인한 뒤 정렬된 JSON으로 생성물 차이를 안정화한다.
 def canonical_dashboard(filename: str, content: str) -> str:
     try:
         document = json.loads(content)
@@ -311,6 +312,7 @@ def drop_alert_rules(content: str, names: frozenset[str]) -> str:
     return "".join(output)
 
 
+# 없는 수집 대상의 규칙을 제외하고 K3s 규칙을 삽입한다. 원본 위치가 달라졌으면 중단한다.
 def k3s_prometheus_rules(content: str) -> str:
     validate_rule_groups(
         content,
@@ -342,6 +344,7 @@ def k3s_prometheus_rules(content: str) -> str:
     )
 
 
+# 전용 생성 디렉터리에서만 allowlist에 없는 YAML을 지워 오래된 dashboard가 남지 않게 한다.
 def remove_stale_dashboard_manifests(directory: pathlib.Path, expected: set[str]) -> None:
     for path in directory.glob("*.yaml"):
         if path.name not in expected:
@@ -391,6 +394,7 @@ def parse_arguments() -> tuple[pathlib.Path, bool]:
     return source, check
 
 
+# 모든 원본을 검증한 뒤 기록한다. --check는 파일을 고치지 않고 누락·변경·잔여 파일만 보고한다.
 def main() -> int:
     source, check = parse_arguments()
     desired = desired_outputs(source)

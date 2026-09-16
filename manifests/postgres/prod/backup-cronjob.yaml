@@ -17,8 +17,9 @@ spec:
   # controller가 한 시간 넘게 멈춘 실행은 건너뛴다. 장기 suspend 해제 시 과거 실행을
   # 한꺼번에 따라잡거나 오래 늦은 백업이 업무 시간에 시작되는 것을 막는다.
   startingDeadlineSeconds: 3600
-  # 정식 운영 DB가 홈서버에 있는 동안 대기 k3s 환경의 예약 백업은 실행하지 않는다.
+  # 버킷·자격증명·restore 리허설을 확인하기 전에는 예약 실행을 활성화하지 않는다.
   suspend: true
+  # 이전 예약 Job이 진행 중이면 겹치는 실행을 막는다. 수동으로 만든 Job에는 이 제한이 적용되지 않는다.
   concurrencyPolicy: Forbid
   successfulJobsHistoryLimit: 3
   failedJobsHistoryLimit: 3
@@ -57,6 +58,7 @@ spec:
               args:
                 # 대기 루프 이유는 readonly-role-job.yaml 참고 — NetworkPolicy 가 새 파드 IP 를
                 # 허용 목록에 넣기까지 몇 초 걸린다. 지금까지는 이미지 풀 시간이 그 창을 가려줬을 뿐이다.
+                # pg_restore --list와 checksum은 파일 검증이며 실제 복구 성공은 별도 restore 리허설로 확인한다.
                 - |
                   set -eu
                   umask 027

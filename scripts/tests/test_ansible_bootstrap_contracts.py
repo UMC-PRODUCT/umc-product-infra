@@ -31,6 +31,7 @@ def command_argv(task: dict[str, object]) -> list[str]:
     return argv if isinstance(argv, list) else []
 
 
+# 기본 운영 경로와 CI의 공개 예제 경로를 구분해 검증이 실제 inventory에 의존하지 않게 한다.
 class AnsibleInventoryContractTests(unittest.TestCase):
     def test_default_inventory_is_the_current_cafe24_inventory(self) -> None:
         config = configparser.ConfigParser(interpolation=None)
@@ -45,6 +46,7 @@ class AnsibleInventoryContractTests(unittest.TestCase):
         self.assertIn("-i inventories/idc-new/hosts.example.yml", validation)
 
 
+# 설치 스크립트도 선택한 K3s release와 checksum에 고정돼야 재실행 결과가 흔들리지 않는다.
 class K3sInstallerContractTests(unittest.TestCase):
     def test_installer_is_pinned_to_the_selected_release_tag(self) -> None:
         with (
@@ -63,6 +65,7 @@ class K3sInstallerContractTests(unittest.TestCase):
         )
 
 
+# Traefik 생성 → rollout → Service 검증 순서와 유한한 대기를 유지한다.
 class K3sReadinessContractTests(unittest.TestCase):
     def test_traefik_creation_wait_precedes_the_bounded_rollout_wait(self) -> None:
         tasks = load_tasks("ansible/roles/k3s/tasks/main.yml")
@@ -127,6 +130,7 @@ class K3sReadinessContractTests(unittest.TestCase):
             self.assertIn(required, condition)
 
 
+# bootstrap 리소스 소유권과 Secret 표현을 고정하고 회전 시 controller 상태 확인을 생략하지 않는다.
 class KubernetesApplyContractTests(unittest.TestCase):
     def test_bootstrap_namespace_apply_uses_server_side_ownership(self) -> None:
         for relative_path in (
@@ -188,6 +192,7 @@ class KubernetesApplyContractTests(unittest.TestCase):
         self.assertIn("register", controller_check)
 
 
+# Kubernetes args 처리 후에도 PL/pgSQL dollar-quote 구분자가 보존돼야 초기화 SQL이 실행된다.
 class PostgresBootstrapContractTests(unittest.TestCase):
     def test_plpgsql_dollar_quotes_survive_kubernetes_arg_expansion(self) -> None:
         for relative_path in (
@@ -204,6 +209,7 @@ class PostgresBootstrapContractTests(unittest.TestCase):
             self.assertRegex(text, r"(?m)^\s*\$role_check\$;\s*$", relative_path)
 
 
+# 개인 관리자 검증 전 접근을 차단하지 않고, 터널 전용 계정·회수·방화벽 제한이 함께 유지돼야 한다.
 class PublicSshBootstrapContractTests(unittest.TestCase):
     def test_standard_bootstrap_prepares_personal_ssh_before_common(self) -> None:
         path = ROOT / "ansible" / "playbooks" / "bootstrap.yml"
@@ -487,6 +493,7 @@ class PublicSshBootstrapContractTests(unittest.TestCase):
         self.assertEqual(probe["delegate_to"], "localhost")
 
 
+# 저장소 정체성 검사가 Git ignore 규칙을 존중해 로컬 비공개 파일을 훑지 않게 한다.
 class RepositoryValidationContractTests(unittest.TestCase):
     def test_repository_identity_scan_respects_gitignore(self) -> None:
         validator = (ROOT / "scripts" / "validate_contracts.py").read_text(

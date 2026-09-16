@@ -1,5 +1,6 @@
 # PostgreSQL — 자작 raw manifest 디렉터리 sync (D18: Bitnami 안 씀)
 # wave 0: 시크릿 이후, 앱 이전
+# prune과 Application finalizer는 DB 리소스 삭제로 이어질 수 있으므로 파일·Application 제거를 배포처럼 다루지 않는다.
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:

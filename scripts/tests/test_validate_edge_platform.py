@@ -13,6 +13,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from validate_edge_platform import validate_target_gate
 
 
+# 단일 공인 IDC 주소만 DNS 필터와 Grafana에 함께 허용하고 넓은 CIDR·사설·테스트 주소는 거부한다.
 class TargetGateTest(unittest.TestCase):
     def setUp(self) -> None:
         self.base = {

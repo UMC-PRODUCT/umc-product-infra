@@ -1,4 +1,6 @@
 ---
+# 빈 서버의 초기 구성 순서다. 계정만 변경할 때는 ssh-access.yml을 사용한다.
+# SSH → OS·방화벽 → K3s → Argo CD → AWS 최초 자격증명 → GitOps 시작 순서로 진행한다.
 - name: Bootstrap the UMC Product single-node IDC cluster
   hosts: k3s_servers
   gather_facts: false
@@ -13,6 +15,8 @@
   # 로컬 검사가 끝난 뒤에만 역할이 사용할 facts를 수집한다.
   # 최초 ssh-access.yml 완료 후 개인 관리자 계정으로만 전체 bootstrap을 실행한다.
   pre_tasks:
+    # 관리자 PC에서 대상·개인 관리자·승인 플래그·공개 포트를 검사한다.
+    # 미완성 예제나 root 계정으로 전체 설치를 시작하지 않도록 원격 접속 전에 중단한다.
     - name: Refuse an unreviewed or placeholder inventory
       ansible.builtin.assert:
         that:
@@ -43,6 +47,8 @@
       tags:
         - preflight
 
+    # 관리자 PC에서 Pod와 Service 주소 대역의 형식과 겹침을 검사한다.
+    # 잘못된 내부 주소를 K3s에 적용해 클러스터 통신이 깨지는 것을 방지한다.
     - name: Require canonical non-overlapping K3s network CIDRs
       ansible.builtin.command:
         argv:
@@ -78,6 +84,7 @@
       tags:
         - preflight
 
+    # 로컬 입력 검사가 끝난 뒤 서버에 접속해 OS·CPU 등 후속 역할에 필요한 정보를 수집한다.
     - name: Gather host facts after the local safety check
       ansible.builtin.setup:
 
@@ -94,6 +101,7 @@
   # root Application은 secret-zero가 생긴 뒤에만 열어 ESO의 순환 의존을 피한다.
   # 자격증명이 바뀌었다면 재시작 핸들러까지 끝낸 뒤 GitOps 수렴을 시작한다.
   post_tasks:
+    # root 생성을 보류한 설치라면 기존 Application/ApplicationSet 유무를 서버에서 조회한다.
     # false는 새 서버의 최초 root 생성을 보류할 뿐, 기존 Application을 멈추지 않는다.
     - name: Inspect applications before declaring a core-only bootstrap
       ansible.builtin.command:
@@ -109,6 +117,7 @@
       changed_when: false
       when: not (bootstrap_root_app_enabled | default(true) | bool)
 
+    # 기존 앱이 있으면 설치를 중단한다. root 생성 보류를 기존 앱·DNS의 정지로 오인하지 않게 한다.
     - name: Require an empty application inventory for core-only bootstrap
       ansible.builtin.assert:
         that:
@@ -119,9 +128,14 @@
           does not suspend them. Stop and review the migration runbook.
       when: not (bootstrap_root_app_enabled | default(true) | bool)
 
+    # AWS 키 변경으로 예약된 ESO 재시작·기동 확인을 지금 완료한다.
+    # 이후 GitOps 리소스가 이전 자격증명으로 Secret을 읽는 상황을 줄이기 위한 순서다.
     - name: Flush credential rotation handlers before GitOps convergence
       ansible.builtin.meta: flush_handlers
 
+    # root 생성이 활성화된 경우 하위 앱들의 출발점인 root Application을 적용하고 상태를 확인한다.
+    # 변수 생략 시에도 실행되므로 새 서버에서 보류하려면 bootstrap_root_app_enabled: false가 필요하다.
+    # 실제 작업은 roles/argocd/tasks/root_app.yml에 있어 최초 자격증명 준비 뒤에 호출할 수 있다.
     - name: Reconcile the root Application after secret-zero exists
       ansible.builtin.include_role:
         name: argocd

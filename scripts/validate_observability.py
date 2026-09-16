@@ -154,6 +154,7 @@ def validate_cluster_resource(application: str, resource: dict) -> None:
                 "prometheus: cluster RBAC subjects must be dedicated monitoring accounts")
 
 
+# 모니터링의 조회 권한이 cluster 쓰기·Secret 조회·와일드카드 권한으로 넓어지는 것을 막는다.
 def validate_monitoring_rbac(resources: list[dict]) -> None:
     for resource in resources:
         if resource.get("kind") not in {"Role", "ClusterRole"}:
@@ -188,6 +189,7 @@ def operator_arguments(resources: list[dict]) -> dict[str, str]:
                 for argument in operator.get("args", []) if "=" in argument)
 
 
+# 실제 고정 chart의 CRD에서 스키마를 추출해 사용자 리소스 검증이 조용히 생략되지 않게 한다.
 def write_monitoring_schemas(resources: list[dict], output_dir: Path) -> None:
     """Use the pinned chart's CRDs for kubeconform instead of a moving registry."""
     def strict_schema(value):
@@ -337,6 +339,7 @@ def validate_grafana_access_contract(application: dict) -> bool:
     return ingress.get("enabled") is True
 
 
+# 종료되지 않는 dashboard watcher를 일반 initContainer로 두어 Grafana 시작이 막히는 것을 방지한다.
 def validate_grafana_dashboard_startup(resources: list[dict]) -> None:
     workload = pod_spec(named_resource(resources, "Deployment", "grafana"))
     initializers = [container for container in workload.get("initContainers", [])
@@ -360,6 +363,7 @@ def validate_grafana_dashboard_startup(resources: list[dict]) -> None:
             "grafana: only one dashboard watcher may run")
 
 
+# 현재 generation의 reconcile과 가용성을 모두 확인해야 Argo CD가 정상으로 판단할 수 있다.
 def validate_alertmanager_health_gate() -> None:
     config = yaml.safe_load((ROOT / "manifests/cluster/argocd-health.yaml").read_text())
     health = config.get("data", {}).get("resource.customizations.health.monitoring.coreos.com_Alertmanager", "")
@@ -403,6 +407,7 @@ def validate_prometheus(resources: list[dict]) -> None:
     validate_alertmanager_config(resources)
 
 
+# 전역 알림 경로와 Secret 참조를 검사하고 기존 평문 기반 설정이 함께 되살아나는 것을 막는다.
 def validate_alertmanager_config(resources: list[dict]) -> None:
     alertmanager = named_resource(resources, "Alertmanager", ALERTMANAGER_NAME)
     config_name = alertmanager["spec"].get("alertmanagerConfiguration", {}).get("name")
@@ -432,6 +437,7 @@ def validate_alertmanager_config(resources: list[dict]) -> None:
             "alertmanager: native global configuration must replace the legacy base Secret")
 
 
+# Prometheus → Monitor → Service의 selector와 named port가 모두 연결돼야 수집 대상으로 인정한다.
 def validate_monitor_selection(prometheus: dict, monitors: list[dict], services: list[dict]) -> None:
     spec = prometheus["spec"]
     prefixes = {"ServiceMonitor": "serviceMonitor", "PodMonitor": "podMonitor", "PrometheusRule": "rule"}
@@ -469,6 +475,7 @@ def validate_monitor_selection(prometheus: dict, monitors: list[dict], services:
                     f"{identity}: endpoint port {port} missing from selected Service")
 
 
+# 지표·로그·트레이스의 내부 전달 주소를 대조하고 실제 이미지로 검사할 설정을 추출한다.
 def validate_runtime_configs(rendered: dict[str, list[dict]]) -> dict[str, str]:
     tempo_raw = configmap_value(rendered["tempo"], "tempo", "tempo.yaml")
     tempo = yaml.safe_load(tempo_raw)
@@ -523,6 +530,7 @@ def validate_runtime_configs(rendered: dict[str, list[dict]]) -> dict[str, str]:
     }
 
 
+# 실제 Application 렌더에서 권한·자원·수집 연결을 검사하고 후속 스키마/런타임 검증 입력을 만든다.
 def main() -> int:
     if len(sys.argv) != 2:
         raise SystemExit("usage: validate_observability.py OUTPUT_DIR")

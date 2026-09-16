@@ -1,3 +1,7 @@
+{{/*
+앱·TLS 준비 계약을 만족한 경우에만 공개 HTTPS 경로와 ExternalDNS 대상을 선언한다.
+일반 API의 사용자 인증은 앱이 맡으며, 이 Ingress 자체에는 문서용 Basic Auth를 적용하지 않는다.
+*/}}
 {{- if and .Values.ingress.enabled (not .Values.deployment.enabled) }}
 {{- fail "ingress.enabled=true이면 deployment.enabled=true여야 함" }}
 {{- end }}

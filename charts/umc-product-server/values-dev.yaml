@@ -5,12 +5,14 @@ environment: dev
 deployment:
   enabled: true
 
+# develop 배포 CI가 tag와 digest를 함께 갱신하며 운영 values와 독립적으로 승격한다.
 image:
   tag: "b73f6b4e3aee"
   digest: "sha256:0249125be4cf269d0e948d8e88d6f244a9c825c9f4a2204d7d82e24b461cf4e6"
 
 priorityClassName: dev-low
 
+# dev 앱이 운영 DB에 연결되지 않도록 DB 허용 대상 namespace를 분리한다.
 networkPolicy:
   enabled: true
   database:
@@ -56,6 +58,7 @@ env:
   EMAIL_NO_REPLY_ADDRESS: umcproduct1227@gmail.com
   GOOGLE_CLIENT_ID_LIST: "882297658822-ag179p23eqhc5lti8ue5cgbf5phekbfh.apps.googleusercontent.com,882297658822-qaf493b6fu6a9f33artnu435jimkoome.apps.googleusercontent.com,882297658822-gsl0u8uo78qtt5h0ggkm421sml9c02pd.apps.googleusercontent.com,882297658822-d47kcffbv3eoms278pak6rcv21lhcei8.apps.googleusercontent.com,655033275728-f7jpdingakk1f4im8reegjmioth8jvnv.apps.googleusercontent.com"
   APP_SEED_ENABLED: "true"
+  # 개발 앱 전용 role과 DB를 사용한다. 비밀번호는 dev-app의 app-db Secret에서 주입한다.
   DATABASE_URL: jdbc:postgresql://postgres.dev-db.svc.cluster.local:5432/umc_product_dev
   DATABASE_USERNAME: umc_product_dev_app
   MEDIA_STORAGE_PURGE_ENABLED: "false"
@@ -64,6 +67,7 @@ env:
 documentation:
   enabled: true
 
+# 데이터 변경용 test API는 dev에서만 문서용 Basic Auth 자격증명으로 보호해 제공한다.
 testApi:
   enabled: true
 

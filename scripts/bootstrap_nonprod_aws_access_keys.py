@@ -42,6 +42,7 @@ ENV_KEYS = (
 ENV_FILES = (".env.dev", ".env.preview")
 
 
+# dev·preview 각각의 비추적 0600 원장만 허용하며 기존 키가 채워져 있으면 중단한다.
 def read_env_file(path: Path, root: Path, expected_name: str) -> str:
     expected_path = root / expected_name
     if path.resolve() != expected_path.resolve():
@@ -96,6 +97,7 @@ def read_env_file(path: Path, root: Path, expected_name: str) -> str:
     return contents
 
 
+# dev와 preview의 bucket·IAM 사용자가 서로 바뀌지 않았는지 환경 이름까지 대조한다.
 def validate_storage_stack(
     outputs: dict[str, str], environment: str, account_id: str, region: str
 ) -> None:
@@ -173,6 +175,7 @@ def replace_env_assignments(contents: str, values: dict[str, str]) -> str:
     return updated
 
 
+# 두 원장을 교체하기 전에 모두 0600 임시 파일로 준비한다. 아직 원본은 바꾸지 않는다.
 def stage_env_file(path: Path, contents: str) -> Path:
     descriptor = -1
     temporary_path: Path | None = None
@@ -212,6 +215,7 @@ def block_termination_signals() -> Iterator[None]:
         signal.pthread_sigmask(signal.SIG_SETMASK, previous)
 
 
+# 원장 한 개만 교체된 상태로 실패하면 이미 바뀐 파일을 역순으로 복원한다.
 def restore_env_files(originals: dict[Path, str], paths: list[Path]) -> bool:
     failed = False
     for path in reversed(paths):
@@ -268,6 +272,7 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+# S3 키는 환경별로 분리하고 SES 키 하나만 nonprod 두 환경에 함께 기록한다.
 def main() -> int:
     args = parse_args()
     if args.region != SEOUL_REGION:
@@ -388,6 +393,7 @@ def main() -> int:
         committed = True
     except BaseException as error:
         if not committed:
+            # 파일 복원과 새 키 회수 중 하나라도 실패하면 자동 복구 완료로 보고하지 않는다.
             with block_termination_signals():
                 files_restored = restore_env_files(originals, replaced_paths)
                 keys_rolled_back = rollback_attempted_users(aws, attempted_users)
