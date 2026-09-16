@@ -5,12 +5,15 @@ environment: prod
 deployment:
   enabled: true
 
+# CI가 tag와 digest를 함께 갱신한다. 실제 컨테이너는 digest로 고정하고 tag는 추적 정보로 남긴다.
 image:
   tag: "f74b9bbd7f6a"
   digest: "sha256:6a6bb78b2bc70141d354d820aeeac6069e8eb83a079e19c5357220a8654cca57"
 
+# 자원 부족 시 운영 앱을 dev·Preview보다 우선하도록 플랫폼 PriorityClass를 참조한다.
 priorityClassName: app-important
 
+# 운영 앱의 DB 통신은 db namespace의 PostgreSQL로만 허용한다.
 networkPolicy:
   enabled: true
   database:
@@ -58,6 +61,7 @@ env:
   GOOGLE_CLIENT_ID_LIST: "882297658822-ag179p23eqhc5lti8ue5cgbf5phekbfh.apps.googleusercontent.com,882297658822-qaf493b6fu6a9f33artnu435jimkoome.apps.googleusercontent.com,882297658822-gsl0u8uo78qtt5h0ggkm421sml9c02pd.apps.googleusercontent.com,882297658822-d47kcffbv3eoms278pak6rcv21lhcei8.apps.googleusercontent.com,655033275728-f7jpdingakk1f4im8reegjmioth8jvnv.apps.googleusercontent.com"
   CORS_ALLOWED_ORIGIN_PATTERNS: "https://university.neordinary.com,https://admin.university.neordinary.com,https://tech.university.neordinary.com"
   APP_SEED_ENABLED: "false"
+  # 앱은 관리자 계정이 아닌 전용 DB role을 쓰며 비밀번호는 app-db Secret에서 받는다.
   DATABASE_URL: jdbc:postgresql://postgres.db.svc.cluster.local:5432/umc_product
   DATABASE_USERNAME: umc_product_app
   MEDIA_STORAGE_PURGE_ENABLED: "true"

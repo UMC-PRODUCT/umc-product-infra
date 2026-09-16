@@ -4,6 +4,7 @@
 argocd_version: v3.5.0
 argocd_namespace: argocd
 
+# 다운로드 archive와 설치된 binary를 각각 검증해 bootstrap 도구 변조를 탐지한다.
 argocd_helm_version: v4.2.4
 argocd_helm_archive_url: >-
   https://get.helm.sh/helm-v4.2.4-linux-amd64.tar.gz
@@ -17,6 +18,7 @@ argocd_helm_install_directory: >-
   /var/lib/umc-product/bootstrap/helm-v4.2.4-linux-amd64
 argocd_helm_binary_path: /usr/local/bin/helm
 
+# Argo CD core는 Ansible Helm release로 설치한다. 앱의 일상 배포는 root Application이 맡는다.
 argocd_helm_release_name: argocd
 argocd_helm_chart_version: 10.3.0
 argocd_helm_chart_url: >-
@@ -30,6 +32,7 @@ argocd_helm_values_path: >-
 argocd_helm_release_timeout: 15m0s
 argocd_helm_history_max: 10
 
+# 프로젝트와 health 규칙을 먼저 준비한 뒤 root를 생성해 child Application 순서를 제어한다.
 argocd_health_manifest_path: >-
   {{ playbook_dir }}/../../manifests/cluster/argocd-health.yaml
 argocd_projects_manifest_path: "{{ playbook_dir }}/../../argocd/projects.yaml"

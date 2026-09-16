@@ -5,9 +5,11 @@ on:
   push:
     branches: [main]
 
+# 검증만 수행하므로 저장소 읽기 권한만 부여한다.
 permissions:
   contents: read
 
+# 같은 PR·브랜치의 이전 검증은 취소하고 최신 커밋을 기준으로 결과를 낸다.
 concurrency:
   group: infra-validation-${{ github.ref }}
   cancel-in-progress: true
@@ -19,9 +21,11 @@ jobs:
     timeout-minutes: 20
 
     steps:
+      # 깨끗한 체크아웃을 사용해 로컬의 미추적 파일이 검증 누락을 가리지 않게 한다.
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
+      # Python 버전과 의존성 파일을 기준으로 검증 환경·캐시를 맞춘다.
       - name: Set up Python
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
@@ -29,11 +33,13 @@ jobs:
           cache: pip
           cache-dependency-path: ansible/requirements.txt
 
+      # 차트를 렌더하는 Helm 버전을 로컬 검증 계약과 동일하게 고정한다.
       - name: Set up Helm
         uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
         with:
           version: v4.2.4
 
+      # 외부 검증 도구는 고정 버전의 압축 파일과 checksum을 대조한 뒤 사용한다.
       - name: Install pinned native validators
         shell: bash
         run: |
@@ -69,22 +75,26 @@ jobs:
 
           echo "$tools_dir" >>"$GITHUB_PATH"
 
+      # Ansible·YAML 검사 의존성과 CloudFormation 검사기를 설치한다.
       - name: Install Python validators
         run: >-
           python -m pip install --disable-pip-version-check
           -r ansible/requirements.txt
           cfn-lint==1.55.1
 
+      # playbook이 사용하는 외부 모듈도 저장소의 고정 목록으로 준비한다.
       - name: Install pinned Ansible collections
         run: >-
           ansible-galaxy collection install
           -r ansible/collections/requirements.yml
 
+      # 실제 서버 적용 없이 생성물·Helm 렌더·구성 간 계약과 테스트를 실행한다.
       - name: Validate repository contracts
         env:
           VALIDATION_OUTPUT_DIR: ${{ runner.temp }}/umc-infra-rendered
         run: ./scripts/validate.sh
 
+      # 실행 계약 검사 뒤 workflow 문법과 Ansible 작성 규칙을 별도로 확인한다.
       - name: Lint workflow and Ansible style
         shell: bash
         run: |

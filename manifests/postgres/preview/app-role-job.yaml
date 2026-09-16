@@ -1,4 +1,5 @@
 # 모든 PR database의 owner로 사용할 제한된 공용 role. database 자체는 PR별로 분리한다.
+# 공용 앱 role만 준비하며 PR database 생성·삭제는 chart의 별도 Job이 맡는다.
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -9,6 +10,7 @@ metadata:
     app.kubernetes.io/component: database-bootstrap
     environment: preview
   annotations:
+    # Job spec 변경은 삭제·재생성으로 반영되므로 공유 role의 비밀번호·권한 변경 영향을 먼저 검토한다.
     argocd.argoproj.io/sync-options: Force=true,Replace=true
     argocd.argoproj.io/sync-wave: "1"
 spec:
@@ -34,6 +36,7 @@ spec:
         - name: psql
           image: postgis/postgis:18-3.6@sha256:60f6ad1d21ea86a67d47780b9a0d1e1d200500f62b19293fa834d0dea80b8677
           command: ["sh", "-ec"]
+          # 불필요한 role 소속을 발견하면 중단한다. 그 전에 수행한 비밀번호·권한 변경은 자동 롤백되지 않는다.
           args:
             - |
               database_ready=false

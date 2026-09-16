@@ -34,6 +34,7 @@ PUBLIC_TARGET = "1.255.226.166"
 ACCESS_DIR = ROOT / "manifests" / "argocd-access"
 
 
+# 인증서와 격리 정책이 Ingress보다 먼저 적용되고, 허용한 출발지·포트만 열리는지 검사한다.
 def validate_access_manifests(resources: list[dict]) -> None:
     by_kind = {item["kind"]: item for item in resources}
     require(
@@ -91,6 +92,7 @@ def validate_access_manifests(resources: list[dict]) -> None:
     )
 
 
+# 외부 TLS는 Traefik이 맡는다. 내부 HTTP Service나 hostNetwork가 격리 정책을 우회하면 거부한다.
 def validate_access_release(documents: list[dict]) -> None:
     by_identity = {(item["kind"], item["metadata"]["name"]): item for item in documents}
     require(
@@ -137,6 +139,7 @@ def validate_access_release(documents: list[dict]) -> None:
     )
 
 
+# 접속 리소스의 Git 경로·AppProject 권한과 DNS 대상을 bootstrap 설정에 맞춘다.
 def validate_access_source() -> None:
     resources = [yaml.safe_load(path.read_text(encoding="utf-8")) for path in sorted(ACCESS_DIR.glob("*.yaml"))]
     validate_access_manifests(resources)
@@ -199,6 +202,7 @@ def sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
+# 고정된 chart를 실제 bootstrap values로 렌더해 접속 경계·계정 권한·workload 설정을 검사한다.
 def main(output_dir: Path) -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
     defaults = yaml.safe_load(DEFAULTS_PATH.read_text(encoding="utf-8"))
@@ -240,6 +244,7 @@ def main(output_dir: Path) -> None:
         f"Helm version must be {helm_version}, got {actual_helm_version}",
     )
 
+    # 다운로드한 chart의 checksum과 메타데이터를 확인한 뒤에만 Helm 입력으로 사용한다.
     archive = output_dir / f"argo-cd-{chart_version}.tgz"
     request = urllib.request.Request(
         str(defaults["argocd_helm_chart_url"]),

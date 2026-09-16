@@ -127,6 +127,8 @@ spec:
                   resources:
                     requests:
                       storage: 10Gi
+            # 수집 정의와 rule은 monitoring namespace의 release=prometheus 리소스만 선택한다.
+            # ServiceMonitor가 실제로 읽는 대상 Service의 namespace는 각 monitor가 별도로 지정한다.
             serviceMonitorSelector:
               matchLabels:
                 release: prometheus
@@ -304,6 +306,7 @@ spec:
                           route: {{ index .Labels "method" }} {{ index .Labels "uri" }}{{ end }}{{ if .Annotations.description }}
                           설명: {{ .Annotations.description }}{{ end }}
                         {{ end }}`}}
+              # 같은 대상의 상위 장애가 이미 알림을 내면 겹치는 warning·일반 장애 알림을 억제한다.
               inhibitRules:
                 - sourceMatch:
                     - { name: severity, matchType: "=", value: critical }
@@ -320,6 +323,7 @@ spec:
                   targetMatch:
                     - { name: alertname, matchType: "=", value: KubeJobFailed }
                   equal: [namespace, job_name]
+          # Operator의 쓰기 권한은 monitoring Role에 두고 아래 ClusterRole은 발견용 읽기만 허용한다.
           - apiVersion: rbac.authorization.k8s.io/v1
             kind: Role
             metadata:
@@ -416,6 +420,7 @@ spec:
             kind: ClusterRole
             metadata:
               name: prometheus-kube-prometheus-prometheus
+            # Prometheus 본체는 수집 대상 발견과 metrics 조회에만 API를 사용하며 Secret을 읽지 않는다.
             rules:
               - apiGroups: [""]
                 resources: [nodes, nodes/metrics, services, endpoints, pods]

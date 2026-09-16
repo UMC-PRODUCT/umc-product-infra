@@ -5,14 +5,17 @@ AuthenticationMethods publickey
 PasswordAuthentication no
 KbdInteractiveAuthentication no
 PermitEmptyPasswords no
+{# 전환 전에는 기존 공개키 root 경로를 보존하고, 검증 후 finalize에서 root 로그인을 닫는다. #}
 PermitRootLogin {{ 'no' if ssh_access_finalize else 'prohibit-password' }}
 AuthorizedKeysFile /etc/ssh/authorized_keys/%u
 AllowUsers {{ ssh_access_present | map(attribute='name') | list | join(' ') }}{% if not ssh_access_finalize and ansible_user not in (ssh_access_present | map(attribute='name') | list) %} {{ ansible_user }}{% endif %}
 
+{# 인증 시도·미인증 연결을 제한하고 인증 내역을 기록해 공인 SSH 남용을 줄인다. #}
 LoginGraceTime 30
 MaxAuthTries 3
 MaxStartups 10:30:30
 LogLevel VERBOSE
+{# agent·원격 포워딩 등 불필요한 기능은 끄고 local TCP 터널도 계정별 목적지만 허용한다. #}
 AllowAgentForwarding no
 AllowStreamLocalForwarding no
 X11Forwarding no
@@ -38,6 +41,7 @@ Match User {{ account.name }}
     PermitTTY no
     PermitOpen {{ account.permit_open | join(' ') }}
 {% else %}
+{# 관리자만 임의 목적지 local TCP 터널을 허용한다. db_tunnel은 위 permit_open 목록으로 제한한다. #}
     PermitOpen any
 {% endif %}
 Match all

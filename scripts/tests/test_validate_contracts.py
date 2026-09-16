@@ -16,6 +16,7 @@ sys.path.insert(0, str(SCRIPTS_DIR))
 from validate_contracts import git_visible_files, validate_repository_identity
 
 
+# 오래된 루트 runbooks가 없어도 새 checkout이 통과하고 docs/runbooks 누락은 실패해야 한다.
 class RepositoryLayoutTest(unittest.TestCase):
     def setUp(self) -> None:
         directory = tempfile.TemporaryDirectory()
@@ -49,6 +50,7 @@ class RepositoryLayoutTest(unittest.TestCase):
             self.validate()
 
 
+# ignored 비추적 파일만 제외한다. 이미 추적한 파일과 공개된 새 파일은 계속 검증해야 한다.
 class GitVisibleFilesTest(unittest.TestCase):
     def test_excludes_ignored_files_but_keeps_untracked_visible_files(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

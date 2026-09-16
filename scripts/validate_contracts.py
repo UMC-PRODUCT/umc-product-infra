@@ -85,6 +85,7 @@ def yaml_documents(path: Path) -> list[dict]:
         return [document for document in yaml.safe_load_all(stream) if document]
 
 
+# Git이 관리하거나 무시하지 않은 파일만 검사해 로컬 비밀 원장·백업을 내용 검사에서 제외한다.
 def git_visible_files(root: Path) -> list[Path]:
     """Return tracked and untracked files that are not excluded by .gitignore."""
     completed = subprocess.run(
@@ -104,6 +105,7 @@ def git_visible_files(root: Path) -> list[Path]:
     )
 
 
+# 기존 위임 zone을 재생성하지 않고 인증서용 TXT와 앱용 DNS 변경 권한을 분리하는지 확인한다.
 def validate_route53_contract() -> None:
     template_path = ROOT / "cloud" / "aws" / "route53-dns.yaml"
     with template_path.open(encoding="utf-8") as stream:
@@ -288,6 +290,7 @@ def validate_route53_contract() -> None:
     )
 
 
+# 환경별 bucket·IAM 사용자·CORS와 앱 설정을 대조해 비운영 앱의 운영 저장소 사용을 막는다.
 def validate_app_storage_contract() -> None:
     template_path = ROOT / "cloud" / "aws" / "app-storage-s3.yaml"
     with template_path.open(encoding="utf-8") as stream:
@@ -378,6 +381,7 @@ def validate_app_storage_contract() -> None:
         )
 
 
+# SES identity·DNS 설정과 환경별 발신자 권한이 같은 메일 발송 계약을 가리키는지 검사한다.
 def validate_ses_contract() -> None:
     template_path = ROOT / "cloud" / "aws" / "ses-email.yaml"
     with template_path.open(encoding="utf-8") as stream:
@@ -684,6 +688,7 @@ def validate_ingress_contract(
     )
 
 
+# 문서 경로에만 BasicAuth를 적용하고 일반 API의 인증 흐름을 바꾸지 않는지 검사한다.
 def validate_documentation_ingress_contract(
     ingress: dict,
     middleware: dict,
@@ -815,6 +820,7 @@ def validate_test_api_ingress_contract(
     )
 
 
+# 환경별 렌더 결과에서 이미지·Secret 주입·네트워크·배포 gate가 함께 유지되는지 확인한다.
 def validate_render(
     path: Path,
     environment: str,
@@ -1181,6 +1187,7 @@ def validate_active_preview_edge_fixture(path: Path) -> None:
     )
 
 
+# DB 환경 분리와 역할·백업·저장 경로를 고정해 chart나 초기화 Job 변경의 데이터 위험을 검사한다.
 def validate_postgres() -> None:
     expected_databases = {
         "prod": "umc_product",
@@ -1391,6 +1398,7 @@ def validate_postgres() -> None:
             "prod: kube-state-metrics RBAC is owned by kube-prometheus-stack")
 
 
+# AWS 원본 경로와 Kubernetes Secret의 namespace·키 매핑·보존 정책을 함께 대조한다.
 def validate_secrets(path: Path) -> None:
     resources = yaml_documents(path)
     stores = [item for item in resources if item.get("kind") == "SecretStore"]
@@ -1558,6 +1566,7 @@ def validate_secrets(path: Path) -> None:
     require("umc-secrets-shared" not in iam_text, "obsolete shared IAM role remains")
 
 
+# PR별 앱 수와 공용 DB·wildcard 인증서 구조가 Preview 자원 예산을 넘지 않게 한다.
 def validate_preview_budget() -> None:
     quota = resource(
         yaml_documents(ROOT / "manifests" / "cluster" / "preview-resourcequota.yaml"),
@@ -1631,6 +1640,7 @@ def validate_preview_budget() -> None:
     )
 
 
+# Reloader가 바꾸는 annotation만 Git 비교에서 제외해 다른 Deployment 차이는 계속 탐지한다.
 def validate_reloader_argocd_contract() -> None:
     expected_applications = {
         "prod/server.yaml": ("umc-product-server", "app"),
@@ -1683,6 +1693,7 @@ def validate_reloader_argocd_contract() -> None:
     )
 
 
+# 필수 디렉터리와 실제 Git 입력을 확인해 로컬 잔여 파일에 의존하는 checkout을 막는다.
 def validate_repository_identity() -> None:
     required_directories = [
         "ansible",
@@ -1735,6 +1746,7 @@ def validate_repository_identity() -> None:
                 require((ROOT / source["path"]).exists(), f"missing Argo path: {source['path']}")
 
 
+# 정적 원본 계약을 먼저 검사한 뒤 환경별 렌더와 합성 공개 경로의 교차 검증을 수행한다.
 def main() -> int:
     if len(sys.argv) != 7:
         raise SystemExit(

@@ -49,6 +49,7 @@ STACK_OUTPUTS = (
 )
 
 
+# 다른 AWS 필드는 보존하고 비어 있는 Route 53 전용 네 필드만 최초 발급 대상으로 삼는다.
 def read_env_file(path: Path, root: Path) -> str:
     expected_path = root / ".env.prod"
     if path.resolve() != expected_path.resolve():
@@ -99,6 +100,7 @@ def read_env_file(path: Path, root: Path) -> str:
     return contents
 
 
+# cert-manager와 ExternalDNS가 각각 기대한 전용 IAM 사용자를 받는지 확인한다.
 def validate_stack_contract(outputs: dict[str, str], stack_name: str) -> None:
     require_outputs(outputs, STACK_OUTPUTS, stack_name)
     if outputs["DnsZoneName"] != DNS_ZONE_NAME:
@@ -131,6 +133,7 @@ def replace_env_assignments(contents: str, values: dict[str, str]) -> str:
 
 @contextmanager
 def block_termination_signals() -> Iterator[None]:
+    # 키 발급 시도 기록·파일 교체 사이의 중단으로 복구 대상이 누락되는 구간을 줄인다.
     signals = {signal.SIGINT, signal.SIGTERM}
     if not hasattr(signal, "pthread_sigmask"):
         yield
@@ -142,9 +145,8 @@ def block_termination_signals() -> Iterator[None]:
         signal.pthread_sigmask(signal.SIG_SETMASK, previous)
 
 
+# 기존 키가 없음을 사전 확인한 전용 사용자만 재조회하여 발급 응답이 유실된 키도 회수한다.
 def rollback_attempted_users(aws: AwsCli, user_names: list[str]) -> bool:
-    # Preflight established that these dedicated users had zero keys. Re-listing also
-    # covers a create response that was lost after AWS accepted the request.
     failed = False
     for user_name in reversed(user_names):
         try:
@@ -182,6 +184,7 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+# 기존 키가 없는 두 DNS 사용자를 검증한 뒤 키를 만들며, 원장 저장 전 실패하면 회수한다.
 def main() -> int:
     args = parse_args()
     if args.region != SEOUL_REGION:
@@ -243,7 +246,7 @@ def main() -> int:
         }
         updated_contents = replace_env_assignments(original_contents, values)
 
-        # Do not overwrite edits made while AWS credentials were being issued.
+        # 키 발급을 기다리는 동안 바뀐 원장을 오래된 내용으로 덮어쓰지 않는다.
         if read_env_file(env_path, root) != original_contents:
             raise BootstrapError(".env.prod changed during bootstrap")
 

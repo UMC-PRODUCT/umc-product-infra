@@ -17,6 +17,7 @@ spec:
   policyTypes: [Ingress]
   ingress:
     - from:
+        # 두 selector를 모두 만족하는 dev-app의 앱 Pod와 아래 dev-db bootstrap Job만 허용한다.
         - namespaceSelector:
             matchLabels:
               kubernetes.io/metadata.name: dev-app
@@ -35,6 +36,7 @@ spec:
       ports:
         - { protocol: TCP, port: 5432 }
 ---
+# default-deny 상태에서도 dev-db의 모든 Pod가 CoreDNS를 통해 이름을 조회할 수 있게 한다.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -59,6 +61,7 @@ spec:
         - { protocol: UDP, port: 53 }
         - { protocol: TCP, port: 53 }
 ---
+# 앱 role 초기화 Job의 송신도 별도로 허용해야 DB의 ingress 허용과 함께 연결이 성립한다.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:

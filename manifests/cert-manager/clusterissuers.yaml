@@ -1,5 +1,6 @@
 # ACME 계정 연락처 email은 운영 수신 주소가 정해지면 두 Issuer에 함께 추가한다.
 # Route 53 자격증명은 cert-manager namespace의 ExternalSecret이 공급한다.
+# staging은 발급 경로 검증용이며 브라우저 신뢰용 production Issuer와 ACME 계정 Secret도 분리한다.
 apiVersion: cert-manager.io/v1
 kind: ClusterIssuer
 metadata:
@@ -12,6 +13,7 @@ spec:
     privateKeySecretRef:
       name: letsencrypt-staging-account-key
     solvers:
+      # DNS-01 TXT 레코드로 소유권을 검증하므로 외부 HTTP 80 포트를 열 필요가 없다.
       - selector:
           dnsZones: [university.neordinary.com]
         dns01:

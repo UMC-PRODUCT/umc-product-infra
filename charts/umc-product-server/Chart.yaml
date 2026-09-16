@@ -1,3 +1,4 @@
+# prod/dev/PR Preview가 함께 사용하는 앱 차트다. 환경 차이는 values overlay로 적용한다.
 apiVersion: v2
 name: umc-product-server
 type: application

@@ -1,3 +1,4 @@
+{{/* default-deny와 함께 Traefik·DNS·해당 환경 DB·관측·외부 통신에 필요한 경로만 추가한다. */}}
 {{- if .Values.networkPolicy.enabled }}
 {{- $databaseNamespace := required "networkPolicy.database.namespace는 필수" .Values.networkPolicy.database.namespace -}}
 {{- $databasePodName := required "networkPolicy.database.podName은 필수" .Values.networkPolicy.database.podName -}}

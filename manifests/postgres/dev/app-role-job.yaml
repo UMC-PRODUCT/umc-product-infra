@@ -1,4 +1,5 @@
 # 개발 애플리케이션 전용 PostgreSQL role. 운영 role 및 관리자 계정과 분리한다.
+# 실행 시 개발 DB·public schema 소유권과 앱 비밀번호·권한을 변경한다. 데이터 조회 전용 작업이 아니다.
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -9,6 +10,7 @@ metadata:
     app.kubernetes.io/component: database-bootstrap
     environment: dev
   annotations:
+    # Job spec 변경은 삭제·재생성으로 반영되며 아래 SQL도 다시 실행될 수 있다.
     argocd.argoproj.io/sync-options: Force=true,Replace=true
     argocd.argoproj.io/sync-wave: "1"
 spec:
@@ -34,6 +36,7 @@ spec:
         - name: psql
           image: postgis/postgis:18-3.6@sha256:60f6ad1d21ea86a67d47780b9a0d1e1d200500f62b19293fa834d0dea80b8677
           command: ["sh", "-ec"]
+          # DB 응답을 기다린 뒤 확장과 앱 role을 준비한다. SQL 실패가 앞선 변경의 자동 롤백을 뜻하지는 않는다.
           args:
             - |
               database_ready=false

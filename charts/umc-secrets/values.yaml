@@ -4,6 +4,7 @@ aws:
   partition: aws
   region: ap-northeast-2
 
+# AWS 값 변경을 주기적으로 가져오는 간격이다. 이미 실행 중인 앱의 환경변수 갱신은 별도 재시작이 필요하다.
 refreshInterval: 1h
 
 # 환경별 SecretStore는 읽을 수 있는 prefix와 IAM role을 분리한다.
@@ -48,7 +49,7 @@ stores:
 # AWS Secrets Manager에는 아래 remoteKey별 JSON object를 만든다.
 # data는 Kubernetes Secret key와 JSON property를 1:1로 제한한다.
 externalSecrets:
-  # prod application
+  # 운영 앱에 필요한 key 목록이다. 아래 anchor는 key 구조만 공유하며 값은 환경별 AWS source에서 읽는다.
   - name: app-db
     namespace: app
     store: aws-secretsmanager
@@ -123,7 +124,8 @@ externalSecrets:
     data: &docsBasicAuthData
       users: users
 
-  # DB bootstrap Job도 같은 app role password를 읽지만 관리자 Secret은 읽지 않는다.
+  # DB role 생성 Job도 앱과 같은 password를 읽도록 db namespace에 복제한다.
+  # Job은 별도 관리자 Secret으로 role을 변경하지만 앱 Pod에는 관리자 Secret을 주입하지 않는다.
   - name: app-db
     namespace: db
     store: aws-secretsmanager
@@ -131,7 +133,7 @@ externalSecrets:
     remoteKey: app-db
     data: *appDbData
 
-  # dev application
+  # 개발 앱과 개발 DB role 생성 Job은 /dev/ source를 사용해 운영 자격증명과 분리한다.
   - name: app-db
     namespace: dev-app
     store: aws-secretsmanager
@@ -175,7 +177,7 @@ externalSecrets:
     remoteKey: app-db
     data: *appDbData
 
-  # preview application and shared preview database bootstrap
+  # Preview 앱과 PR DB가 공유하는 자격증명이다. PR별 DB 분리가 자격증명 격리를 뜻하지는 않는다.
   - name: app-db
     namespace: preview
     store: aws-secretsmanager
@@ -210,7 +212,7 @@ externalSecrets:
       SES_ACCESS_KEY_ID: SES_ACCESS_KEY_ID
       SES_SECRET_ACCESS_KEY: SES_SECRET_ACCESS_KEY
 
-  # Database administrator and backup contracts
+  # DB 관리자·읽기 전용·exporter·백업 자격증명은 소비 목적과 권한에 따라 나눈다.
   - name: postgres-secrets
     namespace: db
     store: aws-secretsmanager
@@ -261,7 +263,7 @@ externalSecrets:
       POSTGRES_PASSWORD: POSTGRES_PASSWORD
       POSTGRES_USER: POSTGRES_USER
 
-  # Platform contracts
+  # 관측·PR 조회 등 platform 전용 자격증명이다. 애플리케이션 envFrom 목록에 포함하지 않는다.
   - name: grafana-admin
     namespace: monitoring
     store: aws-secretsmanager

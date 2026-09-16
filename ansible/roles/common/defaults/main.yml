@@ -1,7 +1,9 @@
 ---
 
+# 호스트 로그 시각을 운영 기준인 한국 시간으로 맞춘다.
 common_timezone: Asia/Seoul
 
+# HTTPS 설치 파일 검증·전송과 호스트 방화벽에 필요한 최소 패키지다.
 common_packages:
   - ca-certificates
   - curl
