@@ -1,5 +1,6 @@
-# Bootstrap applies this file before root. Root then owns the same definitions from Git.
-# Rollback: restore Application assignments and default access before removing projects.
+# Ansible이 root보다 먼저 적용하고, 이후 root가 같은 AppProject 정의를 Git에서 관리한다.
+# 각 Project는 사용할 저장소·대상 namespace·리소스 종류를 제한한다. 제거 전 Application 배정을 바꾼다.
+# bootstrap은 다른 Project와 Application을 만드는 root 전용 권한이다.
 apiVersion: argoproj.io/v1alpha1
 kind: AppProject
 metadata:
@@ -25,6 +26,33 @@ spec:
     - group: argoproj.io
       kind: AppProject
 ---
+# Argo CD core를 바꾸지 않고 공개 Certificate·Ingress·NetworkPolicy만 관리할 권한이다.
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: argocd-access
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "-100"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  description: Argo CD public HTTPS certificate, ingress, and server network boundary
+  sourceRepos:
+    - https://github.com/UMC-PRODUCT/umc-product-infra.git
+  destinations:
+    - server: https://kubernetes.default.svc
+      namespace: argocd
+  clusterResourceWhitelist: []
+  namespaceResourceWhitelist:
+    - group: cert-manager.io
+      kind: Certificate
+    - group: networking.k8s.io
+      kind: Ingress
+    - group: networking.k8s.io
+      kind: NetworkPolicy
+---
+# namespace·우선순위와 Secret 계약을 관리하며, cluster 범위 리소스는 아래 두 종류만 허용한다.
 apiVersion: argoproj.io/v1alpha1
 kind: AppProject
 metadata:
@@ -67,6 +95,7 @@ spec:
     - group: scheduling.k8s.io
       kind: PriorityClass
 ---
+# 인증서 controller·CRD·Issuer와 공용 Preview 인증서를 설치할 수 있는 범위를 선언한다.
 apiVersion: argoproj.io/v1alpha1
 kind: AppProject
 metadata:
@@ -116,6 +145,7 @@ spec:
     - group: cert-manager.io
       kind: Certificate
 ---
+# DNS controller 배포 권한이다. 실제 Route 53 레코드 변경 범위는 chart 설정과 AWS IAM이 함께 제한한다.
 apiVersion: argoproj.io/v1alpha1
 kind: AppProject
 metadata:
@@ -145,6 +175,7 @@ spec:
     - group: apps
       kind: Deployment
 ---
+# ESO controller와 필요한 CRD·RBAC만 배포한다. 환경별 Secret 계약은 platform Project가 맡는다.
 apiVersion: argoproj.io/v1alpha1
 kind: AppProject
 metadata:
@@ -171,6 +202,7 @@ spec:
     - group: rbac.authorization.k8s.io
       kind: ClusterRoleBinding
 ---
+# 승인한 앱 namespace에서만 Secret 변경 감시와 재시작에 필요한 namespaced 리소스를 관리한다.
 apiVersion: argoproj.io/v1alpha1
 kind: AppProject
 metadata:
@@ -206,6 +238,7 @@ spec:
     - group: rbac.authorization.k8s.io
       kind: RoleBinding
 ---
+# 관측 workload는 monitoring에 두고 CRD·클러스터 조회용 RBAC만 cluster 범위로 허용한다.
 apiVersion: argoproj.io/v1alpha1
 kind: AppProject
 metadata:
@@ -234,6 +267,7 @@ spec:
     - group: rbac.authorization.k8s.io
       kind: ClusterRoleBinding
 ---
+# 운영 앱과 DB는 app·db에만 배포하고 cluster 범위 리소스 생성을 금지한다.
 apiVersion: argoproj.io/v1alpha1
 kind: AppProject
 metadata:
@@ -254,6 +288,7 @@ spec:
       namespace: db
   clusterResourceWhitelist: []
 ---
+# 개발 앱과 DB의 배포 목적지를 dev-app·dev-db로 제한해 운영 환경과 분리한다.
 apiVersion: argoproj.io/v1alpha1
 kind: AppProject
 metadata:
@@ -274,6 +309,7 @@ spec:
       namespace: dev-db
   clusterResourceWhitelist: []
 ---
+# PR별 앱과 공유 DB는 preview namespace 안에서만 관리한다.
 apiVersion: argoproj.io/v1alpha1
 kind: AppProject
 metadata:
@@ -292,7 +328,7 @@ spec:
       namespace: preview
   clusterResourceWhitelist: []
 ---
-# Dedicated projects use wave -100. Lock the built-in project one wave later.
+# 전용 Project(-100)를 먼저 만든 뒤 기본 Project(-99)의 저장소·배포 목적지·리소스 권한을 닫는다.
 apiVersion: argoproj.io/v1alpha1
 kind: AppProject
 metadata:

@@ -4,23 +4,23 @@
 어디까지 완료되어야 실제 서비스가 배포된 것인지** 이해하기 위한 안내서다.
 실행 명령보다 구조를 먼저 설명한다. 배포 절차서가 아니므로 처음부터 끝까지 읽지 말고,
 낯선 계층이나 용어가 있는 절만 찾아본다. 실제 준비 여부는 각 작업 가이드의 사전 조건과
-검증 명령으로 확인한다.
+검증 명령으로 확인한다. 실제 작업은 [문서 목차](README.md)에서 사용자 안내와 관리자 절차를 구분해 찾는다.
 
 ## 먼저 기억할 한 문장
 
-**사람이 서버·tailnet policy·AWS Route53·GitHub의 바깥 기반을 준비하고,
-Ansible이 Tailscale 관리 경로로 빈 서버를 K3s 클러스터로 만들며, 그 뒤부터 Argo CD가
+**사람이 서버·개인 SSH 공개키·상위 방화벽·AWS Route53·GitHub의 바깥 기반을 준비하고,
+Ansible이 개인 관리자 공인 SSH로 빈 서버를 K3s 클러스터로 만들며, 그 뒤부터 Argo CD가
 Git의 Kubernetes 선언을 계속 맞춘다.**
 
 책임을 섞지 않은 이유는 장애가 났을 때 고칠 곳을 분명하게 하기 위해서다.
 
 | 계층 | 담당 | 이 저장소의 위치 | 하지 않는 일 |
 |---|---|---|---|
-| 외부 기반 | VM/IDC·공인 IP·상위 방화벽·영속 디스크, Tailscale policy, AWS Route53, GitHub | 사람의 사전 작업 + `cloud/aws/` | Kubernetes workload 운영 |
-| 서버 bootstrap | OS, Tailscale, OpenSSH/UFW, K3s, Argo CD, ESO 최초 자격증명 | `ansible/` | 앱 버전의 지속 배포 |
+| 외부 기반 | VM/IDC·공인 IP·상위 방화벽·영속 디스크, 개인 공개키, AWS Route53, GitHub | 사람의 사전 작업 + `cloud/aws/` | Kubernetes workload 운영 |
+| 서버 bootstrap | OS, 개인 계정·OpenSSH/UFW, K3s, Argo CD, ESO 최초 자격증명 | `ansible/` | 앱 버전의 지속 배포 |
 | GitOps | 클러스터 안의 선언 상태를 Git과 일치시킴 | `bootstrap/`, `argocd/` | 서버나 AWS 계정 생성 |
 | workload | 앱, DB, DNS/TLS controller, 관측 스택 | `charts/`, `manifests/` | 실제 secret 값을 Git에 저장 |
-| 운영 절차 | 점검·복구·검증 | `docs/`, `runbooks/`, `scripts/` | 선언 상태를 대신함 |
+| 운영 절차 | 점검·복구·검증 | `docs/operations/`, `docs/runbooks/`, `scripts/` | 선언 상태를 대신함 |
 
 ## 1. 전체 흐름
 
@@ -28,8 +28,8 @@ Git의 Kubernetes 선언을 계속 맞춘다.**
 
 ```text
 관리자 PC
-  ├─ 최초 1회: 임시 public SSH로 Tailscale enroll
-  └─ Tailscale 경유 OpenSSH로 Ansible
+  ├─ 최초 설치: 기존 관리자 세션을 보존하며 개인 관리자 공인 SSH 검증
+  └─ 개인 관리자 OpenSSH로 Ansible
       ├─ Ubuntu 서버의 OpenSSH·UFW·커널 설정
       ├─ K3s 설치
       ├─ Argo CD 설치
@@ -43,7 +43,7 @@ Ansible은 최초 설치 뒤에도 같은 설정을 다시 적용하는 복구 �
 업데이트할 때마다 Ansible을 실행하지는 않는다. 앱과 클러스터 리소스 변경은 Git에 반영하고
 Argo CD가 가져가게 한다.
 
-![GitOps 구성도](../diagrams/out/gitops-tree.png)
+![GitOps 구성도](diagrams/out/gitops-tree.png)
 
 ### 요청 한 번: 모바일·웹에서 백엔드까지
 
@@ -56,13 +56,15 @@ Argo CD가 가져가게 한다.
   → K3s Traefik Ingress
   → Kubernetes Service
   → umc-product-server Pod
-  → PostgreSQL / AWS S3 / AWS SES
+  → PostgreSQL / AWS S3 / 이메일 provider(SES 또는 SMTP)
 ```
 
 Route53은 DNS만 담당하고 사용자 요청을 대신 통과시키거나 차단하지 않는다. 제공업체 상위
 방화벽과 UFW가 실제 서버의 public `443/tcp` 접근을 제한하며, Traefik과 앱 인증이 요청을 처리한다.
+메일 발송 경로는 환경별 values의 `EMAIL_PROVIDER`로 선택하며,
+전환·수신 검증 절차는 [Secret 운영 가이드](operations/secrets.md#임시-gmail-smtp와-ses-복귀)를 따른다.
 
-![요청 흐름](../diagrams/out/traffic-flow.png)
+![요청 흐름](diagrams/out/traffic-flow.png)
 
 ### 비밀값 한 개: 로컬 worksheet에서 Pod까지
 
@@ -78,20 +80,21 @@ Route53은 DNS만 담당하고 사용자 요청을 대신 통과시키거나 차
 `.env.*`는 배포 파일이 아니라 **로컬에서 값을 모으기 위한 임시 원장**이다. Git에 올리거나
 서버로 복사하지 않는다. Git에는 AWS secret의 경로와 key 계약만 둔다.
 
-![비밀값 공급 흐름](../diagrams/out/secret-supply-chain.png)
+![비밀값 공급 흐름](diagrams/out/secret-supply-chain.png)
 
 ## 2. 필요한 부분 찾기
 
 | 궁금한 것 | 볼 곳 |
 |---|---|
 | 전체 계층과 폴더 | 이 문서의 1절과 3절 |
-| 왜 단일 K3s와 GitOps를 쓰는지 | [K3s 아키텍처 결정 기록](../architecture/k3s.md) |
-| 빈 서버 설치 명령 | [Ansible README](../../ansible/README.md) |
+| 왜 단일 K3s와 GitOps를 쓰는지 | [K3s 아키텍처 결정 기록](architecture/k3s.md) |
+| 빈 서버 설치 명령 | [서버 초기 구성](operations/ansible-bootstrap.md) |
+| 운영 서버의 팀원 SSH 등록·회수 | [SSH 계정 관리](operations/ssh-access.md) |
 | Argo CD 이후 생성되는 것 | `bootstrap/root-app.yaml`, `argocd/projects.yaml`, `argocd/applications/` |
 | 환경별 애플리케이션 차이 | `charts/umc-product-server/values-*.yaml` |
-| Secret 공급 경로 | [비밀값 관리](secrets.md), `charts/umc-secrets/` |
-| DNS와 인증서 | [도메인과 TLS](domains-tls.md) |
-| backup 활성화와 복원 연습 | `runbooks/` |
+| Secret 공급 경로 | [비밀값 관리](operations/secrets.md), `charts/umc-secrets/` |
+| DNS와 인증서 | [도메인과 TLS](operations/domains-tls.md) |
+| backup 활성화와 복원 연습 | `docs/runbooks/` |
 
 파일을 볼 때는 세부 값보다 먼저 **어느 계층이 소유하고 다음에 누가 소비하는지**를 찾는다.
 
@@ -99,17 +102,17 @@ Route53은 DNS만 담당하고 사용자 요청을 대신 통과시키거나 차
 
 ### `ansible/`: 빈 Linux 서버를 안전하게 준비
 
-Ansible은 Tailscale로 연결된 서버의 OpenSSH에 접속해 사람이 반복하기 어려운 초기
-작업을 같은 순서로 수행한다. Tailscale SSH는 사용하지 않으며 기존 public key/PEM
-인증을 계속 쓴다.
+Ansible은 공인 IP의 OpenSSH에 개인 관리자 키로 접속해 초기 작업을 같은 순서로 수행한다.
+백엔드 사용자는 별도 개인 `db_tunnel` 계정으로 지정 DB에만 터널링하며 서버 shell·sudo는
+사용하지 않는다. PostgreSQL의 개인 role은 SSH 계정과 별도로 관리한다.
 
 ```text
 ansible/
-├── inventories/idc/hosts.yml       # 어느 서버에 접속할지; 로컬 전용
-├── playbooks/tailscale-enroll.yml   # 최초 1회 tailnet에 등록
-├── playbooks/bootstrap.yml          # tailnet 접속 후 전체 실행 순서
+├── inventories/idc-new/hosts.yml       # 어느 서버에 접속할지; 로컬 전용
+├── playbooks/ssh-access.yml        # 개인 계정·키·SSH 터널 접근 정책
+├── playbooks/bootstrap.yml         # 개인 관리자 공인 SSH로 전체 실행
 └── roles/
-    ├── tailscale/                   # Tailscale 설치·연결 계약
+    ├── ssh_access/                  # 개인 계정·키·SSH 터널 권한
     ├── common/                      # OS·SSH·UFW·swap·kernel
     ├── k3s/                         # K3s와 Traefik 설정
     ├── argocd/                      # Argo CD와 root Application
@@ -165,11 +168,12 @@ CloudFormation을 사용한다. Azure VM이나 Kubernetes 리소스까지 관리
 `manifests/observability/`는 스크립트가 Kubernetes ConfigMap으로 만든 결과다. 생성물을 직접
 고치면 다음 생성 때 덮이므로 원본을 수정한 뒤 생성·검증한다.
 
-### `docs/`, `runbooks/`, `scripts/`
+### `docs/`와 `scripts/`
 
 - `docs/architecture/`: 결정과 전제. “왜”를 기록한다.
-- `docs/guides/`: 정상 작업 순서. “어떻게”를 기록한다.
-- `runbooks/`: backup 활성화처럼 데이터에 영향을 주는 작업의 명령과 중단 조건을 기록한다.
+- `docs/guides/`: DB 연결·Preview·모니터링을 사용하는 팀원의 안내다.
+- `docs/operations/`: 계정·배포·설정을 변경하는 관리자의 정상 작업 순서다.
+- `docs/runbooks/`: backup 활성화처럼 데이터에 영향을 주는 작업의 명령과 중단 조건을 기록한다.
 - `scripts/`: 반복 생성, 계약 검사, 일회성 AWS bootstrap을 자동화한다.
 
 ## 4. Ansible을 처음 볼 때 알아둘 것
@@ -177,8 +181,8 @@ CloudFormation을 사용한다. Azure VM이나 Kubernetes 리소스까지 관리
 | 용어 | 쉬운 뜻 | 이 저장소의 예 |
 |---|---|---|
 | controller | Ansible 명령을 실행하는 관리자 PC | 현재 노트북 |
-| managed host | Tailscale 경유 SSH로 설정되는 대상 서버 | 현재 임시 Azure VM 또는 최종 IDC 한 대 |
-| inventory | 접속 대상과 환경 입력 | `inventories/idc/hosts.yml` |
+| managed host | 개인 관리자 공인 SSH로 설정되는 대상 서버 | 대상 IDC 한 대 |
+| inventory | 접속 대상과 환경 입력 | `inventories/idc-new/hosts.yml` |
 | playbook | 역할을 어떤 순서로 실행할지 | `playbooks/bootstrap.yml` |
 | role | 한 책임의 task·기본값·template 묶음 | `roles/k3s/` |
 | task | 패키지 설치, 파일 배치 같은 한 단계 | 각 role의 `tasks/main.yml` |
@@ -187,15 +191,17 @@ CloudFormation을 사용한다. Azure VM이나 Kubernetes 리소스까지 관리
 | `become: true` | 대상 서버에서 sudo 권한 사용 | bootstrap play 전체 |
 | idempotent | 같은 작업을 다시 해도 같은 상태로 수렴 | 재실행 가능한 task 설계 |
 
-실제 순서는 다음과 같다.
+새 서버 최초 설치 순서는 다음과 같다. 이미 운영 중인 서버의 팀원 등록은
+[SSH 계정 등록](operations/ssh-access.md#새-팀원-ssh-계정-등록)을 따르고, 초기 준비 단계를 다시 실행하지 않는다.
 
 ```text
-tailscale-enroll.yml을 최초 1회 실행
-  → inventory의 ansible_host를 Tailscale MagicDNS/IP로 변경
-  → ansible -m ping으로 tailnet SSH 검증
+ssh-access.yml을 finalize=false로 실행
+  → 개인 관리자 공인 SSH·sudo, DB 터널 권한 검증
+  → inventory를 공인 IP·개인 관리자로 변경
+  → finalize=true로 root 직접 SSH 차단
 bootstrap.yml의 pre_tasks
-  → inventory·현재 Tailscale 경유 OpenSSH 연결 검사
-  → tailscale
+  → inventory·현재 개인 관리자 공인 OpenSSH 연결 검사
+  → ssh_access
   → common
   → k3s
   → argocd
@@ -205,12 +211,13 @@ bootstrap.yml의 pre_tasks
 ```
 
 중요한 점은 Ansible이 하나의 트랜잭션이 아니라는 것이다. 뒤 단계가 실패해도 앞에서 바꾼
-UFW·SSH·K3s가 자동으로 원상복구되지는 않는다. 그래서 실행 전에 tailnet SSH와 제공업체 콘솔을
+UFW·SSH·K3s가 자동으로 원상복구되지는 않는다. 그래서 실행 전에 개인 SSH와 제공업체 콘솔을
 모두 검증하고, 실패하면 무작정 초기화하지 말고 원인을 고쳐 같은 playbook을 재실행한다.
 
-tailnet policy의 관리 계약은 [policy 예시](../../ansible/tailscale-policy.example.hujson)처럼
-관리자 주체에서 `tag:umc-idc`의 `tcp:22`만 grant하는 것이다. 서버 UFW에 공인
-`22/tcp`와 Kubernetes API `6443/tcp` 허용 규칙을 두지 않는다.
+관리 계약은 공인 `22/tcp`에서 개인 키만 허용하고 root·비밀번호 SSH 로그인을 차단하는 것이다.
+관리자 `admin`은 root에 준하는 sudo 권한이므로 운영 담당자로 제한한다. 백엔드 `db_tunnel`은
+지정 DB 목적지 forwarding만 허용한다. DB `5432/tcp`와 Kubernetes API `6443/tcp`는 공개하지 않는다.
+개인 키 등록·퇴임 시 기존 SSH/DB 세션 회수는 [SSH 계정 관리](operations/ssh-access.md)를 따른다.
 
 ## 5. Argo CD, Helm, Kubernetes의 관계
 
@@ -264,20 +271,24 @@ Ansible 명령 한 번이 성공했다고 서비스 배포가 끝난 것은 아�
 | 애플리케이션 | 고정 image digest, migration, probe, 핵심 기능 smoke test 통과 |
 | 운영 준비 | 외부 uptime 감시, alert 수신, backup RPO/RTO와 복구 절차 검증 |
 
-## 8. 현재 배포 gate 찾기
+## 8. 배포 gate와 운영 상태 확인
 
-현재 values와 새 IDC 준비 단계의 Application 제외 목록을 함께 확인한다.
+Git의 선언값과 실제 배포 상태를 구분한다. gate 값은 아래 원본에서 확인하고, 적용 여부는
+7절의 완료 기준과 각 가이드의 검증 절차로 확인한다.
 
-- prod/dev 앱: `deployment.enabled: true`, image tag·digest 고정; 새 IDC는 DB 복원 전 Application 생성 보류
-- prod/dev API Ingress: 환경별 `ingress.enabled: true`; 새 IDC는 DNS 전환 전 HTTPS 검증
-- DNS: Cafe24 이관 대상 public IPv4 `1.255.226.166`과 같은 `/32` filter
-- TLS: Let's Encrypt production issuer
-- Grafana: public Ingress 활성
-- backup: 외부 S3 업로드·복원 검증 후 `suspend: false`, 매일 03:00 KST 실행
-- root: 초기 이관 중 child Application 오삭제를 막는 `prune: false`
+| 확인할 것 | 설정 원본과 검증 기준 |
+|---|---|
+| 앱 image·Deployment·API Ingress | [공통 values](../charts/umc-product-server/values.yaml)와 환경별 [prod](../charts/umc-product-server/values-prod.yaml)·[dev](../charts/umc-product-server/values-dev.yaml)·[preview](../charts/umc-product-server/values-preview.yaml)를 함께 확인한다. `image.tag`·`image.digest`, `deployment.enabled`, `ingress.enabled`가 기준이다. |
+| DNS 대상과 filter | 공통 values의 `externalDNS.target`과 [ExternalDNS](../argocd/applications/platform/external-dns.yaml)의 `/32` target filter를 대조한다. 실제 record는 [DNS·TLS 가이드](operations/domains-tls.md)로 검증한다. |
+| TLS | 공통·환경별 values의 `certificate`와 [ClusterIssuer](../manifests/cert-manager/clusterissuers.yaml), [Preview Certificate](../manifests/cert-manager/preview-wildcard-certificate.yaml)를 확인한다. issuer 선언만으로 발급 완료를 판단하지 않는다. |
+| Grafana 공개 접근 | [Grafana Application](../argocd/applications/platform/observability/grafana.yaml)의 `ingress`와 [접근 가이드](operations/tool-access.md)를 확인한다. |
+| backup | [CronJob](../manifests/postgres/prod/backup-cronjob.yaml)의 `suspend`와 [활성화 runbook](runbooks/backup-activation.md)의 외부 restore 검증을 확인한다. |
+| root와 이관 단계 | [정상 root](../bootstrap/root-app.yaml), [Prepare](../bootstrap/root-app-prepare.yaml), [Verify](../bootstrap/root-app-verify.yaml)의 제외 목록과 `prune`를 확인한다. `prune: false`에서 제외 목록을 바꿔도 기존 child Application은 중지되지 않는다. |
 
 각 gate는 독립적으로 관리한다. prod/dev는 검증된 image tag·digest가 준비되면 해당 환경의
 Deployment와 Ingress를 연 values를 Helm으로 사전 검증한 뒤 infra `main`에 직접 반영한다.
+새 IDC는 DB 복원 전 앱 Application 생성을 보류하고 DNS 전환 전에 HTTPS를 검증한다.
+이관 단계 전환은 [Cafe24 이전 runbook](runbooks/cafe24-migration.md)의 중단 조건을 따른다.
 
 ## 9. 실행 전에 사람이 확인할 외부 영역
 
@@ -287,11 +298,12 @@ Deployment와 Ingress를 연 values를 Helm으로 사전 검증한 뒤 infra `ma
 - GitHub 원격 저장소, 보호된 `main`, CI 성공, public GHCR image와 digest
 - AWS CloudFormation stack, Secrets Manager source, ESO bootstrap credential, SES 검증 상태
 - Route53 hosted zone과 NS 위임, Hosted Zone ID, 두 controller의 분리된 IAM 자격증명
-- Grafana production TLS·public Ingress 준비 상태, 팀원별 Viewer 계정과 Tailscale break-glass 경로
+- Grafana production TLS·public Ingress 준비 상태, 팀원별 Viewer 계정과 개인 SSH·console 복구 경로
 - 운영자가 합의한 backup RPO/RTO와 외부 restore 위치
 
-특히 K3s의 `local-path` PVC는 **실제로 마운트된 디스크 경로**를 사용한다. 현재 임시 Azure의
-temporary disk를 영속 DB로 오인하지 말고, 운영 전에는 mount와 재부팅 후 지속성을 별도로 확인한다.
+특히 K3s의 `local-path` PVC는 **실제로 마운트된 디스크 경로**를 사용한다. 제공업체의 디스크
+유형과 서버의 mount를 대조해 temporary disk를 영속 DB로 오인하지 않도록 하고,
+운영 전에는 재부팅 후 데이터 지속성을 별도로 확인한다.
 
 ## 10. 안전하게 둘러보는 명령
 

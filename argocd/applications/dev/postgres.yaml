@@ -1,4 +1,5 @@
 # dev PostgreSQL — 빈 DB로 시작, 앱 기동 시 Flyway가 스키마 생성
+# Application 삭제는 finalizer를 통해 관리 리소스 삭제로 이어지므로 데이터·PVC 처리 범위를 먼저 확인한다.
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:

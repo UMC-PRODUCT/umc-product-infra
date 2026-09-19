@@ -23,6 +23,7 @@ spec:
           image:
             tag: 3.7.2 # compose와 동일
             digest: sha256:191d4fdfb7264f16989f0a57f320872620a5a7c2ceeec6229212c4190ec49b86
+          # 자체 다중 tenant 인증은 사용하지 않는다. 접근 경계는 monitoring NetworkPolicy가 담당한다.
           auth_enabled: false
           commonConfig:
             replication_factor: 1

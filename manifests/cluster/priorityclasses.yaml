@@ -1,5 +1,5 @@
-# 메모리 압박 시 축출 순서 결정 (계획 §4-3)
-# 낮은 값부터 죽는다: dev(-100) → 모니터링·기본(0) → prod 앱(1000) → prod DB(1000000)
+# 높은 값일수록 스케줄링·자원 압박 판단에서 우선 보호하려는 운영 우선순위다.
+# 실제 축출은 request 초과 여부 등도 함께 판단하므로 priority 값만으로 순서를 보장하지 않는다.
 apiVersion: scheduling.k8s.io/v1
 kind: PriorityClass
 metadata:
@@ -24,7 +24,7 @@ value: -100
 globalDefault: false
 description: "dev 환경 전용 — 메모리 압박 시 가장 먼저 축출 (prod 보호)"
 ---
-# 프리뷰는 dev 보다도 먼저 죽어야 한다. 메모리 압박 시 축출 순서:
+# 프리뷰를 가장 낮게 두는 의도상의 보호 우선순위는 다음과 같다(실제 축출 순서 보장 아님).
 #   preview-lowest(-1000) → dev-low(-100) → 기본(0) → app-important(1000) → db-critical(1000000)
 apiVersion: scheduling.k8s.io/v1
 kind: PriorityClass

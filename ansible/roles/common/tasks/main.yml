@@ -1,5 +1,6 @@
 ---
 
+# 아래 패키지·커널 설정은 x86_64 Ubuntu 22/24를 전제로 하므로 다른 OS에서는 중단한다.
 - name: Require the supported Ubuntu host family
   ansible.builtin.assert:
     that:
@@ -9,19 +10,21 @@
       - ansible_facts.architecture in ['x86_64', 'amd64']
     fail_msg: This bootstrap supports only x86_64 Ubuntu 22.04 or 24.04 hosts.
 
-# DNS-01은 80/tcp가 필요하지 않다. 공개 API용 443/tcp만 인터넷에 연다.
-- name: Require the direct HTTPS public port contract before host mutation
+# 관리자 PC에서 공개 포트 선언이 22·443만 포함하는지 확인한다. 실제 방화벽 적용은 마지막에 한다.
+# 인증서 발급에 쓰는 DNS-01은 80/tcp가 필요하지 않아 공인 SSH와 HTTPS만 허용한다.
+- name: Require the public SSH and HTTPS contract before host mutation
   ansible.builtin.assert:
     that:
-      - common_public_tcp_ports == [443]
+      - common_public_tcp_ports == [22, 443]
     fail_msg: >-
-      The public firewall is fail-closed: only direct HTTPS on 443/tcp is
-      allowed; 80, 22, 6443, and every other public port must remain closed.
+      Only key-authenticated SSH on 22/tcp and direct HTTPS on 443/tcp are
+      allowed; 80, 5432, 6443, and every other public port must remain closed.
   delegate_to: localhost
   become: false
   tags:
     - preflight
 
+# HTTPS 다운로드·Helm values 처리·방화벽 관리에 필요한 패키지를 서버에 설치한다.
 - name: Install host prerequisites
   ansible.builtin.apt:
     name: "{{ common_packages }}"
@@ -29,6 +32,7 @@
     update_cache: true
     cache_valid_time: 3600
 
+# 서버의 시간대 파일을 지정한 지역으로 연결해 운영 로그의 시간 해석을 일관되게 한다.
 - name: Link the host timezone data
   ansible.builtin.file:
     path: /etc/localtime
@@ -38,6 +42,7 @@
     owner: root
     group: root
 
+# /etc/timezone에도 같은 시간대 이름을 저장해 이 파일을 읽는 도구와 설정을 맞춘다.
 - name: Persist the host timezone name
   ansible.builtin.copy:
     content: "{{ common_timezone }}\n"
@@ -46,23 +51,27 @@
     group: root
     mode: '0644'
 
-# 스왑은 현재 세션뿐 아니라 `/etc/fstab`에서도 영구 비활성화한다.
+# 현재 켜진 스왑을 조회한다. 이 구성은 스왑 없이 K3s를 운영하므로 켜져 있을 때만 해제한다.
 - name: Inspect active swap devices
   ansible.builtin.command: swapon --show --noheadings
   register: common_active_swap
   changed_when: false
 
+# 사용 중인 스왑을 즉시 끈다. 재부팅 후 다시 켜지지 않게 하는 작업은 다음 단계에서 수행한다.
 - name: Disable active swap
   ansible.builtin.command: swapoff --all
   when: common_active_swap.stdout | trim | length > 0
   changed_when: true
 
+# /etc/fstab의 스왑 항목을 주석 처리해 부팅 시 자동 활성화를 막는다.
+# 스왑 파일·파티션 자체를 삭제하는 작업은 아니다.
 - name: Disable swap entries at boot
   ansible.builtin.replace:
     path: /etc/fstab
     regexp: '^(\s*[^#\n]+\s+[^#\n]+\s+swap\s+.*)$'
     replace: '# \1'
 
+# 컨테이너 파일시스템·브리지 네트워크에 필요한 모듈 목록을 저장해 재부팅 후에도 불러오게 한다.
 - name: Load Kubernetes kernel modules at boot
   ansible.builtin.template:
     src: k3s-modules.conf.j2
@@ -71,6 +80,7 @@
     group: root
     mode: '0644'
 
+# 재부팅을 기다리지 않고 현재 커널에도 overlay·br_netfilter 모듈을 불러온다.
 - name: Load Kubernetes kernel modules now
   ansible.builtin.command: "modprobe {{ item }}"
   loop:
@@ -78,6 +88,8 @@
     - br_netfilter
   changed_when: false
 
+# Pod 통신에 필요한 IP 전달·브리지 필터 설정을 파일로 저장한다.
+# 파일이 바뀌면 아래 handler를 예약하고, 다음 단계에서 실행해 현재 커널에도 반영한다.
 - name: Configure Kubernetes kernel parameters
   ansible.builtin.template:
     src: k3s-sysctl.conf.j2
@@ -87,270 +99,11 @@
     mode: '0644'
   notify: Apply Kubernetes kernel parameters
 
-# 이 역할은 모든 UFW 인바운드 allow/limit 규칙을 소유한다.
-# Tailscale interface는 허용하되 실제 서비스 접근은 tailnet grant가 tcp:22로 제한한다.
-# 선언 목록에 없는 기존 수동 규칙은 이후 삭제된다.
-- name: Initialize the desired inbound firewall rules
-  ansible.builtin.set_fact:
-    common_expected_tailscale_ufw_rules:
-      - >-
-        ufw allow in on {{ tailscale_interface | default('tailscale0') }}
-    common_expected_public_https_ufw_rules: []
-    common_expected_internal_ufw_rules: []
-
-- name: Build the desired public HTTPS firewall rules
-  ansible.builtin.set_fact:
-    common_expected_public_https_ufw_rules: >-
-      {{ common_expected_public_https_ufw_rules
-         + ['ufw allow ' ~ item ~ '/tcp'] }}
-  loop: "{{ common_public_tcp_ports }}"
-
-- name: Build the desired K3s internal firewall rules
-  ansible.builtin.set_fact:
-    common_expected_internal_ufw_rules: >-
-      {{ common_expected_internal_ufw_rules
-         + ['ufw allow from '
-            ~ (item | regex_replace('/32$', '') | regex_replace('/128$', ''))] }}
-  loop:
-    - "{{ k3s_cluster_cidr }}"
-    - "{{ k3s_service_cidr }}"
-
-- name: Combine the desired inbound UFW allow rules
-  ansible.builtin.set_fact:
-    common_expected_inbound_ufw_rules: >-
-      {{ common_expected_tailscale_ufw_rules
-         + common_expected_public_https_ufw_rules
-         + common_expected_internal_ufw_rules }}
-
-- name: Read configured UFW rules before any firewall mutation
-  ansible.builtin.command: ufw show added
-  register: common_configured_ufw_rules_initial
-  changed_when: false
-
-# 자동 토큰화가 위험한 route allow/limit, 인바운드 deny/reject, quoted profile은
-# 변경 전에 실패시키고 IDC 콘솔에서 먼저 정리한다.
-- name: Refuse unmanaged firewall rules that can override the declared state
-  ansible.builtin.assert:
-    that:
-      - >-
-        common_configured_ufw_rules_initial.stdout_lines
-        | select('match', '^ufw\s+route\s+(?:allow|limit)(?:\s|$)')
-        | list | length == 0
-      - >-
-        common_configured_ufw_rules_initial.stdout_lines
-        | select('match', '^ufw\s+(?:deny|reject)(?:\s|$)')
-        | reject('search', '(^|\s)out(\s|$)')
-        | list | length == 0
-      - >-
-        common_configured_ufw_rules_initial.stdout_lines
-        | select('match', '^ufw\s+(?:allow|limit)(?:\s|$)')
-        | reject('search', '(^|\s)out(\s|$)')
-        | map('regex_replace', '\s+comment\s+.*$', '')
-        | select('search', '[\x27\x22]')
-        | list | length == 0
-    fail_msg: >-
-      Found an unmanaged forwarded allow/limit rule or inbound deny/reject
-      rule, or a quoted application-profile rule that cannot be reconciled
-      safely. Resolve it through the IDC console or model it explicitly before
-      rerunning; an earlier deny can override the required management path.
-
-# 잠금 방지를 위해 Tailscale/공개 HTTPS/K3s 규칙을 먼저 추가한 뒤
-# 선언 밖의 과거 인바운드 allow/limit 규칙을 삭제한다.
-- name: Allow inbound traffic from the authenticated tailnet interface
-  ansible.builtin.command:
-    argv:
-      - ufw
-      - allow
-      - in
-      - 'on'
-      - "{{ tailscale_interface | default('tailscale0') }}"
-      - comment
-      - umc-tailnet
-  register: common_tailscale_ufw_rule
-  changed_when: "'Rule added' in common_tailscale_ufw_rule.stdout"
-
-- name: Allow direct public HTTPS traffic
-  ansible.builtin.command:
-    argv:
-      - ufw
-      - allow
-      - "{{ item }}/tcp"
-      - comment
-      - umc-public-https
-  loop: "{{ common_public_tcp_ports }}"
-  register: common_public_https_ufw_rules
-  changed_when: "'Rule added' in common_public_https_ufw_rules.stdout"
-
-- name: Allow the K3s pod and service networks on the node
-  ansible.builtin.command:
-    argv:
-      - ufw
-      - allow
-      - from
-      - "{{ item }}"
-      - to
-      - any
-      - comment
-      - k3s-internal
-  loop:
-    - "{{ k3s_cluster_cidr }}"
-    - "{{ k3s_service_cidr }}"
-  register: common_internal_ufw_rules
-  changed_when: "'Rule added' in common_internal_ufw_rules.stdout"
-
-- name: Read configured UFW rules after adding the desired inbound rules
-  ansible.builtin.command: ufw show added
-  register: common_configured_ufw_rules_before_cleanup
-  changed_when: false
-
-- name: Remove inbound UFW allow rules outside the declared state
-  ansible.builtin.command:
-    argv: >-
-      {{ ['ufw', '--force', 'delete']
-         + (item | regex_replace('^ufw\\s+', '')).split() }}
-  loop: >-
-    {{ common_configured_ufw_rules_before_cleanup.stdout_lines
-       | select('match', '^ufw\\s+(?:allow|limit)(?:\\s|$)')
-       | reject('search', '(^|\\s)out(\\s|$)')
-       | map('regex_replace', '\\s+comment\\s+.*$', '')
-       | list }}
-  when: item not in common_expected_inbound_ufw_rules
-  changed_when: true
-
-- name: Read the reconciled UFW rules
-  ansible.builtin.command: ufw show added
-  register: common_configured_ufw_rules_after
-  changed_when: false
-
-- name: Verify the declared inbound UFW allow rules
-  ansible.builtin.assert:
-    that:
-      - >-
-        (common_configured_ufw_rules_after.stdout_lines
-        | select('match', '^ufw\\s+(?:allow|limit)(?:\\s|$)')
-        | reject('search', '(^|\\s)out(\\s|$)')
-        | map('regex_replace', '\\s+comment\\s+.*$', '')
-        | list | difference(common_expected_inbound_ufw_rules) | length) == 0
-      - >-
-        (common_expected_inbound_ufw_rules
-        | difference(common_configured_ufw_rules_after.stdout_lines
-          | select('match', '^ufw\\s+(?:allow|limit)(?:\\s|$)')
-          | reject('search', '(^|\\s)out(\\s|$)')
-          | map('regex_replace', '\\s+comment\\s+.*$', '')
-          | list) | length) == 0
-    fail_msg: >-
-      UFW inbound allow rules differ from the Ansible-declared firewall state.
-
-# UFW 기본 정책은 inbound deny, outbound allow로 맞춘다.
-# 개별 outbound 규칙은 정리 대상이 아니며 그대로 보존한다.
-- name: Inspect the effective UFW defaults
-  ansible.builtin.command: ufw status verbose
-  register: common_ufw_defaults
-  changed_when: false
-
-- name: Deny incoming traffic by default
-  ansible.builtin.command: ufw default deny incoming
-  when: "'deny (incoming)' not in common_ufw_defaults.stdout"
-  changed_when: true
-
-- name: Allow outgoing traffic by default
-  ansible.builtin.command: ufw default allow outgoing
-  when: "'allow (outgoing)' not in common_ufw_defaults.stdout"
-  changed_when: true
-
-- name: Inspect UFW state
-  ansible.builtin.command: ufw status
-  register: common_ufw_status
-  changed_when: false
-
-- name: Enable UFW after the Tailscale interface rule exists
-  ansible.builtin.command: ufw --force enable
-  when: "'Status: inactive' in common_ufw_status.stdout"
-  changed_when: true
-
-- name: Read the effective UFW rules
-  ansible.builtin.command: ufw status verbose
-  register: common_effective_ufw_status
-  changed_when: false
-
-# UFW port 기반 22/6443 규칙은 출발지와 무관하게 금지한다.
-# Tailscale grant가 SSH만 허용하며 공개 인바운드는 443/tcp 하나만 둔다.
-- name: Verify the required K3s firewall boundaries
-  ansible.builtin.assert:
-    that:
-      - "'Status: active' in common_effective_ufw_status.stdout"
-      - "'deny (incoming)' in common_effective_ufw_status.stdout"
-      - "'allow (outgoing)' in common_effective_ufw_status.stdout"
-      - k3s_cluster_cidr in common_effective_ufw_status.stdout
-      - k3s_service_cidr in common_effective_ufw_status.stdout
-      - >-
-        ('on ' ~ (tailscale_interface | default('tailscale0')))
-        in common_effective_ufw_status.stdout
-      - >-
-        common_effective_ufw_status.stdout_lines
-        | select('match', '^22(?:/tcp)?(?: \\(v6\\))?\\s+(?:ALLOW|LIMIT)(?: IN)?\\s+')
-        | list | length == 0
-      - >-
-        common_effective_ufw_status.stdout_lines
-        | select('match', '^6443(?:/tcp)?(?: \\(v6\\))?\\s+(?:ALLOW|LIMIT)(?: IN)?\\s+')
-        | list | length == 0
-      - >-
-        common_effective_ufw_status.stdout_lines
-        | select('match', '^80(?:/tcp)?(?: \\(v6\\))?\\s+(?:ALLOW|LIMIT)(?: IN)?\\s+Anywhere')
-        | list | length == 0
-      - >-
-        common_effective_ufw_status.stdout_lines
-        | select('match', '^443(?:/tcp)?(?: \\(v6\\))?\\s+(?:ALLOW|LIMIT)(?: IN)?\\s+Anywhere')
-        | list | length > 0
-    fail_msg: >-
-      UFW must be active, allow the Tailscale interface and both internal K3s
-      CIDRs, expose direct HTTPS on 443/tcp, and
-      contain no port-based SSH or Kubernetes API allow rule.
-      Public HTTP must also remain closed.
-
-# 방화벽 경계를 검증한 뒤에만 키 전용 SSH 인증을 적용한다.
-# cloud-init도 이후 비밀번호 인증을 되살리지 못하게 한다.
-- name: Ensure the OpenSSH drop-in directory exists
-  ansible.builtin.file:
-    path: /etc/ssh/sshd_config.d
-    state: directory
-    owner: root
-    group: root
-    mode: '0755'
-
-- name: Enforce key-only SSH authentication
-  ansible.builtin.template:
-    src: ssh-hardening.conf.j2
-    dest: /etc/ssh/sshd_config.d/00-umc-hardening.conf
-    owner: root
-    group: root
-    mode: '0644'
-  notify: Validate and reload SSH
-
-- name: Check for cloud-init configuration
-  ansible.builtin.stat:
-    path: /etc/cloud/cloud.cfg.d
-  register: common_cloud_config_dir
-
-- name: Prevent cloud-init from restoring SSH password login
-  ansible.builtin.copy:
-    content: "ssh_pwauth: false\n"
-    dest: /etc/cloud/cloud.cfg.d/99-disable-pwauth.cfg
-    owner: root
-    group: root
-    mode: '0644'
-  when: common_cloud_config_dir.stat.isdir | default(false)
-
-# 핸들러에서 `sshd -t`가 성공한 경우에만 SSH 설정을 reload한다.
-- name: Apply SSH hardening before reconnect validation
+# 예약된 커널 설정 handler를 지금 실행해 K3s가 변경 전 네트워크 설정으로 시작하지 않게 한다.
+- name: Apply host kernel parameters before K3s installation
   ansible.builtin.meta: flush_handlers
 
-# 기존 세션을 성공으로 오인하지 않도록 연결 캐시를 버리고 새 SSH 연결을 검증한다.
-- name: Reset the controller SSH connection after firewall reconciliation
-  ansible.builtin.meta: reset_connection
-
-- name: Verify a fresh SSH connection through the reconciled firewall
-  ansible.builtin.wait_for_connection:
-    connect_timeout: 10
-    sleep: 2
-    timeout: 60
+# SSH 계정·키 준비 뒤 방화벽 작업 목록을 불러온다. 구체적인 규칙 적용은 firewall.yml에 있다.
+# ssh-access.yml에서도 같은 파일만 재사용해 OS 전체 설정 없이 방화벽을 맞춘다.
+- name: Reconcile the declared host firewall
+  ansible.builtin.import_tasks: firewall.yml

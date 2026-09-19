@@ -1,4 +1,5 @@
 ---
+# 서버 설정을 저장할 디렉터리를 root만 접근할 수 있도록 준비한다.
 - name: Ensure the K3s configuration directory exists
   ansible.builtin.file:
     path: /etc/rancher/k3s
@@ -7,6 +8,8 @@
     group: root
     mode: '0700'
 
+# Secret 암호화·kubelet 자원 예약 등을 설정 파일에 기록하고, 변경 시 재시작을 예약한다.
+# 파일 작성만으로 실행 중인 K3s에 설정이 반영되지는 않는다.
 - name: Configure the pinned single-node K3s server
   ansible.builtin.template:
     src: config.yaml.j2
@@ -16,6 +19,7 @@
     mode: '0600'
   notify: Restart K3s
 
+# 대상 서버에서 설치 스크립트를 보관할 경로를 준비한다.
 - name: Ensure the local source directory exists
   ansible.builtin.file:
     path: /usr/local/src
@@ -24,6 +28,7 @@
     group: root
     mode: '0755'
 
+# 지정한 설치 스크립트를 내려받고, checksum이 설정되어 있으면 내용도 검증한다.
 - name: Download the K3s installer
   ansible.builtin.get_url:
     url: "{{ k3s_install_script_url }}"
@@ -33,12 +38,14 @@
     mode: '0755'
     checksum: "{{ k3s_install_script_checksum if k3s_install_script_checksum | length > 0 else omit }}"
 
+# 설치된 버전을 조회해 재설치 필요 여부를 판단한다. 미설치로 인한 조회 실패도 허용한다.
 - name: Inspect the installed K3s version
   ansible.builtin.command: /usr/local/bin/k3s --version
   register: k3s_installed_version
   changed_when: false
   failed_when: false
 
+# 조회 결과에 목표 버전이 없을 때만 installer를 실행해 해당 버전의 server를 설치한다.
 - name: Install or upgrade the pinned K3s version
   ansible.builtin.command: /usr/local/src/k3s-install.sh
   environment:
@@ -47,6 +54,7 @@
   when: k3s_version not in k3s_installed_version.stdout
   changed_when: true
 
+# K3s 서비스를 시작하고 서버 재부팅 후에도 자동으로 시작되도록 등록한다.
 - name: Ensure K3s starts at boot
   ansible.builtin.systemd_service:
     name: k3s
@@ -59,26 +67,28 @@
 - name: Apply K3s configuration changes before readiness checks
   ansible.builtin.meta: flush_handlers
 
+# 후속 kubectl 명령 전에 로컬 6443/TCP 수신을 기다린다. 노드 Ready는 별도로 검사한다.
 - name: Wait for the Kubernetes API
   ansible.builtin.wait_for:
     host: 127.0.0.1
     port: 6443
     timeout: 300
 
-# 같은 관리자 PC가 tailnet에서 6443에 닿는다면 grant가 너무 넓은 상태다.
+# Kubernetes API 노출을 막기 위해 제어 노드에서 공인 주소의 6443/TCP 연결 불가를 확인한다.
 - name: Require the Kubernetes API to remain unreachable from the controller
   ansible.builtin.wait_for:
-    host: "{{ tailscale_primary_ipv4 }}"
+    host: "{{ ssh_access_public_host }}"
     port: 6443
     state: stopped
     connect_timeout: 2
     timeout: 5
     msg: >-
-      Kubernetes API is reachable through the tailnet. Restrict the
-      tag:umc-idc grant to tcp:22 before continuing.
+      Kubernetes API is reachable through the public address. Close public
+      6443/tcp in both the host and provider firewall before continuing.
   delegate_to: localhost
   become: false
 
+# API 포트가 열리는 것과 별개로, 등록된 노드가 Ready 조건을 만족할 때까지 기다린다.
 - name: Wait for the single node to become Ready
   ansible.builtin.command:
     argv:
@@ -91,6 +101,7 @@
       - "--timeout={{ k3s_ready_timeout }}"
   changed_when: false
 
+# K3s가 자동으로 읽는 manifest 경로를 root 전용 디렉터리로 준비한다.
 - name: Ensure the K3s managed manifest directory exists
   ansible.builtin.file:
     path: "{{ k3s_traefik_manifest_directory }}"
@@ -99,7 +110,8 @@
     group: root
     mode: '0700'
 
-# 앞단 프록시가 없으므로 클라이언트가 보낸 X-Forwarded-* 헤더를 신뢰하지 않는다.
+# 앞단 프록시가 없어 전달 헤더를 신뢰하지 않도록 Traefik 설정 파일을 준비한다.
+# API 반영과 Deployment 준비 상태는 뒤의 작업에서 각각 확인한다.
 - name: Disable forwarded-header trust at the direct public edge
   ansible.builtin.template:
     src: traefik-config.yaml.j2
@@ -120,6 +132,7 @@
       - "--timeout={{ k3s_ready_timeout }}"
   changed_when: false
 
+# 준비한 설정 파일을 API에 적용해 K3s Helm controller가 조정할 목표 상태를 전달한다.
 - name: Reconcile the Traefik HelmChartConfig immediately
   ansible.builtin.command:
     argv:
@@ -131,6 +144,7 @@
   register: k3s_traefik_config_apply
   changed_when: "'configured' in k3s_traefik_config_apply.stdout or 'created' in k3s_traefik_config_apply.stdout"
 
+# 헤더 신뢰를 끄는 값이 HelmChartConfig에 저장됐는지 확인한다. Pod의 설정 로드 검사는 아니다.
 - name: Wait for the no-trust Traefik configuration to be stored
   ansible.builtin.command:
     argv:
@@ -150,6 +164,7 @@
   retries: 60
   delay: 5
 
+# Helm controller가 Deployment를 만들 때까지 기다려 후속 rollout 조회 대상을 확보한다.
 - name: Wait for the Traefik Deployment to be created
   ansible.builtin.command:
     argv:
@@ -163,6 +178,7 @@
       - "--timeout={{ k3s_ready_timeout }}"
   changed_when: false
 
+# 조회 시점의 Traefik Deployment rollout 완료를 기다린다. Service 노출 조건은 다음에 검사한다.
 - name: Wait for the reconciled Traefik Deployment
   ansible.builtin.command:
     argv:
@@ -176,7 +192,8 @@
       - "--timeout={{ k3s_ready_timeout }}"
   changed_when: false
 
-# Deployment가 준비돼 있어도 Helm의 Service 변경은 진행 중일 수 있다.
+# Deployment가 준비돼 있어도 Service 변경은 진행 중일 수 있어 별도로 기다린다.
+# Service 선언이 443 전용 LoadBalancer이며 NodePort 할당이 없는지 확인한다.
 - name: Wait for the HTTPS-only Traefik Service without NodePorts
   ansible.builtin.command:
     argv:
@@ -213,13 +230,14 @@
     k3s_encryption_status.rc != 0 or
     'Enabled' not in k3s_encryption_status.stdout
 
-# cluster-admin kubeconfig는 존재 여부와 root 소유·0600 권한을 모두 요구한다.
-# 어느 조건이라도 다르면 이후 bootstrap을 중단한다.
+# 관리자 kubeconfig의 존재 여부·소유자·권한 등 파일 정보를 후속 검사용으로 수집한다.
 - name: Inspect the administrator kubeconfig permissions
   ansible.builtin.stat:
     path: "{{ k3s_kubeconfig_path }}"
   register: k3s_kubeconfig
 
+# cluster-admin 접속 파일이 존재하고 root 소유·0600 권한인지 검증해 노출 위험을 줄인다.
+# 어느 조건이라도 맞지 않으면 이후 bootstrap을 중단한다.
 - name: Require a root-only administrator kubeconfig
   ansible.builtin.assert:
     that:

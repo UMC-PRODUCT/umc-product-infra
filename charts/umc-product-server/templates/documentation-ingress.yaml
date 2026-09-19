@@ -1,3 +1,4 @@
+{{/* 앱·공개 Ingress·문서 gate가 모두 열릴 때만 문서용 Basic Auth와 별도 HTTPS 경로를 만든다. */}}
 {{- if and .Values.deployment.enabled .Values.ingress.enabled .Values.documentation.enabled }}
 {{- if ne (lower (toString (get .Values.env "OPENAPI_ENABLE"))) "true" }}
 {{- fail "documentation.enabled=true이면 env.OPENAPI_ENABLE=true여야 함" }}

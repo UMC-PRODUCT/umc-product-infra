@@ -1,3 +1,4 @@
+# 실제 비밀값 대신 namespace별 SecretStore·ExternalSecret 참조 계약을 배포하는 차트다.
 apiVersion: v2
 name: umc-secrets
 description: AWS Secrets Manager contracts for UMC Product Kubernetes Secrets

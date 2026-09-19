@@ -37,7 +37,8 @@ GOOGLE_CLIENT_ID_LIST = (
     "882297658822-ag179p23eqhc5lti8ue5cgbf5phekbfh.apps.googleusercontent.com,"
     "882297658822-qaf493b6fu6a9f33artnu435jimkoome.apps.googleusercontent.com,"
     "882297658822-gsl0u8uo78qtt5h0ggkm421sml9c02pd.apps.googleusercontent.com,"
-    "882297658822-d47kcffbv3eoms278pak6rcv21lhcei8.apps.googleusercontent.com"
+    "882297658822-d47kcffbv3eoms278pak6rcv21lhcei8.apps.googleusercontent.com,"
+    "655033275728-f7jpdingakk1f4im8reegjmioth8jvnv.apps.googleusercontent.com"
 )
 BASE_REQUIRED_SECRETS = ["app-db", "app-jwt", "app-oauth", "app-storage", "app-email"]
 PROD_REQUIRED_SECRETS = [*BASE_REQUIRED_SECRETS, "app-fcm"]
@@ -84,6 +85,7 @@ def yaml_documents(path: Path) -> list[dict]:
         return [document for document in yaml.safe_load_all(stream) if document]
 
 
+# Git이 관리하거나 무시하지 않은 파일만 검사해 로컬 비밀 원장·백업을 내용 검사에서 제외한다.
 def git_visible_files(root: Path) -> list[Path]:
     """Return tracked and untracked files that are not excluded by .gitignore."""
     completed = subprocess.run(
@@ -103,6 +105,7 @@ def git_visible_files(root: Path) -> list[Path]:
     )
 
 
+# 기존 위임 zone을 재생성하지 않고 인증서용 TXT와 앱용 DNS 변경 권한을 분리하는지 확인한다.
 def validate_route53_contract() -> None:
     template_path = ROOT / "cloud" / "aws" / "route53-dns.yaml"
     with template_path.open(encoding="utf-8") as stream:
@@ -200,6 +203,7 @@ def validate_route53_contract() -> None:
                             "_acme-challenge.api.${DnsZoneName}",
                             "_acme-challenge.api-dev.${DnsZoneName}",
                             "_acme-challenge.grafana.${DnsZoneName}",
+                            "_acme-challenge.argo.${DnsZoneName}",
                         ],
                         "route53:ChangeResourceRecordSetsRecordTypes": ["TXT"],
                     }
@@ -259,10 +263,12 @@ def validate_route53_contract() -> None:
                             "api-dev.${DnsZoneName}",
                             "api-pr-*.${DnsZoneName}",
                             "grafana.${DnsZoneName}",
+                            "argo.${DnsZoneName}",
                             "_external-dns.a-api.${DnsZoneName}",
                             "_external-dns.a-api-dev.${DnsZoneName}",
                             "_external-dns.a-api-pr-*.${DnsZoneName}",
                             "_external-dns.a-grafana.${DnsZoneName}",
+                            "_external-dns.a-argo.${DnsZoneName}",
                         ]
                     },
                 },
@@ -284,6 +290,7 @@ def validate_route53_contract() -> None:
     )
 
 
+# 환경별 bucket·IAM 사용자·CORS와 앱 설정을 대조해 비운영 앱의 운영 저장소 사용을 막는다.
 def validate_app_storage_contract() -> None:
     template_path = ROOT / "cloud" / "aws" / "app-storage-s3.yaml"
     with template_path.open(encoding="utf-8") as stream:
@@ -374,6 +381,7 @@ def validate_app_storage_contract() -> None:
         )
 
 
+# SES identity·DNS 설정과 환경별 발신자 권한이 같은 메일 발송 계약을 가리키는지 검사한다.
 def validate_ses_contract() -> None:
     template_path = ROOT / "cloud" / "aws" / "ses-email.yaml"
     with template_path.open(encoding="utf-8") as stream:
@@ -428,6 +436,85 @@ def validate_ses_contract() -> None:
         identity["Properties"].get("DkimAttributes") == {"SigningEnabled": True},
         "SES DKIM signing",
     )
+    require(
+        identity["Properties"].get("ConfigurationSetAttributes")
+        == {"ConfigurationSetName": "SesFeedbackConfigurationSet"}
+        and identity.get("DependsOn") == [
+            "SesFeedbackEventDestination", "SesSenderUser", "NonprodSesSenderUser"
+        ],
+        "SES identity default feedback configuration set",
+    )
+    resources = template["Resources"]
+    require(
+        resources["SesFeedbackConfigurationSet"]["Properties"].get("SuppressionOptions")
+        == {"SuppressedReasons": ["BOUNCE", "COMPLAINT"]},
+        "SES feedback suppression must cover hard bounces and complaints",
+    )
+    require(
+        resources["SesFeedbackConfigurationSet"].get("DeletionPolicy") == "Retain"
+        and resources["SesFeedbackConfigurationSet"].get("UpdateReplacePolicy") == "Retain",
+        "SES feedback default must outlive the retained domain identity",
+    )
+    require(
+        "Default" not in parameters["FeedbackNotificationEmailAddress"]
+        and resources["SesFeedbackSubscription"]["Properties"]
+        == {
+            "TopicArn": "SesFeedbackTopic",
+            "Protocol": "email",
+            "Endpoint": "FeedbackNotificationEmailAddress",
+        },
+        "SES feedback requires an explicit operator email subscription",
+    )
+    require(
+        resources["SesFeedbackEventDestination"].get("DependsOn")
+        == "SesFeedbackTopicPolicy"
+        and resources["SesFeedbackEventDestination"]["Properties"]
+        == {
+            "ConfigurationSetName": "SesFeedbackConfigurationSet",
+            "EventDestination": {
+                "Name": "bounce-complaint-email",
+                "Enabled": True,
+                "MatchingEventTypes": ["BOUNCE", "COMPLAINT"],
+                "SnsDestination": {"TopicARN": "SesFeedbackTopic"},
+            },
+        },
+        "SES feedback publishes only bounce and complaint events",
+    )
+    require(
+        resources["SesFeedbackTopicPolicy"]["Properties"]
+        == {
+            "Topics": ["SesFeedbackTopic"],
+            "PolicyDocument": {
+                "Version": "2012-10-17",
+                "Statement": [{
+                    "Sid": "AllowSesFeedbackPublishing",
+                    "Effect": "Allow",
+                    "Principal": {"Service": "ses.amazonaws.com"},
+                    "Action": "sns:Publish",
+                    "Resource": "SesFeedbackTopic",
+                    "Condition": {"StringEquals": {
+                        "AWS:SourceAccount": "AWS::AccountId",
+                        "AWS:SourceArn": "arn:${AWS::Partition}:ses:${AWS::Region}:${AWS::AccountId}:configuration-set/${SesFeedbackConfigurationSet}",
+                    }},
+                }],
+            },
+        },
+        "SES feedback SNS publish permission must be account/configuration-set scoped",
+    )
+    for user, from_parameter in (
+        ("SesSenderUser", "SenderEmailAddress"),
+        ("NonprodSesSenderUser", "NonprodSenderEmailAddress"),
+    ):
+        statement = resources[user]["Properties"]["Policies"][0]["PolicyDocument"]["Statement"][0]
+        require(
+            statement["Action"] == "ses:SendEmail"
+            and statement["Resource"][:2] == [
+                "arn:${AWS::Partition}:ses:${AWS::Region}:${AWS::AccountId}:identity/${SesDomainIdentity}",
+                "arn:${AWS::Partition}:ses:${AWS::Region}:${AWS::AccountId}:configuration-set/${SesFeedbackConfigurationSet}",
+            ]
+            and statement["Condition"] == {"StringEquals": {"ses:FromAddress": from_parameter}},
+            f"{user}: feedback access must retain exact sender restriction",
+        )
 
     route53_records = {
         name: resource
@@ -601,6 +688,7 @@ def validate_ingress_contract(
     )
 
 
+# 문서 경로에만 BasicAuth를 적용하고 일반 API의 인증 흐름을 바꾸지 않는지 검사한다.
 def validate_documentation_ingress_contract(
     ingress: dict,
     middleware: dict,
@@ -732,6 +820,7 @@ def validate_test_api_ingress_contract(
     )
 
 
+# 환경별 렌더 결과에서 이미지·Secret 주입·네트워크·배포 gate가 함께 유지되는지 확인한다.
 def validate_render(
     path: Path,
     environment: str,
@@ -814,7 +903,6 @@ def validate_render(
     )
     environment_values = {item["name"]: item.get("value") for item in container["env"]}
     common = {
-        "APP_SEED_ENABLED": "false",
         "MANAGEMENT_ENDPOINT_HEALTH_PROBES_ENABLED": "true",
         "MANAGEMENT_SERVER_PORT": "9090",
         "OTEL_URL": "http://otel-collector.monitoring.svc.cluster.local:4318",
@@ -828,6 +916,7 @@ def validate_render(
 
     expected_environment = {
         "prod": {
+            "APP_SEED_ENABLED": "false",
             "APP_TEST_API_ENABLED": "false",
             "FCM_ENABLED": "true",
             "OPENAPI_ENABLE": "true",
@@ -837,7 +926,6 @@ def validate_render(
             "SSO_ISSUER": "https://api.university.neordinary.com",
             "CERTIFICATE_VERIFICATION_URL_TEMPLATE": "https://api.university.neordinary.com/api/v1/certificates/verify/{serialNumber}",
             "S3_BUCKET_NAME": "umc-product-prod-app-storage-351284652562-ap-northeast-2",
-            "EMAIL_NO_REPLY_ADDRESS": "no-reply@university.neordinary.com",
             "GOOGLE_CLIENT_ID_LIST": GOOGLE_CLIENT_ID_LIST,
             "CORS_ALLOWED_ORIGIN_PATTERNS": (
                 "https://university.neordinary.com,"
@@ -848,6 +936,7 @@ def validate_render(
             "DATABASE_URL": "jdbc:postgresql://postgres.db.svc.cluster.local:5432/umc_product",
         },
         "dev": {
+            "APP_SEED_ENABLED": "true",
             "APP_TEST_API_ENABLED": "true",
             "FCM_ENABLED": "false",
             "OPENAPI_ENABLE": "true",
@@ -857,12 +946,12 @@ def validate_render(
             "SSO_ISSUER": "https://api-dev.university.neordinary.com",
             "CERTIFICATE_VERIFICATION_URL_TEMPLATE": "https://api-dev.university.neordinary.com/api/v1/certificates/verify/{serialNumber}",
             "S3_BUCKET_NAME": "umc-product-dev-app-storage-351284652562-ap-northeast-2",
-            "EMAIL_NO_REPLY_ADDRESS": "no-reply-nonprod@university.neordinary.com",
             "GOOGLE_CLIENT_ID_LIST": GOOGLE_CLIENT_ID_LIST,
             "DATABASE_USERNAME": "umc_product_dev_app",
             "DATABASE_URL": "jdbc:postgresql://postgres.dev-db.svc.cluster.local:5432/umc_product_dev",
         },
         "preview": {
+            "APP_SEED_ENABLED": "false",
             "APP_TEST_API_ENABLED": "false",
             "FCM_ENABLED": "false",
             "SPRING_PROFILES_ACTIVE": "dev",
@@ -871,13 +960,29 @@ def validate_render(
             "SSO_ISSUER": "https://api-pr-42.university.neordinary.com",
             "CERTIFICATE_VERIFICATION_URL_TEMPLATE": "https://api-pr-42.university.neordinary.com/api/v1/certificates/verify/{serialNumber}",
             "S3_BUCKET_NAME": "umc-product-preview-app-storage-351284652562-ap-northeast-2",
-            "EMAIL_NO_REPLY_ADDRESS": "no-reply-nonprod@university.neordinary.com",
             "DATABASE_USERNAME": "umc_product_preview_app",
             "DATABASE_URL": "jdbc:postgresql://postgres-preview.preview.svc.cluster.local:5432/umc_product_pr42",
         },
     }[environment]
     for key, expected in expected_environment.items():
         require(environment_values.get(key) == expected, f"{environment}: env {key}")
+
+    provider = environment_values.get("EMAIL_PROVIDER")
+    require(provider in {"ses", "smtp"}, f"{environment}: email provider")
+    require("SMTP_PASSWORD" not in environment_values, "SMTP password must come from Secret")
+    if provider == "smtp":
+        require(environment in {"prod", "dev"}, "preview must not use Gmail SMTP")
+        for key, expected in {
+            "SMTP_HOST": "smtp.gmail.com", "SMTP_PORT": "587",
+            "SMTP_USERNAME": "umcproduct1227@gmail.com",
+            "EMAIL_NO_REPLY_ADDRESS": "umcproduct1227@gmail.com",
+        }.items():
+            require(environment_values.get(key) == expected, f"{environment}: env {key}")
+    else:
+        expected_sender = ("no-reply@university.neordinary.com" if environment == "prod"
+                           else "no-reply-nonprod@university.neordinary.com")
+        require(environment_values.get("EMAIL_NO_REPLY_ADDRESS") == expected_sender,
+                f"{environment}: SES sender")
 
     expected_host, expected_secret, expected_service = edge_expectation(environment)
     certificates = [item for item in resources if item.get("kind") == "Certificate"]
@@ -1005,6 +1110,21 @@ def validate_render(
     if environment == "preview":
         jobs = [item for item in resources if item.get("kind") == "Job"]
         require(len(jobs) == 2, "preview: createdb and dropdb Jobs")
+        dropdb = next(
+            item
+            for item in jobs
+            if item["metadata"]["labels"]["app.kubernetes.io/component"]
+            == "database-cleanup"
+        )
+        require(
+            dropdb["metadata"]["annotations"]["argocd.argoproj.io/hook"] == "PostDelete",
+            "preview: dropdb must run after workload deletion",
+        )
+        dropdb_script = dropdb["spec"]["template"]["spec"]["containers"][0]["args"][0]
+        require(
+            'DROP DATABASE IF EXISTS :"db" WITH (FORCE);' in dropdb_script,
+            "preview: dropdb must force-disconnect only the quoted target database",
+        )
         createdb = next(
             item
             for item in jobs
@@ -1067,6 +1187,7 @@ def validate_active_preview_edge_fixture(path: Path) -> None:
     )
 
 
+# DB 환경 분리와 역할·백업·저장 경로를 고정해 chart나 초기화 Job 변경의 데이터 위험을 검사한다.
 def validate_postgres() -> None:
     expected_databases = {
         "prod": "umc_product",
@@ -1277,6 +1398,7 @@ def validate_postgres() -> None:
             "prod: kube-state-metrics RBAC is owned by kube-prometheus-stack")
 
 
+# AWS 원본 경로와 Kubernetes Secret의 namespace·키 매핑·보존 정책을 함께 대조한다.
 def validate_secrets(path: Path) -> None:
     resources = yaml_documents(path)
     stores = [item for item in resources if item.get("kind") == "SecretStore"]
@@ -1347,6 +1469,8 @@ def validate_secrets(path: Path) -> None:
             for datum in item["spec"]["data"]
         }
         expected = {key: key for key in expected_app_properties[name]}
+        if name == "app-email" and item["metadata"]["namespace"] in {"app", "dev-app"}:
+            expected["SMTP_PASSWORD"] = "SMTP_PASSWORD"
         require(
             properties == expected,
             f"{item['metadata']['namespace']}/{name}: JSON property contract",
@@ -1442,6 +1566,7 @@ def validate_secrets(path: Path) -> None:
     require("umc-secrets-shared" not in iam_text, "obsolete shared IAM role remains")
 
 
+# PR별 앱 수와 공용 DB·wildcard 인증서 구조가 Preview 자원 예산을 넘지 않게 한다.
 def validate_preview_budget() -> None:
     quota = resource(
         yaml_documents(ROOT / "manifests" / "cluster" / "preview-resourcequota.yaml"),
@@ -1515,6 +1640,7 @@ def validate_preview_budget() -> None:
     )
 
 
+# Reloader가 바꾸는 annotation만 Git 비교에서 제외해 다른 Deployment 차이는 계속 탐지한다.
 def validate_reloader_argocd_contract() -> None:
     expected_applications = {
         "prod/server.yaml": ("umc-product-server", "app"),
@@ -1567,6 +1693,7 @@ def validate_reloader_argocd_contract() -> None:
     )
 
 
+# 필수 디렉터리와 실제 Git 입력을 확인해 로컬 잔여 파일에 의존하는 checkout을 막는다.
 def validate_repository_identity() -> None:
     required_directories = [
         "ansible",
@@ -1582,7 +1709,7 @@ def validate_repository_identity() -> None:
         "manifests/postgres/preview",
         "manifests/observability",
         "observability",
-        "runbooks",
+        "docs/runbooks",
     ]
     for directory in required_directories:
         require((ROOT / directory).is_dir(), f"missing directory: {directory}")
@@ -1619,6 +1746,7 @@ def validate_repository_identity() -> None:
                 require((ROOT / source["path"]).exists(), f"missing Argo path: {source['path']}")
 
 
+# 정적 원본 계약을 먼저 검사한 뒤 환경별 렌더와 합성 공개 경로의 교차 검증을 수행한다.
 def main() -> int:
     if len(sys.argv) != 7:
         raise SystemExit(

@@ -2,21 +2,41 @@
 # 단일 노드 bootstrap용 Argo CD core 값이다. 외부 앱과 platform controller는
 # root Application 이후에도 계속 Argo CD가 관리한다.
 global:
-  # Argo CD ingress는 만들지 않는다. 공개 전까지 예약된 비해결 도메인을 쓴다.
-  domain: argocd.invalid
+  domain: argo.university.neordinary.com
+  networkPolicy:
+    # chart의 server 기본 정책(ingress: [{}])과 합쳐지면 좁은 허용 정책이 무력화된다.
+    # 다른 구성요소의 기존 정책은 아래에서 개별 유지한다.
+    create: false
   image:
     tag: v3.5.0
 
+# Helm release 삭제가 Application 등 custom resource 정의의 삭제로 이어지지 않게 보존한다.
 crds:
   install: true
   keep: true
 
 configs:
-  # 공개 URL은 ingress, TLS와 접근 정책을 함께 설계할 때만 설정한다.
   cm:
-    url: ""
+    url: https://argo.university.neordinary.com
+    # admin은 운영자 전용, 공유 계정은 로그인과 조회만 허용한다.
+    # 비밀번호는 runtime Secret에서 별도 관리하며 values에 넣지 않는다.
+    admin.enabled: true
+    users.anonymous.enabled: false
+    accounts.umc-viewer: login
+    accounts.umc-viewer.enabled: true
+  rbac:
+    # 모든 로그인 사용자에게 기본 권한을 주지 않고 아래 명시된 역할만 연결한다.
+    policy.default: ""
+    policy.csv: |
+      g, umc-viewer, role:readonly
+  params:
+    # 외부 TLS는 Traefik이 종료한다. 내부 HTTP는 argocd-access의 NetworkPolicy로 제한한다.
+    server.insecure: true
 
+# Git desired state와 클러스터를 비교·동기화하는 controller의 자원을 단일 노드에 맞춘다.
 controller:
+  networkPolicy:
+    create: true
   resources:
     requests:
       cpu: 100m
@@ -25,7 +45,10 @@ controller:
       cpu: "1"
       memory: 1Gi
 
+# PR 등 generator 입력을 바탕으로 Application을 생성하는 별도 controller다.
 applicationSet:
+  networkPolicy:
+    create: true
   resources:
     requests:
       cpu: 50m
@@ -34,7 +57,10 @@ applicationSet:
       cpu: 500m
       memory: 256Mi
 
+# chart가 제공하는 인증 연동 구성요소의 자원 상한이다. 이 값만으로 외부 SSO가 구성되지는 않는다.
 dex:
+  networkPolicy:
+    create: true
   initImage:
     resources:
       requests:
@@ -56,6 +82,8 @@ notifications:
   enabled: false
 
 redis:
+  networkPolicy:
+    create: true
   # 비밀번호 생성은 별도 hook Job이 하므로 Redis Pod는 Kubernetes API가 필요 없다.
   automountServiceAccountToken: false
   resources:
@@ -66,6 +94,7 @@ redis:
       cpu: 500m
       memory: 256Mi
 
+# Redis 인증 Secret 생성 hook도 단일 노드의 작은 자원 예산 안에서 실행한다.
 redisSecretInit:
   resources:
     requests:
@@ -75,7 +104,10 @@ redisSecretInit:
       cpu: 100m
       memory: 64Mi
 
+# 저장소 checkout·manifest 렌더 담당이며 Pod에 Kubernetes API 토큰을 자동 주입하지 않는다.
 repoServer:
+  networkPolicy:
+    create: true
   automountServiceAccountToken: false
   serviceAccount:
     automountServiceAccountToken: false
@@ -95,7 +127,13 @@ repoServer:
       cpu: "1"
       memory: 512Mi
 
+# UI/API는 ClusterIP로 제공하고 공개 HTTPS 경계는 별도 argocd-access Application이 관리한다.
 server:
+  service:
+    type: ClusterIP
+  ingress:
+    # Certificate → Ingress 순서는 별도 argocd-access Application이 관리한다.
+    enabled: false
   resources:
     requests:
       cpu: 50m

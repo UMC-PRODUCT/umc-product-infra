@@ -67,6 +67,7 @@ spec:
             # Cafe24 8코어 기준의 초기 예약량이다. ingest 지연과 query latency로 재조정한다.
             requests: { cpu: 250m, memory: 1Gi }
             limits: { memory: 2Gi }
+        # local-path 저장은 노드 밖 복제가 아니므로 노드 손실 시 trace를 잃을 수 있다.
         persistence:
           enabled: true
           storageClassName: local-path

@@ -1,0 +1,48 @@
+---
+# 개인 계정·공개키·SSH 정책을 적용한 뒤 방화벽과 새 관리자 접속을 검증한다.
+# 중간 실패 시 이전 변경을 자동 복구하지 않으므로 기존 관리자 세션을 유지한다.
+- name: Configure personal public SSH access
+  hosts: k3s_servers
+  become: true
+  gather_facts: true
+  any_errors_fatal: true
+  serial: 1
+  environment:
+    LC_ALL: C
+  roles:
+    - role: ssh_access
+  tasks:
+    # 공통 역할 중 방화벽 작업만 실행해 공개 포트와 내부 네트워크 허용 규칙을 맞춘다.
+    - name: Reconcile only the declared management and application firewall
+      ansible.builtin.include_role:
+        name: common
+        tasks_from: firewall.yml
+
+    # 변경 전 연결을 재사용하지 않도록 Ansible의 기존 SSH 연결을 닫는다.
+    - name: Close the cached connection after SSH and firewall changes
+      ansible.builtin.meta: reset_connection
+
+    # 바뀐 SSH·방화벽 정책에서도 현재 관리자가 새로 접속할 수 있는지 확인한다.
+    - name: Verify a fresh connection through the new policy
+      ansible.builtin.wait_for_connection:
+        connect_timeout: 10
+        sleep: 5
+        timeout: 60
+
+    # 새 연결에서도 비밀번호 입력 없이 sudo를 사용할 수 있어 후속 관리가 가능한지 확인한다.
+    - name: Verify administrator sudo remains available
+      ansible.builtin.command: sudo -n true
+      become: false
+      changed_when: false
+
+    # 관리자 PC에서 서버 공인 IP의 DB·Kubernetes API 포트로 직접 연결되지 않는지 확인한다.
+    - name: Verify database and Kubernetes API ports remain private
+      ansible.builtin.wait_for:
+        host: "{{ ssh_access_public_host }}"
+        port: "{{ item }}"
+        state: stopped
+        connect_timeout: 3
+        timeout: 5
+      loop: [5432, 6443]
+      delegate_to: localhost
+      become: false

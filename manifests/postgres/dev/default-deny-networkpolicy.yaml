@@ -1,4 +1,5 @@
 # allow 정책(-2)이 먼저 준비된 뒤 namespace 전체 ingress·egress를 차단한다.
+# 별도 allow 정책으로 허용된 경로는 유지된다. default-deny가 다른 허용 정책을 덮어쓰는 방식은 아니다.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:

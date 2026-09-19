@@ -27,6 +27,7 @@ from validate_observability import (
 )
 
 
+# 수집 selector/포트가 끊기거나 Operator의 예외 권한이 다른 관측 앱으로 퍼지면 실패해야 한다.
 class OperatorContractsTest(unittest.TestCase):
     def test_operator_crd_matcher_enum_keeps_literal_equals(self) -> None:
         self.assertEqual(yaml.load("enum: [=, '!=', '=~', '!~']", Loader=ManifestLoader),
@@ -111,6 +112,7 @@ class OperatorContractsTest(unittest.TestCase):
                 validate_monitoring_rbac([role])
 
 
+# 전역 알림 설정은 Secret 참조만 사용하고 기존 base Secret·평문 webhook과 혼용하지 않는다.
 class AlertmanagerNativeConfigTest(unittest.TestCase):
     def setUp(self) -> None:
         self.resources = [
@@ -147,6 +149,7 @@ class AlertmanagerNativeConfigTest(unittest.TestCase):
             validate_alertmanager_config(self.resources)
 
 
+# 끝나지 않는 WATCH를 일반 initContainer에 두면 Grafana가 시작하지 못하는 회귀를 재현한다.
 class GrafanaStartupTest(unittest.TestCase):
     def test_dashboard_watch_cannot_block_as_a_regular_init_container(self) -> None:
         resources = [{"kind": "Deployment", "metadata": {"name": "grafana"}, "spec": {

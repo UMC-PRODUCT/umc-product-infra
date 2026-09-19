@@ -30,6 +30,8 @@ spec:
         # Ingress가 사용하는 stable annotation namespace를 ExternalDNS에도 명시한다.
         annotationPrefix: external-dns.kubernetes.io/
         annotationFilter: external-dns.kubernetes.io/managed-by=umc-infra
+        # sync는 생성·갱신뿐 아니라 더 이상 선언되지 않은 소유 레코드 삭제도 수행한다.
+        # TXT owner와 domain/zone/annotation/target 필터를 한 묶음으로 검토한다.
         policy: sync
         registry: txt
         txtOwnerId: umc-infra-idc

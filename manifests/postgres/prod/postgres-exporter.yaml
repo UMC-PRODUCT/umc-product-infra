@@ -16,6 +16,7 @@ data:
   postgres_exporter.yml: |
     auth_modules: {}
 ---
+# exporter는 DB만 조회하므로 Kubernetes API 인증 토큰을 자동 마운트하지 않는다.
 apiVersion: v1
 kind: ServiceAccount
 metadata:
@@ -29,6 +30,7 @@ metadata:
     argocd.argoproj.io/sync-wave: "4"
 automountServiceAccountToken: false
 ---
+# ServiceMonitor는 이 Service label과 metrics 포트 이름으로 exporter를 찾는다.
 apiVersion: v1
 kind: Service
 metadata:
@@ -51,6 +53,7 @@ spec:
       targetPort: metrics
       protocol: TCP
 ---
+# DB role 준비 뒤 별도 Pod로 실행한다. 이 Deployment rollout은 PostgreSQL 자체를 교체하지 않는다.
 apiVersion: apps/v1
 kind: Deployment
 metadata:

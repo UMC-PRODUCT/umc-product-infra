@@ -28,6 +28,7 @@ spec:
           existingSecret: grafana-admin
           userKey: admin-user
           passwordKey: admin-password
+        # 대시보드·datasource 원본과 달리 local 사용자 계정 DB는 이 PVC에 저장된다.
         persistence:
           enabled: true
           storageClassName: local-path

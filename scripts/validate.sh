@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# 저장소 원본과 렌더 결과를 검증하는 진입점이며 실제 클러스터에 적용하지 않는다.
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 repo_root="$(cd "$script_dir/.." && pwd)"
 cd "$repo_root"
@@ -14,6 +15,7 @@ python3 -c 'import yaml' >/dev/null 2>&1 || {
   exit 1
 }
 
+# 지정한 출력 폴더는 보존하고, 이 실행이 만든 임시 폴더만 종료 시 정리한다.
 if [[ -n "${VALIDATION_OUTPUT_DIR:-}" ]]; then
   validation_dir="$VALIDATION_OUTPUT_DIR"
   mkdir -p "$validation_dir"
@@ -33,6 +35,7 @@ common_args=(
   --set-string env.DEMODAY_QR_BASE_URL=https://validation.example.com
 )
 
+# 원본/생성물 불일치와 Python 회귀를 먼저 잡아 뒤의 chart 렌더 실패와 구분한다.
 python3 scripts/gen-configmaps.py --check
 PYTHONPYCACHEPREFIX="$validation_dir/pycache" python3 -m py_compile scripts/*.py
 PYTHONPYCACHEPREFIX="$validation_dir/pycache" \
@@ -168,6 +171,7 @@ fi
 # prod와 nonprod 발신 주소가 뒤섞이면 IAM FromAddress 조건과 실제 runtime이 어긋난다.
 if helm template umc-product-server charts/umc-product-server \
   -f charts/umc-product-server/values-prod.yaml "${common_args[@]}" \
+  --set-string env.EMAIL_PROVIDER=ses \
   --set-string env.EMAIL_NO_REPLY_ADDRESS=no-reply-nonprod@university.neordinary.com \
   >/dev/null 2>&1; then
   echo "prod nonprod sender address unexpectedly passed" >&2
@@ -175,6 +179,7 @@ if helm template umc-product-server charts/umc-product-server \
 fi
 if helm template dev-umc-product-server charts/umc-product-server \
   -f charts/umc-product-server/values-dev.yaml "${common_args[@]}" \
+  --set-string env.EMAIL_PROVIDER=ses \
   --set-string env.EMAIL_NO_REPLY_ADDRESS=no-reply@university.neordinary.com \
   >/dev/null 2>&1; then
   echo "dev production sender address unexpectedly passed" >&2
@@ -282,6 +287,7 @@ python3 scripts/validate_argocd.py "$validation_dir"
 python3 scripts/validate_edge_platform.py "$validation_dir"
 python3 scripts/validate_observability.py "$validation_dir"
 
+# 개별 YAML 문법만으로 알 수 없는 환경 간 Secret·DB·DNS 연결 계약을 확인한다.
 python3 scripts/validate_contracts.py \
   "$validation_dir/prod.yaml" \
   "$validation_dir/dev.yaml" \
@@ -311,12 +317,13 @@ else
   echo "cfn-lint not installed; CloudFormation lint skipped"
 fi
 
+# 실제 inventory 대신 공개 예제로 구문만 검사하며 서버 접속이나 적용은 수행하지 않는다.
 if command -v ansible-playbook >/dev/null; then
   (
     cd ansible
-    for playbook in playbooks/tailscale-enroll.yml playbooks/bootstrap.yml; do
+    for playbook in playbooks/ssh-access.yml playbooks/bootstrap.yml; do
       ansible-playbook --syntax-check \
-        -i inventories/idc/hosts.example.yml "$playbook"
+        -i inventories/idc-new/hosts.example.yml "$playbook"
     done
   )
 else
@@ -335,8 +342,8 @@ if command -v kubeconform >/dev/null; then
     "$validation_dir/argocd.yaml" \
     "$validation_dir"/observability-*.yaml \
     "$validation_dir"/platform-*.yaml
-  # New Operator custom resources must pass their pinned CRD schemas, without
-  # ignore-missing-schemas. Admission/CEL checks still require server dry-run.
+  # Operator 사용자 리소스는 고정 CRD 스키마로 누락 없이 검사한다.
+  # admission/CEL 검증은 별도의 서버 dry-run이 필요하다.
   kubeconform -strict -summary \
     -schema-location "$validation_dir/monitoring-schemas/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json" \
     "$validation_dir/monitoring-resources.yaml"
@@ -346,14 +353,13 @@ fi
 
 if command -v promtool >/dev/null; then
   promtool check rules --lint-fatal observability/rules/prometheus-alerts.yaml
-  # The operator compiles Prometheus config at runtime. Validate every rendered
-  # PrometheusRule now, including the chart's default alert/recording rules.
+  # Operator가 런타임에 조립할 설정 대신 chart 기본값을 포함한 모든 렌더 규칙을 검사한다.
   for rule_file in "$validation_dir"/prometheus-rules-*.yaml; do
     if [[ "${rule_file##*/}" == prometheus-rules-prometheus-alert-rules.yaml ]]; then
       promtool check rules --lint-fatal "$rule_file"
     else
-      # Upstream availability rules record disjoint code ranges under one name;
-      # retain promtool's default nonfatal lint while enforcing syntax errors.
+      # upstream은 같은 이름으로 서로 다른 응답 코드 범위를 기록하므로 lint 경고는 허용한다.
+      # 구문 오류는 그대로 실패시킨다.
       promtool check rules "$rule_file"
     fi
   done

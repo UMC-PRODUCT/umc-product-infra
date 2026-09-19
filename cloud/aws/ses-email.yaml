@@ -1,6 +1,7 @@
 AWSTemplateFormatVersion: "2010-09-09"
 Description: Shared SES domain identity, custom MAIL FROM, and least-privilege prod/nonprod IAM senders for UMC Product email
 
+# SES identity·검증 DNS·발송 사용자를 구성한다. access key 발급과 sandbox 해제는 별도 절차다.
 Parameters:
   SesDomainIdentity:
     Type: String
@@ -30,12 +31,27 @@ Parameters:
     MinLength: 3
     MaxLength: 254
     AllowedPattern: "^[^@\\s]+@[^@\\s]+$"
+  NonprodTestRecipientEmailAddress:
+    Type: String
+    Default: ""
+    Description: One separately verified SES sandbox recipient for nonprod; empty disables the additional permission
+    MaxLength: 254
+    AllowedPattern: "^$|^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}$"
+  FeedbackNotificationEmailAddress:
+    Type: String
+    Description: Operator mailbox for SES bounce and complaint notifications; SNS email confirmation is required
+    MinLength: 3
+    MaxLength: 254
+    AllowedPattern: "^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}$"
   Route53HostedZoneId:
     Type: String
     Description: Public Route 53 hosted zone ID that owns the SES identity and MAIL FROM records
     MinLength: 1
     MaxLength: 32
     AllowedPattern: "^[A-Z0-9]{1,32}$"
+
+Conditions:
+  HasNonprodTestRecipient: !Not [!Equals [!Ref NonprodTestRecipientEmailAddress, ""]]
 
 Rules:
   SeoulRegionOnly:
@@ -52,15 +68,84 @@ Rules:
         AssertDescription: Custom MAIL FROM must be a subdomain of the SES identity
 
 Resources:
+  SesFeedbackConfigurationSet:
+    Type: AWS::SES::ConfigurationSet
+    # 보존되는 domain identity가 삭제된 기본 설정을 참조하지 않도록 함께 보존한다.
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      Name: umc-product-ses-feedback
+      SuppressionOptions:
+        SuppressedReasons:
+          - BOUNCE
+          - COMPLAINT
+
+  SesFeedbackTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: umc-product-ses-feedback
+
+  SesFeedbackTopicPolicy:
+    # 같은 AWS 계정의 지정 configuration set에서 오는 SES 발행만 허용한다.
+    Type: AWS::SNS::TopicPolicy
+    Properties:
+      Topics:
+        - !Ref SesFeedbackTopic
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: AllowSesFeedbackPublishing
+            Effect: Allow
+            Principal:
+              Service: ses.amazonaws.com
+            Action: sns:Publish
+            Resource: !Ref SesFeedbackTopic
+            Condition:
+              StringEquals:
+                "AWS:SourceAccount": !Ref AWS::AccountId
+                "AWS:SourceArn": !Sub "arn:${AWS::Partition}:ses:${AWS::Region}:${AWS::AccountId}:configuration-set/${SesFeedbackConfigurationSet}"
+
+  SesFeedbackSubscription:
+    # 운영자가 수신한 SNS 확인 메일을 승인해야 이 구독으로 알림을 받을 수 있다.
+    Type: AWS::SNS::Subscription
+    Properties:
+      TopicArn: !Ref SesFeedbackTopic
+      Protocol: email
+      Endpoint: !Ref FeedbackNotificationEmailAddress
+
+  SesFeedbackEventDestination:
+    Type: AWS::SES::ConfigurationSetEventDestination
+    DependsOn: SesFeedbackTopicPolicy
+    Properties:
+      ConfigurationSetName: !Ref SesFeedbackConfigurationSet
+      EventDestination:
+        Name: bounce-complaint-email
+        Enabled: true
+        # 정상 발송·열람 추적은 보내지 않고 운영자가 조치할 피드백만 알린다.
+        MatchingEventTypes:
+          - BOUNCE
+          - COMPLAINT
+        SnsDestination:
+          TopicARN: !Ref SesFeedbackTopic
+
   SesDomainIdentityResource:
     Type: AWS::SES::EmailIdentity
+    # 발송 사용자와 피드백 경로를 준비한 뒤 공용 domain identity를 구성한다.
+    DependsOn:
+      - SesFeedbackEventDestination
+      - SesSenderUser
+      - NonprodSesSenderUser
     DeletionPolicy: Retain
     UpdateReplacePolicy: Retain
     Properties:
       EmailIdentity: !Ref SesDomainIdentity
+      # 앱에서 configuration set을 생략해도 prod/nonprod 공통으로 적용한다.
+      ConfigurationSetAttributes:
+        ConfigurationSetName: !Ref SesFeedbackConfigurationSet
       DkimAttributes:
         SigningEnabled: true
       MailFromAttributes:
+        # MAIL FROM의 MX 검증 실패 시 대체 발신 도메인으로 우회하지 않고 발송을 거부한다.
         BehaviorOnMxFailure: REJECT_MESSAGE
         MailFromDomain: !Ref SesMailFromDomain
       Tags:
@@ -72,6 +157,7 @@ Resources:
           Value: application-email
 
   DkimDnsRecord1:
+    # DKIM 3개와 MAIL FROM MX·SPF는 identity와 함께 삭제·교체 시에도 기존 레코드를 남긴다.
     Type: AWS::Route53::RecordSet
     DeletionPolicy: Retain
     UpdateReplacePolicy: Retain
@@ -132,6 +218,7 @@ Resources:
         - '"v=spf1 include:amazonses.com ~all"'
 
   SesSenderUser:
+    # 운영 발송은 지정한 From 주소로 제한한다. domain identity는 nonprod와 공유한다.
     Type: AWS::IAM::User
     Properties:
       UserName: umc-product-prod-email-sender
@@ -143,7 +230,9 @@ Resources:
               - Sid: SendFromProductionAddress
                 Effect: Allow
                 Action: ses:SendEmail
-                Resource: !Sub "arn:${AWS::Partition}:ses:${AWS::Region}:${AWS::AccountId}:identity/${SesDomainIdentity}"
+                Resource:
+                  - !Sub "arn:${AWS::Partition}:ses:${AWS::Region}:${AWS::AccountId}:identity/${SesDomainIdentity}"
+                  - !Sub "arn:${AWS::Partition}:ses:${AWS::Region}:${AWS::AccountId}:configuration-set/${SesFeedbackConfigurationSet}"
                 Condition:
                   StringEquals:
                     "ses:FromAddress": !Ref SenderEmailAddress
@@ -156,6 +245,7 @@ Resources:
           Value: application-email-sender
 
   NonprodSesSenderUser:
+    # dev·preview가 공유하는 발송 사용자이며 운영과 다른 From 주소를 강제한다.
     Type: AWS::IAM::User
     Properties:
       UserName: umc-product-nonprod-email-sender
@@ -167,7 +257,15 @@ Resources:
               - Sid: SendFromNonprodAddress
                 Effect: Allow
                 Action: ses:SendEmail
-                Resource: !Sub "arn:${AWS::Partition}:ses:${AWS::Region}:${AWS::AccountId}:identity/${SesDomainIdentity}"
+                Resource:
+                  - !Sub "arn:${AWS::Partition}:ses:${AWS::Region}:${AWS::AccountId}:identity/${SesDomainIdentity}"
+                  - !Sub "arn:${AWS::Partition}:ses:${AWS::Region}:${AWS::AccountId}:configuration-set/${SesFeedbackConfigurationSet}"
+                  # Sandbox 테스트 수신 identity만 추가한다. 발신 주소 제한은 그대로 유지한다.
+                  # 수신 주소 검증은 별도 절차이며, 테스트 종료 후 파라미터를 비우면 권한이 제거된다.
+                  - !If
+                    - HasNonprodTestRecipient
+                    - !Sub "arn:${AWS::Partition}:ses:${AWS::Region}:${AWS::AccountId}:identity/${NonprodTestRecipientEmailAddress}"
+                    - !Ref AWS::NoValue
                 Condition:
                   StringEquals:
                     "ses:FromAddress": !Ref NonprodSenderEmailAddress
@@ -180,6 +278,12 @@ Resources:
           Value: application-email-sender
 
 Outputs:
+  SesFeedbackConfigurationSetName:
+    Value: !Ref SesFeedbackConfigurationSet
+  SesFeedbackTopicArn:
+    Value: !Ref SesFeedbackTopic
+  FeedbackNotificationEmailAddress:
+    Value: !Ref FeedbackNotificationEmailAddress
   SesIdentityName:
     Value: !Ref SesDomainIdentityResource
   SesIdentityArn:

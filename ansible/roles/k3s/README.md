@@ -39,5 +39,5 @@
 
 - 현재 구현은 **단일 노드 K3s server** 전용이다. 다중 server/agent 구성과 HA join은 지원하지 않는다.
 - `common` 역할이 먼저 실행되어 커널과 방화벽이 준비되어야 한다.
-- Pod/Service CIDR은 IDC, 호스트, VPN 네트워크와 겹치면 안 되며 기존 클러스터에서 가볍게 바꿀 수 있는 값이 아니다.
+- Pod/Service CIDR은 IDC·호스트 네트워크와 겹치면 안 되며 기존 클러스터에서 가볍게 바꿀 수 있는 값이 아니다.
 - K3s 버전을 바꿀 때 설치 경로와 백업 가능성을 검토하고 같은 release tag의 설치 스크립트 URL과 checksum도 함께 갱신해야 한다.

@@ -24,6 +24,7 @@ spec:
           digest: sha256:b253579350a835082cdad8d8736671cedaa0f8309437c894bd1bf1c2f0e0d45e
           pullPolicy: IfNotPresent
         reloader:
+          # 모든 Secret을 자동 재시작 대상으로 삼지 않고 workload에 명시한 Secret만 감시한다.
           autoReloadAll: false
           ignoreSecrets: false
           ignoreConfigMaps: true
@@ -71,4 +72,5 @@ spec:
       selfHeal: true
       prune: true
     syncOptions:
+      # 다른 Application이 이미 소유한 리소스를 덮어쓰지 않고 sync를 실패시킨다.
       - FailOnSharedResource=true

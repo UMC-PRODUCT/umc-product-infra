@@ -1,5 +1,5 @@
 ---
-# root도 diff rc=0/1만 정상으로 보고 차이가 있을 때만 적용한다.
+# 제어 노드의 Git root manifest를 서버 상태와 비교한다. diff 0=동일, 1=차이만 정상으로 본다.
 # 서버 측 필드 관리 충돌은 Git의 root manifest를 기준으로 수렴시킨다.
 - name: Compare the root Application with Git
   ansible.builtin.command:
@@ -19,6 +19,7 @@
   changed_when: false
   failed_when: argocd_root_app_diff.rc not in [0, 1]
 
+# 차이가 있을 때만 root Application을 서버에 적용해 준비된 core·secret-zero 위에서 GitOps를 시작한다.
 - name: Reconcile the root Application when it differs
   ansible.builtin.command:
     argv:
@@ -37,7 +38,7 @@
   changed_when: true
 
 # hard refresh annotation은 Argo CD가 소비해 제거하는 일회성 신호다.
-# 제거를 확인한 뒤 상태를 기다려 이전 실행의 캐시를 성공으로 오인하지 않는다.
+# 캐시를 갱신해 다시 비교하도록 요청하며, 이 요청 자체가 Synced·Healthy 완료를 뜻하지는 않는다.
 - name: Request a hard refresh of the root Application
   ansible.builtin.command:
     argv:
@@ -51,6 +52,7 @@
       - --overwrite
   changed_when: false
 
+# refresh annotation이 사라질 때까지 기다려 요청이 처리되기 전의 상태를 성공으로 오인하지 않는다.
 - name: Wait for Argo CD to consume the hard refresh
   ansible.builtin.command:
     argv:
@@ -72,8 +74,8 @@
   retries: "{{ argocd_root_app_refresh_retries }}"
   delay: "{{ argocd_root_app_refresh_delay }}"
 
-# 성공은 Synced에 이어 custom health가 전달한 모든 하위 상태가 Healthy인 경우다.
-# 둘을 따로 기다려 Git 차이와 실행 중 리소스의 준비 실패를 구분한다.
+# 먼저 root의 Synced를 기다려 Git 선언과 일치하는지 확인한다.
+# 실행 중인 리소스의 준비 상태는 다음 Healthy 검사에서 별도로 확인한다.
 - name: Wait for the root Application to finish syncing
   ansible.builtin.command:
     argv:
@@ -87,6 +89,7 @@
       - "--timeout={{ argocd_root_app_ready_timeout }}"
   changed_when: false
 
+# root의 Healthy를 기다려 custom health gate가 전달하는 하위 Application·리소스 준비 상태까지 확인한다.
 - name: Wait for the root Application and all health-gated children
   ansible.builtin.command:
     argv:

@@ -36,6 +36,8 @@ spec:
         - name: psql
           image: postgis/postgis:18-3.6@sha256:60f6ad1d21ea86a67d47780b9a0d1e1d200500f62b19293fa834d0dea80b8677
           command: ["sh", "-ec"]
+          # 전용 비밀번호·접속 수·query 시간 제한을 맞추고 pg_monitor 외 role 소속이 있으면 실패시킨다.
+          # SQL 오류가 앞선 변경을 자동 롤백하지는 않으므로 재실행 전 실패 지점과 현재 권한을 확인한다.
           args:
             - |
               database_ready=false

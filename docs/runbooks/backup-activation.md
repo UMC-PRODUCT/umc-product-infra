@@ -4,6 +4,18 @@
 CronJob은 이 절차가 끝날 때까지 `suspend: true`로 유지한다.
 검증은 prod node 밖에서 운영 DB와 같은 PostgreSQL 18·PostGIS 3.6 image digest로 수행한다.
 
+## 백업 정책
+
+- 대상은 prod DB이며 매일 03:00 `Asia/Seoul`에 전체 논리 백업을 만든다.
+- S3 현재 버전은 생성 후 **10일**에 만료한다. 성공한 백업 **10개**를 보장하는 정책은 아니다.
+  하루 한 번 성공하면 대략 10회분이며, 수동 백업도 같은 보관 기간을 적용한다.
+- Versioning 때문에 만료된 원본은 비현행 버전이 된 뒤 **1일**을 기준으로 영구 삭제된다.
+  정리는 비동기이므로 모든 객체가 정확히 240시간 만에 사라지지는 않는다.
+- 대기 서버와 시점 복구(PITR)는 운영하지 않는다. 정상적인 일일 백업 기준 최대 약 하루의
+  데이터 손실을 감수하며, 장애 시 서버 재구성과 마지막 정상 백업 복원을 수행한다.
+  백업 실패가 이어지면 손실 범위가 늘어나므로 실패·지연 경보에 대응해야 한다.
+- 임시 복원 검증용 Docker DB는 대기 서버가 아니며 검증 뒤 정리한다.
+
 ## 전제
 
 - `umc-product-postgres-backup-s3` stack이 실제 bucket으로 배포됐다.
@@ -21,10 +33,13 @@ Secret 값을 셸 인자, Git, log에 출력하지 않는다.
 
 ## 1. 계약 확인
 
+1~2단계는 개인 관리자 공인 SSH로 접속한 IDC의 같은 Bash 세션에서 실행한다.
+클러스터 명령에는 `sudo k3s kubectl`을 사용하고 kubeconfig를 PC로 복사하지 않는다.
+
 ```bash
-kubectl get cronjob/pg-backup -n db \
+sudo k3s kubectl get cronjob/pg-backup -n db \
   -o custom-columns='NAME:.metadata.name,SUSPEND:.spec.suspend,SCHEDULE:.spec.schedule,TZ:.spec.timeZone'
-kubectl wait --for=condition=Ready externalsecret/backup-s3 -n db --timeout=180s
+sudo k3s kubectl wait --for=condition=Ready externalsecret/backup-s3 -n db --timeout=180s
 ```
 
 `SUSPEND`는 `true`여야 한다.
@@ -35,7 +50,7 @@ kubectl wait --for=condition=Ready externalsecret/backup-s3 -n db --timeout=180s
 ```bash
 set -euo pipefail
 
-active="$(kubectl get jobs -n db \
+active="$(sudo k3s kubectl get jobs -n db \
   -l app.kubernetes.io/name=pg-backup \
   -o jsonpath='{range .items[*]}{.metadata.name}{" "}{.status.active}{"\n"}{end}' \
   | awk '$2 + 0 > 0 {print $1}')"
@@ -43,19 +58,21 @@ test -z "$active"
 
 backup_started_epoch="$(date +%s)"
 backup_job="pg-backup-activation-$(date -u +%Y%m%d%H%M%S)"
-kubectl create job -n db --from=cronjob/pg-backup "$backup_job"
-kubectl wait --for=condition=Complete "job/$backup_job" -n db --timeout=7200s
+sudo k3s kubectl create job -n db --from=cronjob/pg-backup "$backup_job"
+sudo k3s kubectl wait --for=condition=Complete "job/$backup_job" -n db --timeout=7200s
 backup_finished_epoch="$(date +%s)"
 
-backup_pod_uid="$(kubectl get pod -n db -l "job-name=$backup_job" \
+backup_pod_uid="$(sudo k3s kubectl get pod -n db -l "job-name=$backup_job" \
   -o jsonpath='{.items[?(@.status.phase=="Succeeded")].metadata.uid}')"
 case "$backup_pod_uid" in
   ????????-????-????-????-????????????) ;;
   *) exit 1 ;;
 esac
 
-kubectl logs -n db "job/$backup_job" -c dump
-kubectl logs -n db "job/$backup_job" -c upload
+sudo k3s kubectl logs -n db "job/$backup_job" -c dump
+sudo k3s kubectl logs -n db "job/$backup_job" -c upload
+printf 'backup_pod_uid=%s\nbackup_started_epoch=%s\nbackup_finished_epoch=%s\n' \
+  "$backup_pod_uid" "$backup_started_epoch" "$backup_finished_epoch"
 ```
 
 Job이 실패하면 `suspend:true`를 유지한다.
@@ -63,10 +80,16 @@ deadline을 늘리기 전에 DB 크기, nodefs, dump 시간, upload 시간을 �
 
 ## 3. S3 object 검증
 
-다음 환경변수는 승인된 read identity의 환경에서 설정한다.
-값을 이 저장소에 기록하지 않는다.
+3~5단계는 prod node 밖의 로컬 Bash 세션에서 실행한다. 2단계에서 출력한 Pod UID와 시작·완료
+시각을 같은 이름의 로컬 변수로 설정하고, 별도의 승인된 read identity를 사용한다.
+Secret이나 kubeconfig는 전달하지 않으며 아래 입력값을 이 저장소에 기록하지 않는다.
 
 ```bash
+set -euo pipefail
+
+backup_pod_uid="${backup_pod_uid:?2단계의 성공한 Pod UID를 설정하세요}"
+backup_started_epoch="${backup_started_epoch:?2단계의 backup 시작 시각을 설정하세요}"
+backup_finished_epoch="${backup_finished_epoch:?2단계의 backup 완료 시각을 설정하세요}"
 BACKUP_BUCKET="${BACKUP_BUCKET:?backup bucket 이름을 설정하세요}"
 BACKUP_REGION="${BACKUP_REGION:?backup region을 설정하세요}"
 BACKUP_OWNER="${BACKUP_OWNER:?12자리 AWS account ID를 설정하세요}"
@@ -225,6 +248,11 @@ Flyway 이력과 대표 row count가 backup 시점에 기대한 값인지 확인
 이 검사는 데이터 복구 가능성 검증이다. 실제 운영 복구 시에는 Git의 role Job으로 접근 권한을
 별도 검증한다. `--clean`·`--create`로 기존 DB를 덮어쓰지 않는다.
 
+`--no-acl`은 dump에 포함된 grant/revoke를 복원하지 않는다. 위 데이터 복원만으로 권한 검증이
+끝난 것은 아니다. 검증 DB에 필요한 role과 grant를 Git의 role Job 계약에 맞춰 별도로 재현하고,
+앱 owner·권한과 조회 전용 role의 읽기 성공·쓰기 거부를 확인한다. extension 소유권도 대조하고
+복원 중 오류가 발생하면 예약 실행을 활성화하지 않는다.
+
 ## 5. RPO와 RTO 기록
 
 ```bash
@@ -244,7 +272,21 @@ RPO는 마지막 복구 가능 backup과 장애 가정 시점의 차이다.
 위 `restore_test_seconds`는 DB restore 구성요소만 측정한다.
 전체 RTO는 실제 재해 복구 훈련에서 대체 node 준비, cluster 수렴, DB restore를 합쳐 별도 기록한다.
 
-## 6. 예약 실행 활성화
+## 6. S3 보관 정책 반영
+
+Git merge와 Argo CD는 AWS CloudFormation을 자동 배포하지 않는다.
+[백업 S3 template](../../cloud/aws/postgres-backup-s3.yaml)을 기존
+`umc-product-postgres-backup-s3` stack에 별도로 반영한다.
+
+1. 위 복원 검증을 먼저 완료하고, 현재 object·version 목록과 마지막 정상 백업을 확인한다.
+2. 기존 bucket 이름을 유지한 change set을 검토한다. bucket 교체나 writer 권한 확대가 있으면 중단한다.
+3. 변경을 적용하고 stack 완료와 실제 lifecycle을 확인한다. `postgres/prod/`의 현재 버전 만료
+   10일, 비현행 버전 1일, 별도 expired delete marker 정리 규칙이 기준이다.
+
+기간 축소는 **이미 존재하는 오래된 백업에도 적용**된다. 영구 삭제된 버전은 보관 기간을 다시
+늘려도 복구할 수 없다. `DeletionPolicy: Retain`과 CronJob의 `suspend`는 lifecycle 삭제를 막지 않는다.
+
+## 7. 예약 실행 활성화
 
 앞 단계가 모두 성공한 PR에서만 다음 한 줄을 바꾼다.
 
@@ -270,7 +312,7 @@ dump와 upload p95의 두 배를 `activeDeadlineSeconds` 기준으로 사용한�
 기존 S3 object는 삭제하지 않는다.
 active Job 삭제는 data corruption이나 credential incident가 아니면 피한다.
 
-## 7. 검증 자료 정리
+## 8. 검증 자료 정리
 
 성공 결과를 운영 기록에 남긴 뒤에만 검증용 자원을 직접 정리한다. 실패했다면 먼저 원인을 조사한다.
 

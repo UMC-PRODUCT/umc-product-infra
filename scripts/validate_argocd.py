@@ -29,6 +29,150 @@ EXPECTED_CRDS = {
     "applicationsets.argoproj.io",
     "appprojects.argoproj.io",
 }
+PUBLIC_HOST = "argo.university.neordinary.com"
+PUBLIC_TARGET = "1.255.226.166"
+ACCESS_DIR = ROOT / "manifests" / "argocd-access"
+
+
+# 인증서와 격리 정책이 Ingress보다 먼저 적용되고, 허용한 출발지·포트만 열리는지 검사한다.
+def validate_access_manifests(resources: list[dict]) -> None:
+    by_kind = {item["kind"]: item for item in resources}
+    require(
+        len(resources) == 3 and set(by_kind) == {"Certificate", "Ingress", "NetworkPolicy"}
+        and all(item["metadata"].get("namespace") == "argocd" for item in resources),
+        "public access must contain only its three namespaced resources in argocd",
+    )
+    certificate, ingress, policy = (by_kind[kind] for kind in ("Certificate", "Ingress", "NetworkPolicy"))
+    require(
+        certificate["spec"]["dnsNames"] == [PUBLIC_HOST]
+        and certificate["spec"]["secretName"] == "argo-university-neordinary-com-tls"
+        and certificate["spec"]["issuerRef"] == {
+            "group": "cert-manager.io", "kind": "ClusterIssuer", "name": "letsencrypt-production",
+        },
+        "public access requires the production Argo CD certificate",
+    )
+    require(
+        ingress["spec"] == {
+            "ingressClassName": "traefik",
+            "rules": [{"host": PUBLIC_HOST, "http": {"paths": [{
+                "path": "/", "pathType": "Prefix", "backend": {"service": {
+                    "name": "argocd-server", "port": {"name": "http"},
+                }},
+            }]}}],
+            "tls": [{"hosts": [PUBLIC_HOST], "secretName": certificate["spec"]["secretName"]}],
+        }
+        and ingress["metadata"].get("annotations") == {
+            "argocd.argoproj.io/sync-wave": "1",
+            "external-dns.kubernetes.io/managed-by": "umc-infra",
+            "external-dns.kubernetes.io/target": PUBLIC_TARGET,
+            "traefik.ingress.kubernetes.io/router.entrypoints": "websecure",
+        },
+        "public Ingress must use only reviewed HTTPS, DNS target, and HTTP Service backend",
+    )
+    require(
+        all(item["metadata"].get("annotations", {}).get("argocd.argoproj.io/sync-wave") == "-2"
+            for item in (certificate, policy)),
+        "certificate and isolation must precede the public Ingress",
+    )
+    require(
+        policy["spec"] == {
+            "podSelector": {"matchLabels": {
+                "app.kubernetes.io/name": "argocd-server", "app.kubernetes.io/instance": "argocd",
+            }},
+            "policyTypes": ["Ingress"],
+            "ingress": [{"from": [
+                {"namespaceSelector": {"matchLabels": {"kubernetes.io/metadata.name": "kube-system"}},
+                 "podSelector": {"matchLabels": {"app.kubernetes.io/name": "traefik"}}},
+                {"podSelector": {"matchLabels": {
+                    "app.kubernetes.io/part-of": "argocd", "app.kubernetes.io/instance": "argocd",
+                }}},
+            ], "ports": [{"protocol": "TCP", "port": 8080}]}],
+        },
+        "server ingress must allow only Traefik and same-namespace Argo CD components",
+    )
+
+
+# 외부 TLS는 Traefik이 맡는다. 내부 HTTP Service나 hostNetwork가 격리 정책을 우회하면 거부한다.
+def validate_access_release(documents: list[dict]) -> None:
+    by_identity = {(item["kind"], item["metadata"]["name"]): item for item in documents}
+    require(
+        by_identity[("ConfigMap", "argocd-cm")]["data"].get("url") == f"https://{PUBLIC_HOST}"
+        and by_identity[("ConfigMap", "argocd-cmd-params-cm")]["data"].get("server.insecure") == "true",
+        "server must use canonical HTTPS URL and HTTP behind Traefik",
+    )
+    service = by_identity[("Service", "argocd-server")]["spec"]
+    template = by_identity[("Deployment", "argocd-server")]["spec"]["template"]
+    labels = template["metadata"]["labels"]
+    require(
+        service.get("type") == "ClusterIP" and not service.get("externalIPs")
+        and not any(port.get("nodePort") for port in service["ports"])
+        and not template["spec"].get("hostNetwork"),
+        "Argo CD Service must remain private ClusterIP without host networking",
+    )
+    require(
+        service["selector"].items() <= labels.items()
+        and {"app.kubernetes.io/name": "argocd-server", "app.kubernetes.io/instance": "argocd"}.items()
+        <= labels.items(),
+        "Service and isolation policy must select the Argo CD server Pod",
+    )
+    http_port = next(port for port in service["ports"] if port["name"] == "http")
+    require(
+        http_port["port"] == 80 and http_port["targetPort"] == 8080
+        and any(port["containerPort"] == 8080
+                for container in template["spec"]["containers"] for port in container.get("ports", [])),
+        "HTTP Service must resolve to server Pod port 8080",
+    )
+    require(
+        not any(item["kind"] in {"Ingress", "IngressRoute"} for item in documents),
+        "bootstrap chart must leave Ingress ownership to argocd-access",
+    )
+    policies = [item for item in documents if item["kind"] == "NetworkPolicy"]
+    expected_components = {
+        "argocd-application-controller", "argocd-dex-server",
+        "argocd-redis", "argocd-repo-server",
+    }
+    require(
+        len(policies) == len(expected_components)
+        and {item["spec"]["podSelector"].get("matchLabels", {}).get("app.kubernetes.io/name")
+             for item in policies} == expected_components,
+        "chart must preserve other component policies without a broad server policy",
+    )
+
+
+# 접속 리소스의 Git 경로·AppProject 권한과 DNS 대상을 bootstrap 설정에 맞춘다.
+def validate_access_source() -> None:
+    resources = [yaml.safe_load(path.read_text(encoding="utf-8")) for path in sorted(ACCESS_DIR.glob("*.yaml"))]
+    validate_access_manifests(resources)
+    application = yaml.safe_load((ROOT / "argocd/applications/platform/argocd-access.yaml").read_text(encoding="utf-8"))
+    spec = application["spec"]
+    require(
+        application["metadata"].get("annotations", {}).get("argocd.argoproj.io/sync-wave") == "1"
+        and spec["project"] == "argocd-access"
+        and spec["source"] == {
+            "repoURL": "https://github.com/UMC-PRODUCT/umc-product-infra.git",
+            "targetRevision": "main", "path": "manifests/argocd-access",
+        }
+        and spec["destination"] == {"server": "https://kubernetes.default.svc", "namespace": "argocd"},
+        "public access Application must use its dedicated project, source, destination, and wave",
+    )
+    projects = yaml.safe_load_all((ROOT / "argocd/projects.yaml").read_text(encoding="utf-8"))
+    project = next(item for item in projects if item["metadata"]["name"] == "argocd-access")["spec"]
+    require(
+        project["sourceRepos"] == [spec["source"]["repoURL"]]
+        and project["destinations"] == [spec["destination"]]
+        and project["clusterResourceWhitelist"] == []
+        and {(item["group"], item["kind"]) for item in project["namespaceResourceWhitelist"]}
+        == {("cert-manager.io", "Certificate"), ("networking.k8s.io", "Ingress"), ("networking.k8s.io", "NetworkPolicy")},
+        "public access project must permit only its three namespaced resource kinds",
+    )
+    dns = yaml.safe_load((ROOT / "argocd/applications/platform/external-dns.yaml").read_text(encoding="utf-8"))
+    dns_values = dns["spec"]["source"]["helm"]["valuesObject"]
+    require(
+        [arg for arg in dns_values["extraArgs"] if arg.startswith("--target-net-filter=")]
+        == [f"--target-net-filter={PUBLIC_TARGET}/32"]
+        and dns_values["domainFilters"] == ["university.neordinary.com"],
+        "public Argo CD target must match the exact ExternalDNS target and domain filters",
+    )
 
 
 def require(condition: bool, message: str) -> None:
@@ -58,6 +202,7 @@ def sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
+# 고정된 chart를 실제 bootstrap values로 렌더해 접속 경계·계정 권한·workload 설정을 검사한다.
 def main(output_dir: Path) -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
     defaults = yaml.safe_load(DEFAULTS_PATH.read_text(encoding="utf-8"))
@@ -74,8 +219,23 @@ def main(output_dir: Path) -> None:
         "values image tag must match argocd_version",
     )
     require(
-        values["global"]["domain"] == "argocd.invalid",
-        "the non-public bootstrap must not use the chart example domain",
+        values["global"]["domain"] == PUBLIC_HOST,
+        "Argo CD domain must match its public HTTPS hostname",
+    )
+    require(
+        values["global"]["networkPolicy"]["create"] is False
+        and all(values[component]["networkPolicy"]["create"] is True
+                for component in ("controller", "applicationSet", "dex", "redis", "repoServer")),
+        "only the broad default server policy may be disabled",
+    )
+    secret_values = values.get("configs", {}).get("secret", {})
+    require(
+        not secret_values.get("argocdServerAdminPassword")
+        and not any(
+            key.endswith((".password", ".passwordMtime"))
+            for key in secret_values.get("extra", {})
+        ),
+        "account passwords must remain runtime-managed, not chart values",
     )
     actual_helm_version = run(["helm", "version", "--short"]).stdout.strip()
     require(
@@ -84,6 +244,7 @@ def main(output_dir: Path) -> None:
         f"Helm version must be {helm_version}, got {actual_helm_version}",
     )
 
+    # 다운로드한 chart의 checksum과 메타데이터를 확인한 뒤에만 Helm 입력으로 사용한다.
     archive = output_dir / f"argo-cd-{chart_version}.tgz"
     request = urllib.request.Request(
         str(defaults["argocd_helm_chart_url"]),
@@ -124,9 +285,35 @@ def main(output_dir: Path) -> None:
         documents = [
             item for item in yaml.safe_load_all(stream) if isinstance(item, dict)
         ]
+    validate_access_release(documents)
+    validate_access_source()
     require(
         "argocd.example.com" not in rendered_path.read_text(encoding="utf-8"),
         "chart example domain leaked into rendered resources",
+    )
+    config_maps = {
+        item.get("metadata", {}).get("name"): item.get("data", {})
+        for item in documents
+        if item.get("kind") == "ConfigMap"
+    }
+    config = config_maps.get("argocd-cm", {})
+    require(
+        config.get("admin.enabled") == "true"
+        and config.get("users.anonymous.enabled") == "false",
+        "admin login must remain enabled and anonymous access disabled",
+    )
+    require(
+        {key: value for key, value in config.items() if key.startswith("accounts.")}
+        == {"accounts.umc-viewer": "login", "accounts.umc-viewer.enabled": "true"},
+        "the shared viewer must have login only, without apiKey capability",
+    )
+    rbac = config_maps.get("argocd-rbac-cm", {})
+    require(
+        rbac.get("policy.default") == ""
+        and rbac.get("policy.csv", "").strip() == "g, umc-viewer, role:readonly"
+        and {key for key in rbac if key.startswith("policy.") and key.endswith(".csv")}
+        == {"policy.csv"},
+        "only the shared viewer may receive readonly, with no default permissions",
     )
     workloads = {
         (item.get("kind"), item.get("metadata", {}).get("name")): item

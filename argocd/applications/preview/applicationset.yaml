@@ -23,7 +23,8 @@ metadata:
   annotations:
     argocd.argoproj.io/sync-wave: "1"
 spec:
-  # PR 이 닫히면 Application 과 그 리소스를 지운다
+  # PR 종료·라벨 제거로 generator 대상에서 빠지면 Application과 그 관리 리소스가 삭제된다.
+  # 공유 DB 자체는 별도 Application 소유이며 PR별 DB 정리는 chart의 PostDelete Job이 담당한다.
   syncPolicy:
     preserveResourcesOnDeletion: false
 
@@ -88,7 +89,7 @@ spec:
             - name: env.DATABASE_URL
               value: "jdbc:postgresql://postgres-preview.preview.svc.cluster.local:5432/umc_product_pr{{ .number }}"
             - name: env.SPRING_APPLICATION_NAME
-              # 대시보드 Service 드롭다운에서 PR 별로 골라 볼 수 있게
+              # 로그·trace를 PR별로 구분한다. Grafana의 고정 목록에 없으면 custom value로 입력한다.
               value: "preview-umc-product-pr{{ .number }}"
             - name: env.APP_ENVIRONMENT
               value: "preview-pr-{{ .number }}"

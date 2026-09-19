@@ -76,6 +76,7 @@ spec:
             otlphttp/loki:
               endpoint: http://loki.monitoring.svc.cluster.local:3100/otlp
               tls: { insecure: true }
+          # metrics·traces·logs를 각각 Prometheus·Tempo·Loki로 보내며 메모리 제한 후 묶어서 전송한다.
           service:
             pipelines:
               metrics:

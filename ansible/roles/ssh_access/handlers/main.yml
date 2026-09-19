@@ -1,0 +1,6 @@
+---
+# SSH 설정 파일이 바뀌어 호출되면 서비스를 reload한다. 이미 열린 세션의 권한은 소급 회수하지 않는다.
+- name: Reload personal SSH policy
+  ansible.builtin.service:
+    name: ssh
+    state: reloaded

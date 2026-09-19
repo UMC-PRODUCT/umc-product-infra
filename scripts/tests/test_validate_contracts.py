@@ -8,13 +8,49 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 SCRIPTS_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(SCRIPTS_DIR))
 
-from validate_contracts import git_visible_files
+from validate_contracts import git_visible_files, validate_repository_identity
 
 
+# 오래된 루트 runbooks가 없어도 새 checkout이 통과하고 docs/runbooks 누락은 실패해야 한다.
+class RepositoryLayoutTest(unittest.TestCase):
+    def setUp(self) -> None:
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        self.root = Path(directory.name)
+        for path in (
+            "ansible", "argocd/applications", "bootstrap",
+            "charts/umc-product-server", "charts/umc-secrets", "cloud/aws",
+            "manifests/cluster", "manifests/cert-manager",
+            "manifests/postgres/prod", "manifests/postgres/dev",
+            "manifests/postgres/preview", "manifests/observability",
+            "observability", "docs/runbooks",
+        ):
+            (self.root / path).mkdir(parents=True)
+
+    def validate(self) -> None:
+        with (
+            patch("validate_contracts.ROOT", self.root),
+            patch("validate_contracts.git_visible_files", return_value=[]),
+        ):
+            validate_repository_identity()
+
+    def test_accepts_runbooks_under_docs_without_legacy_directory(self) -> None:
+        self.validate()
+
+    def test_legacy_directory_does_not_replace_docs_runbooks(self) -> None:
+        (self.root / "docs/runbooks").rmdir()
+        (self.root / "runbooks").mkdir()
+
+        with self.assertRaisesRegex(SystemExit, "missing directory: docs/runbooks"):
+            self.validate()
+
+
+# ignored 비추적 파일만 제외한다. 이미 추적한 파일과 공개된 새 파일은 계속 검증해야 한다.
 class GitVisibleFilesTest(unittest.TestCase):
     def test_excludes_ignored_files_but_keeps_untracked_visible_files(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

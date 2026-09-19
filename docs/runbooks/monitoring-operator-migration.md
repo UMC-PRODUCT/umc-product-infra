@@ -11,7 +11,7 @@ Application을 kube-prometheus-stack으로 바꾸고 기존 Grafana·Loki·Tempo
 Loki·Tempo PVC는 재사용한다. 사전 점검에서 대상 cluster·namespace가 다르거나 root disk의 여유
 공간이 부족하면 중단한다. `local-path`의 PVC 크기는 disk quota가 아니다.
 
-관리 명령은 Tailscale 경유 IDC의 `sudo -n k3s kubectl`을 사용한다. Secret 값과 root kubeconfig를
+관리 명령은 개인 관리자 공인 SSH 경유 IDC의 `sudo -n k3s kubectl`을 사용한다. Secret 값과 root kubeconfig를
 복사하거나 출력하지 않는다.
 
 ## 적용 순서

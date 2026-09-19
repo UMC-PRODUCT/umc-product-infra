@@ -1,5 +1,5 @@
 # 클러스터 기반 리소스 — 네임스페이스 + PriorityClass + Argo CD health customization
-# wave -3: 모든 것보다 먼저. 시크릿이 각 네임스페이스에 뿌려지기 전에 존재해야 한다
+# wave -3: Project 준비 뒤, controller와 Secret 배포보다 먼저 namespace·기본 정책을 만든다.
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
@@ -21,5 +21,6 @@ spec:
   syncPolicy:
     automated:
       selfHeal: true
-      # prune 끔 — 네임스페이스 자동 삭제는 그 안의 모든 것을 지운다. 삭제는 수동으로
+      # Git에서 빠진 namespace를 자동 삭제하지 않는다. Application finalizer에 의한 삭제와는 별개다.
+      # namespace 삭제는 내부 리소스 전체에 영향을 주므로 복구 계획을 확인한 운영 절차로 수행한다.
       prune: false

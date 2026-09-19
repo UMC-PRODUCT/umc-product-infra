@@ -15,6 +15,7 @@ def load(path: str):
     return yaml.safe_load((ROOT / path).read_text(encoding="utf-8"))
 
 
+# 이관 준비·검증 단계에서 앱 쓰기와 DNS 전환이 앞서 열리지 않는지 확인한다.
 class MigrationBootstrapTests(unittest.TestCase):
     def test_staged_roots_only_change_directory_exclusions(self):
         normal = load("bootstrap/root-app.yaml")
@@ -72,7 +73,7 @@ class MigrationBootstrapTests(unittest.TestCase):
         group = load("ansible/inventories/idc-new/hosts.example.yml")["all"]["children"]["k3s_servers"]
         self.assertEqual(len(group["hosts"]), 1)
         self.assertEqual(group["hosts"]["umc-cafe24-01"]["ansible_host"], "1.255.226.166")
-        for flag in ("bootstrap_root_app_enabled", "bootstrap_confirm", "tailscale_enroll_confirm"):
+        for flag in ("bootstrap_root_app_enabled", "bootstrap_confirm", "ssh_access_confirm", "ssh_access_finalize"):
             self.assertIs(group["vars"][flag], False)
 
 

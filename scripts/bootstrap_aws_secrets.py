@@ -56,6 +56,7 @@ EMAIL_PROPERTIES = (
     ("SES_ACCESS_KEY_ID", "SES_ACCESS_KEY_ID"),
     ("SES_SECRET_ACCESS_KEY", "SES_SECRET_ACCESS_KEY"),
 )
+SMTP_PROPERTIES = (("SMTP_PASSWORD", "SMTP_PASSWORD"),)
 POSTGRES_PROPERTIES = (
     ("POSTGRES_USER", "POSTGRES_USER"),
     ("POSTGRES_PASSWORD", "POSTGRES_PASSWORD"),
@@ -90,13 +91,18 @@ def environment_specs(environment: str) -> tuple[SecretSpec, ...]:
         SecretSpec(
             f"{prefix}/app-storage", env_file, STORAGE_PROPERTIES, environment
         ),
-        SecretSpec(f"{prefix}/app-email", env_file, EMAIL_PROPERTIES, environment),
+        SecretSpec(
+            f"{prefix}/app-email", env_file,
+            EMAIL_PROPERTIES + (SMTP_PROPERTIES if environment in ("prod", "dev") else ()),
+            environment,
+        ),
         SecretSpec(
             f"{prefix}/{postgres_name}", env_file, POSTGRES_PROPERTIES, environment
         ),
     )
 
 
+# 원장 변수 → AWS Secret 속성의 허용 목록이다. 여기에 없는 값은 배포 payload에 넣지 않는다.
 SECRET_SPECS = (
     *environment_specs("prod")[:5],
     SecretSpec(
@@ -228,6 +234,7 @@ def expected_env_keys(env_file: str) -> set[str]:
     }
 
 
+# shell로 source하지 않고 KEY=VALUE를 문자 그대로 읽어 명령 실행과 임의 변수 주입을 막는다.
 def parse_env_text(contents: str, env_file: str) -> dict[str, str]:
     expected = expected_env_keys(env_file)
     values: dict[str, str] = {}
@@ -258,6 +265,7 @@ def parse_env_text(contents: str, env_file: str) -> dict[str, str]:
     return values
 
 
+# Git 비추적·소유자·0600 권한을 검사하고 파일을 여는 사이 대상이 바뀌지 않았는지도 확인한다.
 def read_env_file(root: Path, env_file: str) -> dict[str, str]:
     path = root / env_file
     if path.is_symlink():
@@ -309,6 +317,7 @@ def read_env_file(root: Path, env_file: str) -> dict[str, str]:
     return parse_env_text(contents, env_file)
 
 
+# 환경 간 보안 키 재사용과 placeholder·잘못된 자격증명 형식을 AWS 쓰기 전에 차단한다.
 def validate_worksheet_values(values: dict[str, dict[str, str]], account_id: str) -> None:
     security_keys = tuple(property_name for property_name, _ in JWT_PROPERTIES)
     security_values = [
@@ -408,6 +417,7 @@ def validate_worksheet_values(values: dict[str, dict[str, str]], account_id: str
         raise BootstrapError("backup bucket name does not match the AWS contract")
 
 
+# 명시한 매핑만 JSON으로 만들고 UTF-8 바이트 크기로 Secrets Manager 상한을 검사한다.
 def build_payloads(
     values: dict[str, dict[str, str]],
 ) -> dict[str, dict[str, str]]:
@@ -515,6 +525,7 @@ class AwsCli:
             raise BootstrapError(f"{path} must contain only string JSON properties")
         return payload
 
+    # 비밀값은 프로세스 인자 대신 stdin으로 전달한다. 기존 Secret 갱신·삭제 기능은 없다.
     def create_secret(self, spec: SecretSpec, secret_string: str) -> None:
         arguments = [
             "secretsmanager",
@@ -565,6 +576,7 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+# 기본 실행은 비교만 한다. --apply도 모든 기존 값의 일치를 확인한 뒤 없는 source만 생성한다.
 def main() -> int:
     args = parse_args()
     if args.region != SEOUL_REGION:
@@ -584,6 +596,7 @@ def main() -> int:
 
     statuses: dict[str, str] = {}
     conflicts: list[str] = []
+    # 삭제 대기 또는 값이 다른 source가 하나라도 있으면 전체 쓰기를 시작하지 않는다.
     for spec in SECRET_SPECS:
         metadata = aws.describe_secret(spec.path)
         if metadata is None:
@@ -618,6 +631,7 @@ def main() -> int:
         return 0
 
     created_count = 0
+    # 일부 생성 뒤 실패해도 성공한 Secret을 지우지 않는다. 재실행 시 일치하는 값은 건너뛴다.
     for spec in SECRET_SPECS:
         if statuses[spec.path] == "SKIP_MATCHED":
             continue

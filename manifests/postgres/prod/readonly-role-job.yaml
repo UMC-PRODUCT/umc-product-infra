@@ -1,4 +1,5 @@
-# prod 읽기전용 DB role(umc_product_ro) — 승인된 infra 운영 조회용 (docs/guides/db-access.md)
+# prod 읽기전용 DB role(umc_product_ro) — 승인된 infra 운영 조회용
+# role·권한 정의만 Git으로 복원한다. 실제 비밀번호는 postgres-readonly Secret이 공급한다.
 #
 # 왜 Job 인가: 계정을 수동 psql 로 한 번 만들면 대체 노드 준비 후 소프트웨어 재구축 때 잊힌다.
 # 이 레포가 내건 원칙이 "클러스터 정의 전체가 Git 하나로 복원"이라 계정도 Git 에 있어야 한다.
@@ -47,6 +48,8 @@ spec:
         - name: psql
           image: postgis/postgis:18-3.6@sha256:60f6ad1d21ea86a67d47780b9a0d1e1d200500f62b19293fa834d0dea80b8677 # StatefulSet 과 동일 버전
           command: ["sh", "-c"]
+          # 기존 public 객체와 앱 role이 앞으로 만드는 객체에 조회 권한을 부여하고 비밀번호를 Secret 값으로 맞춘다.
+          # ON_ERROR_STOP은 다음 SQL 실행을 멈출 뿐 앞서 반영한 권한 변경을 자동 취소하지 않는다.
           args:
             - |
               set -eu

@@ -46,11 +46,11 @@ def build(theme: dict) -> None:
         dns = Route53(
             "Route 53 authoritative DNS\nuniversity.neordinary.com child zone\nexact A/TXT · proxy 없음",
         )
-        outside = Internet("외부 uptime monitor\nHTTPS + heartbeat")
+        outside = Internet("외부 uptime monitor\n별도 구축 · HTTPS + heartbeat")
         backup_store = S3("전용 AWS S3 backup\nSSE-S3 · versioning · 35d\nwriter: put only")
         team = Users("UMC 팀원\nGrafana Viewer")
         operator = Users("인프라 관리자")
-        management = Internet("Tailscale 관리망\nOpenSSH · break-glass")
+        management = Internet("공인 SSH :22\n개인 계정·공개키 · local tunnel")
 
         with Cluster("ns kube-system", graph_attr=ca):
             traefik = Traefik("traefik websecure\n443 only · public 80 닫힘\nUFW: direct HTTPS 허용")
@@ -76,14 +76,14 @@ def build(theme: dict) -> None:
         with Cluster("ns dev-db  ·  dev", graph_attr=ca):
             pg_d = StatefulSet("PostgreSQL 18 + PostGIS 3.6\nDB umc_product_dev")
 
-        with Cluster("ns preview  ·  최대 3", graph_attr=ca):
+        with Cluster("ns preview · 최대 3 · 앱/API gate: false", graph_attr=ca):
             ing_p = Ingress("api-pr-<PR>.university.neordinary.com\npublic API · 앱 인증")
             app_p = Deployment("umc-product-server-pr-<PR>")
             pg_p = StatefulSet("postgres-preview\nPR별 database")
 
         with Cluster("ns monitoring  ·  default-deny ingress", graph_attr=ca):
             graf_ing = Ingress(
-                "grafana.university.neordinary.com\npublic HTTPS · Grafana login"
+                "Grafana HTTPS\n팀원별 로그인"
             )
             collector = Prometheus("otel-collector :4317/4318\n1Gi cap · limiter\ntraces 100%")
             tempo = Tempo("tempo\n7d · PVC 50Gi · 2Gi cap")
@@ -96,13 +96,13 @@ def build(theme: dict) -> None:
                        label="DNS 조회") >> dns
         public >> Edge(color=DATA, fontcolor=DATA,
                        label="direct HTTPS\n고정 public IPv4:443") >> traefik
-        traefik >> Edge(color=DATA, fontcolor=DATA, style="dashed",
-                        label="컷오버 후\nHost 매칭") >> ing >> Edge(color=DATA, style="dashed") >> svc
+        traefik >> Edge(color=DATA, fontcolor=DATA,
+                        label="Host 매칭") >> ing >> Edge(color=DATA) >> svc
         svc >> Edge(color=DATA) >> app
         app >> Edge(color=DATA, fontcolor=DATA, label="jdbc  postgres.db.svc") >> pg
 
-        traefik >> Edge(color=DATA, style="dashed") >> ing_d >> Edge(color=DATA, style="dashed") >> app_d
-        app_d >> Edge(color=DATA, fontcolor=DATA, style="dashed",
+        traefik >> Edge(color=DATA) >> ing_d >> Edge(color=DATA) >> app_d
+        app_d >> Edge(color=DATA, fontcolor=DATA,
                       label="jdbc  postgres.dev-db.svc") >> pg_d
         traefik >> Edge(color=DATA, style="dashed") >> ing_p >> Edge(color=DATA, style="dashed") >> app_p
         app_p >> Edge(color=DATA, fontcolor=DATA, style="dashed",
@@ -126,7 +126,7 @@ def build(theme: dict) -> None:
         # 관측 — 앱이 밀어 넣는다 (scrape 아님)
         app >> Edge(color=TELEM, fontcolor=TELEM,
                     label="NetworkPolicy 허용\nOTLP push") >> collector
-        app_d >> Edge(color=TELEM, fontcolor=TELEM, style="dashed",
+        app_d >> Edge(color=TELEM, fontcolor=TELEM,
                       label="NetworkPolicy 허용") >> collector
         app_p >> Edge(color=TELEM, fontcolor=TELEM, style="dashed") >> collector
         collector >> Edge(color=TELEM, fontcolor=TELEM, label="traces") >> tempo
@@ -146,9 +146,9 @@ def build(theme: dict) -> None:
             color=OPS, style="dotted"
         ) >> graf
 
-        # Tailscale은 인프라 관리자의 local health와 break-glass 경로로 남긴다.
+        # 개인 관리자 SSH로 local health를 점검한다. SSH 장애 복구는 제공업체 console을 쓴다.
         operator >> Edge(color=OPS, fontcolor=OPS, style="dotted",
-                         label="Tailscale") >> management
+                         label="개인 SSH key") >> management
         management >> Edge(color=OPS, fontcolor=OPS, style="dotted",
                            label="SSH local port-forward\nhealth · 복구") >> graf
 

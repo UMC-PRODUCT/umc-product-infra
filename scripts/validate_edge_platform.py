@@ -71,6 +71,7 @@ def pod_spec(resource: dict) -> dict | None:
     return None
 
 
+# Argo CD의 실제 valuesObject와 고정 chart 버전을 사용해 CI용 별도 설정과의 차이를 막는다.
 def render(name: str, output_dir: Path) -> tuple[dict, list[dict]]:
     application = documents(APPLICATION_DIR / f"{name}.yaml")[0]
     expected = EXPECTED[name]
@@ -120,6 +121,7 @@ def render(name: str, output_dir: Path) -> tuple[dict, list[dict]]:
     return application, resources
 
 
+# controller도 앱과 같은 이미지 고정·비특권 실행·자원 제한 계약을 지키게 한다.
 def validate_workloads(name: str, resources: list[dict]) -> None:
     actual_images: set[str] = set()
     for resource in resources:
@@ -180,6 +182,7 @@ def validate_cert_manager(resources: list[dict]) -> None:
     )
 
 
+# DNS 동기화의 zone·소유권·레코드 종류를 제한해 다른 서비스의 레코드를 건드리지 않게 한다.
 def validate_external_dns(application: dict, resources: list[dict]) -> tuple[str, str]:
     require(
         application["spec"]["source"]["helm"].get("skipCrds") is True,
@@ -279,6 +282,7 @@ def validate_external_dns(application: dict, resources: list[dict]) -> tuple[str
     return filters[0], zone_filters[0]
 
 
+# 명시적으로 선택한 앱 Secret 변경만 재시작에 연결하고 감시 namespace와 RBAC 확장을 막는다.
 def validate_reloader(application: dict, resources: list[dict]) -> None:
     values = application["spec"]["source"]["helm"]["valuesObject"]
     reloader_values = values["reloader"]
@@ -548,6 +552,7 @@ def validate_preview_wildcard_certificate() -> str:
     return issuer_name
 
 
+# DNS와 공개 Ingress가 서로 다른 서버를 가리키거나 사설·검증용 주소로 열리지 않게 한다.
 def validate_target_gate(
     target_filter: str, zone_filter: str, preview_issuer: str
 ) -> None:
@@ -644,6 +649,7 @@ def validate_target_gate(
         )
 
 
+# 이전 generation의 Ready 상태를 재사용해 새 인증서 요청이 준비됐다고 판단하지 않게 한다.
 def validate_certificate_health_gate() -> None:
     config = documents(ROOT / "manifests" / "cluster" / "argocd-health.yaml")[0]
     health = config["data"]["resource.customizations.health.cert-manager.io_Certificate"]
@@ -752,6 +758,7 @@ def validate_project_boundaries() -> None:
         )
 
 
+# controller 렌더 결과뿐 아니라 별도 issuer·인증서·AppProject 사이의 연결 계약도 검사한다.
 def main() -> int:
     if len(sys.argv) != 2:
         raise SystemExit("usage: validate_edge_platform.py OUTPUT_DIR")

@@ -1,3 +1,4 @@
+{{/* default-deny와 함께 Traefik·DNS·해당 환경 DB·관측·외부 통신에 필요한 경로만 추가한다. */}}
 {{- if .Values.networkPolicy.enabled }}
 {{- $databaseNamespace := required "networkPolicy.database.namespace는 필수" .Values.networkPolicy.database.namespace -}}
 {{- $databasePodName := required "networkPolicy.database.podName은 필수" .Values.networkPolicy.database.podName -}}
@@ -94,4 +95,9 @@ spec:
               - 240.0.0.0/4
       ports:
         - { protocol: TCP, port: 443 }
+        {{- if eq (.Values.env.EMAIL_PROVIDER | default "ses") "smtp" }}
+        # SMTP 모드에서만 public IPv4의 STARTTLS 제출 포트로 나간다. inbound는 추가하지 않는다.
+        # 표준 NetworkPolicy로 smtp.gmail.com 단독 FQDN 제한은 불가능하다.
+        - { protocol: TCP, port: 587 }
+        {{- end }}
 {{- end }}

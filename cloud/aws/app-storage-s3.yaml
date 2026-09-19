@@ -1,6 +1,7 @@
 AWSTemplateFormatVersion: "2010-09-09"
 Description: Dedicated private S3 bucket and least-privilege IAM user for one UMC Product environment
 
+# 환경 하나마다 별도 버킷·IAM 사용자를 만든다. access key 발급과 Secret 등록은 별도 절차다.
 Parameters:
   Environment:
     Type: String
@@ -37,6 +38,7 @@ Conditions:
 Resources:
   AppStorageBucket:
     Type: AWS::S3::Bucket
+    # 스택 삭제·리소스 교체로 업로드 파일이 사라지지 않도록 기존 버킷을 남긴다.
     DeletionPolicy: Retain
     UpdateReplacePolicy: Retain
     Properties:
@@ -48,6 +50,7 @@ Resources:
           - ServerSideEncryptionByDefault:
               SSEAlgorithm: AES256
       CorsConfiguration:
+        # 브라우저 요청을 허용할 origin 목록이다. localhost는 dev·preview에서만 포함한다.
         CorsRules:
           - AllowedHeaders:
               - "*"
@@ -71,15 +74,18 @@ Resources:
               - x-amz-id-2
             MaxAge: 3600
       LifecycleConfiguration:
+        # 완료된 파일은 만료시키지 않고 중단된 multipart 업로드만 정리한다.
         Rules:
           - Id: abort-incomplete-multipart-uploads
             Status: Enabled
             AbortIncompleteMultipartUpload:
               DaysAfterInitiation: 1
       OwnershipControls:
+        # 개별 객체 ACL 대신 버킷 소유권과 IAM 정책으로 접근을 관리한다.
         Rules:
           - ObjectOwnership: BucketOwnerEnforced
       PublicAccessBlockConfiguration:
+        # public/ 접두사의 객체도 익명 공개 대상으로 만들지 않는다.
         BlockPublicAcls: true
         BlockPublicPolicy: true
         IgnorePublicAcls: true
@@ -94,6 +100,7 @@ Resources:
 
   AppStorageBucketPolicy:
     Type: AWS::S3::BucketPolicy
+    # 보존되는 버킷에 HTTPS 강제 정책도 함께 남긴다.
     DeletionPolicy: Retain
     UpdateReplacePolicy: Retain
     Properties:
@@ -126,6 +133,7 @@ Resources:
                 Action: s3:ListBucket
                 Resource: !GetAtt AppStorageBucket.Arn
               - Sid: ReadWriteApplicationObjects
+                # 객체 읽기·쓰기·삭제는 앱이 사용하는 두 접두사로 한정한다.
                 Effect: Allow
                 Action:
                   - s3:GetObject

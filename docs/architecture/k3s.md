@@ -2,7 +2,7 @@
 
 상태: bootstrap 전.
 
-이 문서는 왜 이 구조를 선택했는지와 재검토 조건을 기록한다. 실행 순서는 [README](../../README.md), 위험 작업은 관련 guide와 [runbooks](../../runbooks/)가 기준이다.
+이 문서는 왜 이 구조를 선택했는지와 재검토 조건을 기록한다. 실행 절차는 [문서 목차](../README.md), 위험 작업은 [runbooks](../runbooks/)에서 찾는다.
 
 ## 전제
 
@@ -37,12 +37,13 @@
 | D18 | public GHCR을 익명 pull하고 prod/dev는 digest, Preview는 write-once head-SHA tag 고정 | credential 배포 없이 운영 불변성과 동적 PR image 선택을 함께 확보 | package를 private로 바꾸거나 registry admission을 도입할 때 재설계 |
 | D19 | backup CronJob은 restore 전 suspended | upload 성공을 복구 가능성으로 오인하지 않음 | 외부 restore와 RPO/RTO 기록 후 활성화 |
 | D20 | BE CI 연결 전 `deployment.enabled: false` | 아직 존재하지 않는 GHCR 계약으로 Pod가 반복 실패하지 않게 함 | trusted publish + digest PR 흐름 검증 후 환경별 활성화 |
-| D21 | `api.university.neordinary.com`, `api-dev.university.neordinary.com`, `api-pr-<PR>.university.neordinary.com`, `grafana.university.neordinary.com` | 모바일 직접 호출과 환경 식별이 명확한 exact host 계약 | API gateway 또는 별도 cluster 도입 시 재검토 |
+| D21 | prod/dev/PR API와 운영 도구별 exact host | 모바일 직접 호출과 환경 식별이 명확한 host 계약 | API gateway 또는 별도 cluster 도입 시 재검토 |
 | D22 | `university.neordinary.com` child zone을 Route 53으로 위임하고 exact record는 ExternalDNS가 관리 | DNS 권한과 workload record lifecycle 분리; Terraform은 사용하지 않음 | 상위 DNS 운영 주체나 도메인 변경 시 재검토 |
 | D23 | Route 53 direct A record + cert-manager DNS-01; Preview는 `*.university.neordinary.com` Certificate와 `preview-wildcard-tls`를 공유 | 별도 proxy 없이 DNS·TLS 계층을 단순화하고 PR별 인증서 발급·갱신을 제거 | WAF·CDN·DDoS proxy가 실제로 필요해질 때 별도 edge 도입 |
-| D24 | API와 Grafana는 direct HTTPS로 공개하고 Grafana는 local login + 기본 Viewer 계정을 사용 | 팀원은 Tailscale 없이 dashboard를 보고 익명 접근·회원가입은 차단 | 인원이 늘어 계정 회수가 어렵거나 조직 SSO·MFA가 필요할 때 재검토 |
+| D24 | API와 Grafana는 direct HTTPS로 공개하고 Grafana는 local login + 기본 Viewer 계정을 사용 | 팀원은 브라우저로 dashboard를 보고 익명 접근·회원가입은 차단 | 인원이 늘어 계정 회수가 어렵거나 조직 SSO·MFA가 필요할 때 재검토 |
 | D25 | 8 vCPU, 32GiB RAM, 512GB NVMe에서 시작하고 Service quota를 DB 생성보다 먼저 예약해 preview를 최대 3개로 제한 | DB·관측 스택과 transient Job 여유를 포함한 단일 노드 운영 기준 | 관측치로 request 또는 동시 실행 수를 조정할 때 재산정 |
 | D26 | Preview는 native Google/Kakao/Apple token login만 검증 | 모바일 앱은 provider token을 API에 직접 전달해 동적 callback이 불필요 | browser OAuth가 필요해질 때 callback 설계를 별도 검토 |
+| D27 | 공인 SSH 개인 계정·공개키와 DB 터널 전용 권한, 외부 22·443만 허용 | 고정 팀원 IP 없이 개인 키로 접근·개인별 회수; root/비밀번호 SSH 금지 | 중앙 신원·MFA·기기 정책 또는 공개 SSH 노출 축소가 필요할 때 접근 제어 방식 재검토 |
 
 ## 신뢰 경계
 
@@ -55,7 +56,10 @@
 - preview label은 비용 gate이자 trusted same-repository PR에 대한 maintainer 승인이다.
 - prod/dev/preview API는 모바일 앱이 직접 호출하는 Route 53 direct HTTPS 공개 endpoint다.
 - Grafana는 production TLS와 실제 IDC IP를 검증한 뒤 public HTTPS로 열고 사람별 local account를
-  `Viewer`로 발급한다. Tailscale은 인프라 관리자의 health 점검과 break-glass 경로로 유지한다.
+  `Viewer`로 발급한다. 인프라 관리자는 공인 SSH 개인 계정으로 health를 점검하고,
+  SSH 자체가 실패할 때는 제공업체 console로 복구한다.
+- SSH `admin`은 root에 준하는 sudo 권한이다. 백엔드 `db_tunnel` 계정은 지정 DB 목적지만
+  forwarding할 수 있고 shell·sudo는 없다. 개인 DB role과 회수는 SSH 계정과 별도로 관리한다.
 - cert-manager와 ExternalDNS는 서로 다른 Route 53 자격증명을 사용하고 exact hosted zone에만 변경 권한을 준다.
 - Preview browser OAuth callback과 고정 callback broker는 운영하지 않는다.
 - standard NetworkPolicy로 public HTTPS 목적지를 FQDN까지 제한할 수 없다는 잔여 위험을 수용한다.

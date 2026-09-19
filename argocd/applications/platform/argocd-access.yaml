@@ -1,0 +1,24 @@
+# Argo CD 공개 HTTPS 경계만 관리한다. core 설정과 계정은 Ansible Helm release가 소유한다.
+# 이 Application 안에서 Certificate·접근 정책을 먼저 준비한 뒤 HTTPS Ingress를 적용한다.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: argocd-access
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: argocd-access
+  source:
+    repoURL: https://github.com/UMC-PRODUCT/umc-product-infra.git
+    targetRevision: main
+    path: manifests/argocd-access
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd
+  syncPolicy:
+    automated:
+      selfHeal: true
+      prune: true
