@@ -29,16 +29,21 @@ Resources:
           - ServerSideEncryptionByDefault:
               SSEAlgorithm: AES256
       LifecycleConfiguration:
-        # 운영 백업 접두사에만 현재 버전 만료·이전 버전 정리 기준을 적용한다.
+        # 운영 백업만 현재 버전 10일 만료·비현행 전환 후 1일 정리를 적용한다.
         Rules:
           - Id: expire-production-postgres-backups
             Status: Enabled
             Prefix: postgres/prod/
-            ExpirationInDays: 35
+            ExpirationInDays: 10
             NoncurrentVersionExpiration:
-              NoncurrentDays: 35
+              NoncurrentDays: 1
             AbortIncompleteMultipartUpload:
               DaysAfterInitiation: 1
+          # 날짜 기반 만료와 함께 지정할 수 없어 빈 삭제 마커는 별도 규칙으로 정리한다.
+          - Id: remove-expired-production-postgres-delete-markers
+            Status: Enabled
+            Prefix: postgres/prod/
+            ExpiredObjectDeleteMarker: true
       OwnershipControls:
         # 객체 ACL을 사용하지 않고 버킷 소유권·IAM 정책으로 접근을 관리한다.
         Rules:
