@@ -56,6 +56,7 @@ def git_safety_check(command: list[str], _cwd: Path) -> bool:
     raise AssertionError(f"unexpected command: {command}")
 
 
+# 실제 AWS 호출 없이 발급 후 응답 유실까지 재현해 원격 키 잔여 여부를 검사한다.
 class FakeAws:
     def __init__(
         self,
@@ -162,6 +163,7 @@ class FakeAws:
         }
 
 
+# 비추적·무시 대상·0600·빈 필드 조건을 만족하는 원장만 최초 발급에 사용할 수 있다.
 class EnvFileContractTests(unittest.TestCase):
     def make_env(self, root: Path, contents: str | None = None) -> Path:
         path = root / ".env.prod"
@@ -240,6 +242,7 @@ class EnvFileContractTests(unittest.TestCase):
                         bootstrap.read_env_file(path, root)
 
 
+# 위임 zone과 전용 IAM 사용자 출력이 기대한 스택 계약에서 벗어나면 발급을 막는다.
 class StackContractTests(unittest.TestCase):
     def test_uses_delegated_zone(self) -> None:
         self.assertEqual(bootstrap.DNS_ZONE_NAME, "university.neordinary.com")
@@ -269,6 +272,7 @@ class StackContractTests(unittest.TestCase):
                     bootstrap.validate_stack_contract(outputs, STACK_NAME)
 
 
+# 발급 전 계정/기존 키 검사, 값 비노출, 파일 기록 실패와 응답 유실 시 키 회수를 검증한다.
 class BootstrapFlowTests(unittest.TestCase):
     def run_main(
         self,

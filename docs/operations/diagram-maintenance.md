@@ -41,7 +41,8 @@ Python 3.12를 사용한다. `uv pip install`의 `--python .venv/bin/python`을 
 각 script는 `out/`에 PNG 하나를 만든다. `theme.py`가 공통 글꼴, 색상과
 Graphviz 속성을 가진다.
 
-그림에서 실선은 항상 존재하는 흐름이고, 점선은 다음처럼 조건을 통과한 뒤 열리는 경로다.
+선의 의미는 각 연결의 라벨로 읽는다. DNS 조회·Git 조회·Secret 참조에도 점선을 사용하므로
+선 모양만으로 활성 여부를 판단하지 않는다. 다음 기능은 별도 운영 조건을 검증한다.
 
 - 앱 Ingress: Route 53 exact record와 host Certificate, direct HTTPS 검증 후 활성화
 - Grafana Ingress: production Certificate, 실제 IDC IP, login 필수 상태를 검증한 후 활성화

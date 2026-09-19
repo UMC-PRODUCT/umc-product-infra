@@ -1,5 +1,6 @@
 # 앱 — 자작 Helm 차트 sync
-# wave 1: DB 이후 (기동 순서는 어차피 probe가 지켜주지만 부트스트랩 시 불필요한 재시작 줄임)
+# root의 health gate가 DB Application(wave 0)을 기다린 뒤 생성하는 wave 1 앱이다.
+# 실제 Deployment·Ingress 생성 여부는 chart의 환경별 활성화 조건에 따른다.
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:

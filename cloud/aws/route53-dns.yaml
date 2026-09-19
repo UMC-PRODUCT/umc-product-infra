@@ -1,6 +1,7 @@
 AWSTemplateFormatVersion: "2010-09-09"
 Description: Least-privilege DNS identities for the existing UMC Product Route 53 zone
 
+# 기존 hosted zone의 권한만 구성한다. zone 생성·위임과 access key 발급은 별도 절차다.
 Parameters:
   DnsZoneName:
     Type: String
@@ -24,6 +25,7 @@ Rules:
 
 Resources:
   CertManagerRoute53User:
+    # 인증서 DNS 검증용 사용자다. 변경 권한은 나열된 ACME TXT의 갱신·삭제로 한정한다.
     Type: AWS::IAM::User
     Properties:
       UserName: umc-cert-manager-route53
@@ -66,6 +68,7 @@ Resources:
           Value: cert-manager-route53
 
   ExternalDNSRoute53User:
+    # Ingress 주소와 소유권 TXT를 관리하며, 인증서 검증용 사용자와 권한을 분리한다.
     Type: AWS::IAM::User
     Properties:
       UserName: umc-external-dns-route53
@@ -84,6 +87,7 @@ Resources:
                 Action: route53:ListResourceRecordSets
                 Resource: !Sub "arn:${AWS::Partition}:route53:::hostedzone/${Route53HostedZoneId}"
               - Sid: ManageOnlyUmcIngressAndOwnershipRecords
+                # 이 zone의 나열된 이름·유형에 한해 변경하며 Preview 이름 패턴도 포함한다.
                 Effect: Allow
                 Action: route53:ChangeResourceRecordSets
                 Resource: !Sub "arn:${AWS::Partition}:route53:::hostedzone/${Route53HostedZoneId}"

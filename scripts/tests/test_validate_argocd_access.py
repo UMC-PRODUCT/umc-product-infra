@@ -14,6 +14,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from validate_argocd import ACCESS_DIR, PUBLIC_HOST, validate_access_manifests, validate_access_release
 
 
+# 공개 경로를 변형해 TLS·적용 순서·NetworkPolicy 출발지 제한의 우회를 거부하는지 확인한다.
 class AccessManifestsTest(unittest.TestCase):
     def setUp(self) -> None:
         self.resources = [yaml.safe_load(path.read_text(encoding="utf-8"))
@@ -68,6 +69,7 @@ class AccessManifestsTest(unittest.TestCase):
                 annotations["argocd.argoproj.io/sync-wave"] = "-2"
 
 
+# chart 기본 정책이나 외부 Service·hostNetwork가 격리된 Argo CD backend를 열지 못하게 한다.
 class AccessReleaseTest(unittest.TestCase):
     def setUp(self) -> None:
         labels = {"app.kubernetes.io/name": "argocd-server", "app.kubernetes.io/instance": "argocd"}

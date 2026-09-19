@@ -68,7 +68,7 @@ def build(theme: dict) -> None:
         checks >> Edge(label="④ commit → direct push", fontcolor=theme["fg"]) >> repo_infra
 
         # 이 화살표의 방향이 이 설계의 전부다 — 클러스터가 GitHub 을 읽는다
-        argo >> Edge(label="⑤ 3분마다 읽음 (pull)", color=PULL, fontcolor=PULL) >> repo_infra
+        argo >> Edge(label="⑤ 주기적으로 Git 조회 (pull)", color=PULL, fontcolor=PULL) >> repo_infra
 
         argo >> Edge(label="values-prod.yaml → Production", fontcolor=theme["fg"]) >> prod
         argo >> Edge(label="values-dev.yaml → Development", fontcolor=theme["fg"]) >> dev_app

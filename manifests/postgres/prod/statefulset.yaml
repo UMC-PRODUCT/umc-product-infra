@@ -1,3 +1,4 @@
+# 운영 PostgreSQL/PostGIS 한 대와 영속 데이터 볼륨을 관리한다. 앱용 role 생성은 별도 Job이 담당한다.
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
@@ -53,6 +54,7 @@ spec:
             - name: postgres
               containerPort: 5432
               protocol: TCP
+          # POSTGRES_*는 빈 데이터 디렉터리 초기화용이다. 기존 DB 비밀번호는 Secret 변경만으로 회전되지 않는다.
           env:
             # Secrets Manager /umc-product/prod/postgres-secrets JSON → ExternalSecret/postgres-secrets (db)
             - name: POSTGRES_USER
@@ -77,6 +79,7 @@ spec:
             readOnlyRootFilesystem: true
             capabilities:
               drop: ["ALL"]
+          # 시작 검사를 통과하기 전에는 readiness·liveness를 보류해 초기 복구 시간을 확보한다.
           startupProbe:
             exec:
               # exec 배열은 $(VAR)를 확장하지 않으므로 shell을 명시한다.
@@ -84,12 +87,14 @@ spec:
             periodSeconds: 5
             timeoutSeconds: 3
             failureThreshold: 60
+          # 연결 수락이 안 되면 Service의 준비된 endpoint에서 제외한다. 이 검사 자체는 재시작하지 않는다.
           readinessProbe:
             exec:
               command: ["sh", "-ec", "exec pg_isready -U \"$POSTGRES_USER\" -d \"$POSTGRES_DB\""]
             periodSeconds: 10
             timeoutSeconds: 3
             failureThreshold: 3
+          # 실행 중 연결 수락 실패가 계속되면 컨테이너를 재시작한다. 애플리케이션 query 성공 검사는 아니다.
           livenessProbe:
             exec:
               command: ["sh", "-ec", "exec pg_isready -U \"$POSTGRES_USER\" -d \"$POSTGRES_DB\""]
@@ -113,6 +118,7 @@ spec:
         - name: run
           emptyDir:
             sizeLimit: 64Mi
+  # Pod가 바뀌어도 데이터는 PVC에 남는다. local-path 요청 용량은 디스크 quota나 노드 밖 백업을 뜻하지 않는다.
   volumeClaimTemplates:
     - metadata:
         name: data

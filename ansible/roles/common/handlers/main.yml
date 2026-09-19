@@ -1,5 +1,7 @@
 ---
 
+# 커널 설정 파일이 변경되어 notify된 경우 저장된 sysctl 설정을 현재 커널에 반영한다.
+# sysctl --system은 이 역할의 파일뿐 아니라 시스템의 다른 sysctl 설정 파일도 읽는다.
 - name: Apply Kubernetes kernel parameters
   ansible.builtin.command: sysctl --system
   changed_when: true

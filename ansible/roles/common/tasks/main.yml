@@ -1,5 +1,6 @@
 ---
 
+# 아래 패키지·커널 설정은 x86_64 Ubuntu 22/24를 전제로 하므로 다른 OS에서는 중단한다.
 - name: Require the supported Ubuntu host family
   ansible.builtin.assert:
     that:
@@ -9,7 +10,8 @@
       - ansible_facts.architecture in ['x86_64', 'amd64']
     fail_msg: This bootstrap supports only x86_64 Ubuntu 22.04 or 24.04 hosts.
 
-# DNS-01은 80/tcp가 필요하지 않다. 공인 SSH와 HTTPS만 인터넷에 연다.
+# 관리자 PC에서 공개 포트 선언이 22·443만 포함하는지 확인한다. 실제 방화벽 적용은 마지막에 한다.
+# 인증서 발급에 쓰는 DNS-01은 80/tcp가 필요하지 않아 공인 SSH와 HTTPS만 허용한다.
 - name: Require the public SSH and HTTPS contract before host mutation
   ansible.builtin.assert:
     that:
@@ -22,6 +24,7 @@
   tags:
     - preflight
 
+# HTTPS 다운로드·Helm values 처리·방화벽 관리에 필요한 패키지를 서버에 설치한다.
 - name: Install host prerequisites
   ansible.builtin.apt:
     name: "{{ common_packages }}"
@@ -29,6 +32,7 @@
     update_cache: true
     cache_valid_time: 3600
 
+# 서버의 시간대 파일을 지정한 지역으로 연결해 운영 로그의 시간 해석을 일관되게 한다.
 - name: Link the host timezone data
   ansible.builtin.file:
     path: /etc/localtime
@@ -38,6 +42,7 @@
     owner: root
     group: root
 
+# /etc/timezone에도 같은 시간대 이름을 저장해 이 파일을 읽는 도구와 설정을 맞춘다.
 - name: Persist the host timezone name
   ansible.builtin.copy:
     content: "{{ common_timezone }}\n"
@@ -46,23 +51,27 @@
     group: root
     mode: '0644'
 
-# 스왑은 현재 세션뿐 아니라 `/etc/fstab`에서도 영구 비활성화한다.
+# 현재 켜진 스왑을 조회한다. 이 구성은 스왑 없이 K3s를 운영하므로 켜져 있을 때만 해제한다.
 - name: Inspect active swap devices
   ansible.builtin.command: swapon --show --noheadings
   register: common_active_swap
   changed_when: false
 
+# 사용 중인 스왑을 즉시 끈다. 재부팅 후 다시 켜지지 않게 하는 작업은 다음 단계에서 수행한다.
 - name: Disable active swap
   ansible.builtin.command: swapoff --all
   when: common_active_swap.stdout | trim | length > 0
   changed_when: true
 
+# /etc/fstab의 스왑 항목을 주석 처리해 부팅 시 자동 활성화를 막는다.
+# 스왑 파일·파티션 자체를 삭제하는 작업은 아니다.
 - name: Disable swap entries at boot
   ansible.builtin.replace:
     path: /etc/fstab
     regexp: '^(\s*[^#\n]+\s+[^#\n]+\s+swap\s+.*)$'
     replace: '# \1'
 
+# 컨테이너 파일시스템·브리지 네트워크에 필요한 모듈 목록을 저장해 재부팅 후에도 불러오게 한다.
 - name: Load Kubernetes kernel modules at boot
   ansible.builtin.template:
     src: k3s-modules.conf.j2
@@ -71,6 +80,7 @@
     group: root
     mode: '0644'
 
+# 재부팅을 기다리지 않고 현재 커널에도 overlay·br_netfilter 모듈을 불러온다.
 - name: Load Kubernetes kernel modules now
   ansible.builtin.command: "modprobe {{ item }}"
   loop:
@@ -78,6 +88,8 @@
     - br_netfilter
   changed_when: false
 
+# Pod 통신에 필요한 IP 전달·브리지 필터 설정을 파일로 저장한다.
+# 파일이 바뀌면 아래 handler를 예약하고, 다음 단계에서 실행해 현재 커널에도 반영한다.
 - name: Configure Kubernetes kernel parameters
   ansible.builtin.template:
     src: k3s-sysctl.conf.j2
@@ -87,10 +99,11 @@
     mode: '0644'
   notify: Apply Kubernetes kernel parameters
 
+# 예약된 커널 설정 handler를 지금 실행해 K3s가 변경 전 네트워크 설정으로 시작하지 않게 한다.
 - name: Apply host kernel parameters before K3s installation
   ansible.builtin.meta: flush_handlers
 
-# 계정과 sshd 보안 설정은 ssh_access 역할이 먼저 준비한다.
-# access-only playbook에서도 동일한 방화벽 계약을 재사용한다.
+# SSH 계정·키 준비 뒤 방화벽 작업 목록을 불러온다. 구체적인 규칙 적용은 firewall.yml에 있다.
+# ssh-access.yml에서도 같은 파일만 재사용해 OS 전체 설정 없이 방화벽을 맞춘다.
 - name: Reconcile the declared host firewall
   ansible.builtin.import_tasks: firewall.yml

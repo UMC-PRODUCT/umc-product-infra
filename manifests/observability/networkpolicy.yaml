@@ -1,4 +1,5 @@
 # monitoring namespace는 기본적으로 ingress를 닫고, 실제 데이터 흐름만 추가로 연다.
+# 아래 정책들의 허용 경로는 합쳐진다. 이 파일은 Ingress만 제한하므로 Egress 차단을 뜻하지 않는다.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -26,7 +27,7 @@ spec:
     - from:
         - podSelector: {}
 ---
-# Grafana의 public Ingress를 열었을 때도 kube-system Traefik의 3000/TCP만 허용한다.
+# Grafana의 외부 Ingress 경로는 kube-system Traefik의 3000/TCP로 제한한다. 위 내부 통신 허용은 유지된다.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -52,7 +53,7 @@ spec:
       ports:
         - { protocol: TCP, port: 3000 }
 ---
-# 운영·개발·PR 앱은 중앙 OTel gateway의 OTLP port에만 들어올 수 있다.
+# app·dev-app·preview namespace의 Pod가 중앙 OTel gateway의 OTLP port에 접근하도록 허용한다.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -99,7 +100,7 @@ spec:
         - { protocol: TCP, port: 8888 }
 ---
 # Tempo chart 1.18.0 Service는 비활성화할 수 없는 legacy receiver port도 선언한다.
-# 실제 config는 OTLP만 켜며, 정책은 Collector의 OTLP/HTTP와 내부 query/metrics만 연다.
+# 실제 config는 OTLP만 켜며, 정책은 monitoring 안의 Pod에 OTLP/HTTP·query/metrics 포트만 연다.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:

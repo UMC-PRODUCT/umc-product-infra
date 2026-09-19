@@ -7,7 +7,7 @@
 # prod·dev 와 다른 점
 #   - 백업 없음. 프리뷰 데이터는 언제든 버려도 되는 것이다
 #   - 튜닝값 축소 (shared_buffers 256MB)
-#   - preview-lowest 우선순위 — 메모리 압박 시 가장 먼저 축출
+#   - preview-lowest 우선순위 — 가장 낮은 보호 우선순위이며 실제 축출 순서는 다른 조건도 함께 판단
 #   - max_connections 60 — PR 3개 × Hikari 10과 bootstrap/운영 여유
 apiVersion: apps/v1
 kind: StatefulSet
@@ -57,6 +57,7 @@ spec:
             - name: postgres
               containerPort: 5432
               protocol: TCP
+          # 빈 데이터 디렉터리만 초기화한다. 기존 공유 DB의 비밀번호 회전·PR별 DB 생성은 별도 절차다.
           env:
             # 프리뷰 전용 계정. prod·dev 자격증명과 분리한다
             - name: POSTGRES_USER
@@ -80,6 +81,7 @@ spec:
             readOnlyRootFilesystem: true
             capabilities:
               drop: ["ALL"]
+          # 시작 검사 후 readiness는 Service 연결 대상을, liveness는 컨테이너 재시작 여부를 판단한다.
           startupProbe:
             exec:
               command: ["sh", "-ec", "exec pg_isready -U \"$POSTGRES_USER\" -d \"$POSTGRES_DB\""]
@@ -113,6 +115,7 @@ spec:
         - name: run
           emptyDir:
             sizeLimit: 64Mi
+  # 공유 DB의 PVC는 PR마다 생기지 않는다. local-path 노드 소실에 대비한 외부 복제·백업은 이 파일에 없다.
   volumeClaimTemplates:
     - metadata:
         name: data

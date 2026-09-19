@@ -1,3 +1,4 @@
+{{/* 앱의 HTTP만 클러스터 내부 Service로 연결한다. 외부 노출은 Ingress, management 포트는 probe가 담당한다. */}}
 {{- if .Values.deployment.enabled }}
 {{- if ne .Values.service.type "ClusterIP" -}}
 {{- fail "umc-product-server Service는 ClusterIP만 허용한다" -}}

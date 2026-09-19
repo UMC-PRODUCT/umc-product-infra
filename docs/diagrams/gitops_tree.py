@@ -42,7 +42,7 @@ def build(theme: dict) -> None:
     ):
         repo = Github("umc-infra\nmain", fontcolor=fg)
         root = Argocd(
-            "root Application\n9 projects wave -100\n+ default deny -99",
+            "root Application\n11 projects wave -100\n+ default deny -99",
             fontcolor=fg,
         )
 
@@ -59,15 +59,19 @@ def build(theme: dict) -> None:
             fontcolor=fg,
         )
         wave_db = Argocd(
-            "wave 0\ncert-manager-config · external-dns\n+ prod · dev · preview PostgreSQL\nApplication 5",
+            "wave 0\ncert-manager-config · external-dns\nreloader · prod/dev/preview PostgreSQL\nApplication 6",
             fontcolor=fg,
         )
         wave_app = Argocd(
-            "wave 1\nmonitoring-config + prod · dev app\nApplication 3 · ApplicationSet 1",
+            "wave 1\nmonitoring-config · argocd-access\nprod/dev app · preview ApplicationSet\nApplication 4 · ApplicationSet 1",
             fontcolor=fg,
         )
         wave_monitoring = Argocd(
             "wave 2\nmonitoring workloads\nApplication 5",
+            fontcolor=fg,
+        )
+        wave_integrations = Argocd(
+            "wave 3\nmonitoring-integrations\nApplication 1",
             fontcolor=fg,
         )
 
@@ -76,12 +80,12 @@ def build(theme: dict) -> None:
             fontcolor=fg,
         )
 
-        repo >> Edge(
-            label="3분마다 pull",
+        repo << Edge(
+            label="Git 조회 (pull)",
             color=SYNC,
             fontcolor=SYNC,
             style="dashed",
-        ) >> root
+        ) << root
 
         root >> Edge(label="child CR 생성", color=SYNC, fontcolor=SYNC) >> wave_cluster
         wave_cluster >> Edge(label="Healthy gate", color=GATE, fontcolor=GATE) >> wave_eso
@@ -89,6 +93,7 @@ def build(theme: dict) -> None:
         wave_secrets >> Edge(label="Secret Ready", color=GATE, fontcolor=GATE) >> wave_db
         wave_db >> Edge(label="Issuer · DNS · DB Ready", color=GATE, fontcolor=GATE) >> wave_app
         wave_app >> Edge(label="App Ready", color=GATE, fontcolor=GATE) >> wave_monitoring
+        wave_monitoring >> Edge(label="CRD · controller Ready", color=GATE, fontcolor=GATE) >> wave_integrations
 
         health >> Edge(
             label="상태를 root에 전파",

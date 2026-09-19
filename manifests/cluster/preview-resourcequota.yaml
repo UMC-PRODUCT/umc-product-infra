@@ -1,5 +1,6 @@
 # 단일 노드 Preview 예산. 고정 PostgreSQL Service 2개와 PR Service 최대 3개만 허용한다.
 # PR Service는 createdb Job보다 먼저 동기화되어 네 번째 PR이 DB를 남기지 못하게 한다.
+# quota는 namespace 전체 합계다. 요청을 거부할 뿐 기존 PR을 골라 종료하거나 자리를 교체하지 않는다.
 apiVersion: v1
 kind: ResourceQuota
 metadata:

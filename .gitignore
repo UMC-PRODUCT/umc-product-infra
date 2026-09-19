@@ -1,3 +1,4 @@
+# OS·Python 도구가 만드는 로컬 캐시는 배포 원본이 아니므로 제외한다.
 .DS_Store
 **/.DS_Store
 __pycache__/
@@ -5,14 +6,15 @@ __pycache__/
 .mypy_cache/
 .ruff_cache/
 
-# Ansible controller-local inventory and secret material
+# 운영 inventory에는 개인 계정·공개키·서버 주소가 있으므로 로컬에서 관리한다.
+# 공유할 구조는 hosts.example.yml에 두고, 실제 hosts.yml과 인증 파일은 올리지 않는다.
 ansible/.venv/
 ansible/collections/ansible_collections/
 ansible/inventories/*/hosts.yml
 ansible/.vault-password
 ansible/**/*.retry
 
-# Local secret collection files
+# 환경별 실제 비밀값은 로컬에서만 관리한다. 이미 추적 중인 파일은 이 규칙으로 제거되지 않는다.
 .env
 .env.*
 

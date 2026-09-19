@@ -12,6 +12,7 @@ import yaml
 ROOT = Path(__file__).resolve().parents[2]
 
 
+# 실제 Helm 렌더에서 SMTP → SES 복귀 시 발신자와 egress가 함께 바뀌고 Preview 자격증명은 분리된다.
 @unittest.skipUnless(shutil.which("helm"), "helm이 필요합니다")
 class EmailTransportTests(unittest.TestCase):
     def render(self, environment: str, *overrides: str) -> subprocess.CompletedProcess:

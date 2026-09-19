@@ -15,15 +15,17 @@ priorityClassName: ""
 
 image:
   repository: ghcr.io/umc-product/umc-product-server
-  # 존재하지 않는 의도적 placeholder. 실제 배포는 12자리 commit SHA와 digest를 모두 요구한다.
+  # 의도적 placeholder. prod/dev는 12자리 SHA와 digest, Preview는 12자리 PR head SHA를 요구한다.
   tag: bootstrap-required
   digest: ""
   pullPolicy: IfNotPresent
 
+# 앱 요청과 상태 확인 포트를 분리한다. management는 Service·Ingress에 노출하지 않는다.
 ports:
   http: 8080
   management: 9090
 
+# 외부 접속은 Traefik Ingress로만 받고 앱 Service는 클러스터 내부에 둔다.
 service:
   type: ClusterIP
   port: 80
@@ -36,6 +38,7 @@ networkPolicy:
     namespace: ""
     podName: postgres
 
+# Deployment·TLS와 함께 검증한 뒤 공개 API를 연다. host·TLS·DNS target을 한 묶음으로 맞춘다.
 ingress:
   enabled: false
   className: traefik
@@ -127,6 +130,8 @@ createDatabase:
   connectTimeoutSeconds: "5"
   statementTimeout: 30s
 
+# PR Application 삭제 후 해당 DB를 정리한다. FORCE 삭제는 그 DB의 기존 연결도 종료한다.
+# 실패한 삭제 hook은 원인 확인을 위해 남으며, DB 백업·보존을 대신하지 않는다.
 deleteDatabase:
   enabled: false
   activeDeadlineSeconds: 120
@@ -142,6 +147,7 @@ deleteDatabase:
 postgresClient:
   image: postgis/postgis:18-3.6@sha256:60f6ad1d21ea86a67d47780b9a0d1e1d200500f62b19293fa834d0dea80b8677
 
+# startup은 느린 초기 기동을 허용하고, liveness는 재시작·readiness는 요청 수신 가능 여부를 판단한다.
 probes:
   startup:
     path: /actuator/health/liveness
@@ -168,6 +174,7 @@ podSecurityContext:
   seccompProfile:
     type: RuntimeDefault
 
+# root filesystem 쓰기·권한 상승을 막고, 필요한 임시파일과 로그만 Deployment의 emptyDir에 쓴다.
 containerSecurityContext:
   allowPrivilegeEscalation: false
   readOnlyRootFilesystem: true

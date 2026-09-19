@@ -1,3 +1,4 @@
+{{/* 빈 podSelector로 namespace 전체의 기본 송수신을 닫는다. 공유 Preview 정책은 플랫폼이 따로 소유한다. */}}
 {{- if .Values.networkPolicy.enabled }}
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy

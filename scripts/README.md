@@ -46,7 +46,86 @@ observability/ 원본
 | `validate_*.py` | 영역별 상세 계약 검사 | 검증 출력 디렉터리 | `validate.sh` 내부 호출 |
 | [`tests/`](tests/) | bootstrap·Secret·네트워크 안전장치 단위 테스트 | 없음 | `validate.sh` 내부 호출 |
 
-## 1. AWS access key 최초 발급
+## 관측 ConfigMap·PrometheusRule 생성
+
+[`gen-configmaps.py`](gen-configmaps.py)는 [`observability/`](../observability/)의 사람이
+관리하는 dashboard·Loki alert 원본을 [`manifests/observability/`](../manifests/observability/)의
+ConfigMap으로, Prometheus alert 원본을
+[`manifests/observability-integrations/`](../manifests/observability-integrations/)의 PrometheusRule로 변환한다.
+
+```bash
+# 생성물 갱신
+python3 scripts/gen-configmaps.py
+
+# 파일을 바꾸지 않고 drift만 검사
+python3 scripts/gen-configmaps.py --check
+```
+
+쓰기 모드는 더 이상 허용 목록에 없는 dashboard 생성물을 제거할 수 있다. 원본과 생성물을
+같은 commit에서 검토하고, 생성된 ConfigMap·PrometheusRule을 직접 수정하지 않는다.
+
+변경·생성·검증 순서는 [관측 원본 관리](../observability/README.md)를 따른다.
+
+## 저장소 전체 검증
+
+[`validate.sh`](validate.sh)가 사람이 실행하는 단일 검증 진입점이다.
+
+```bash
+./scripts/validate.sh
+```
+
+주요 검사 범위:
+
+- 관측 원본과 생성된 ConfigMap·PrometheusRule의 drift
+- Python 문법과 [`tests/`](tests/) 단위 테스트
+- prod/dev/preview 앱 chart와 Secret chart Helm lint·render
+- 이미지 tag·digest, 환경값, Secret 이름, namespace와 NetworkPolicy 계약
+- PostgreSQL·PostGIS, preview DB lifecycle과 resource budget
+- Argo CD, cert-manager, ExternalDNS, Reloader chart와 보안 설정
+- kube-prometheus-stack CRD·RBAC·Operator workload, monitor/rule selector와 named Service port
+- Grafana, Loki, Tempo, OpenTelemetry 연결과 설정, 원본·렌더된 모든 Prometheus rule 문법
+- native AlertmanagerConfig의 global 참조·Discord SecretKeySelector (실제 runtime 설정 생성은 live reconcile에서 확인)
+- CloudFormation, Ansible, Kubernetes YAML과 schema
+- 남은 과거 이름, Terraform 파일, placeholder와 운영 gate가 의도한 안전 상태인지
+
+Helm과 PyYAML은 필수다. `cfn-lint`, `ansible-playbook`, `kubeconform`, `promtool`, Docker가
+없으면 관련 검사는 skip되므로 출력 전체를 확인한다. Argo CD 검증은 저장소에 고정한 Helm
+버전과 chart checksum을 요구하며 chart 다운로드를 위해 네트워크를 사용한다. 검증 중 Helm
+chart 다운로드, Docker image pull과 로컬 cache 변경은 발생할 수 있지만 AWS, GitHub나
+Kubernetes 상태는 바꾸지 않는다. 최종 기준은
+[GitHub Actions workflow](../.github/workflows/validate.yml)의 `Static validation` 성공이다.
+
+### 내부 validator
+
+아래 파일은 `validate.sh`가 필요한 렌더 결과와 출력 디렉터리를 준비한 뒤 호출한다. 특별한
+디버깅 목적이 아니라면 직접 실행하지 않는다.
+
+| 파일 | 검사 영역 |
+|---|---|
+| [`validate_argocd.py`](validate_argocd.py) | Argo CD Helm·CRD·workload·ServiceAccount 권한 |
+| [`validate_edge_platform.py`](validate_edge_platform.py) | cert-manager·ExternalDNS·Reloader·Route53·TLS/DNS gate |
+| [`validate_observability.py`](validate_observability.py) | chart·CRD·RBAC·Operator image/resource·ServiceMonitor·NetworkPolicy·runtime config |
+| [`validate_contracts.py`](validate_contracts.py) | AWS·Helm·Secret·PostgreSQL·preview 등 UMC 전용 교차 파일 계약 |
+
+## 단위 테스트
+
+[`tests/`](tests/)는 `validate.sh`에서 자동 실행된다.
+
+| 파일 | 주요 검증 |
+|---|---|
+| [`test_ansible_bootstrap_contracts.py`](tests/test_ansible_bootstrap_contracts.py) | K3s installer pin, server-side apply, 개인 OpenSSH·UFW와 비공개 Kubernetes API |
+| [`test_bootstrap_aws_secrets.py`](tests/test_bootstrap_aws_secrets.py) | worksheet parser, 30개 source mapping, 환경 분리, stdin 전달과 오류 메시지 비노출 |
+| [`test_bootstrap_route53_access_keys.py`](tests/test_bootstrap_route53_access_keys.py) | 안전한 `.env.prod`, Route53 stack 계약, access key 발급과 실패 rollback |
+| [`test_validate_observability.py`](tests/test_validate_observability.py) | Operator Pod·monitor selector, named port와 cluster RBAC 권한 경계 |
+
+테스트만 실행하려면 다음을 사용한다.
+
+```bash
+python3 -m unittest discover -s scripts/tests -p 'test_*.py'
+```
+
+
+## AWS access key 최초 발급
 
 세 스크립트 모두 다음 안전장치를 가진다.
 
@@ -65,7 +144,7 @@ observability/ 원본
 Ansible 또는 수동 주입 스크립트에 전달한다.
 
 이 도구들은 **키 회전 도구가 아니다**. 이미 `.env`가 채워졌거나 IAM key가 존재한다면
-원인을 확인하고 [Secret 운영 가이드](../docs/guides/secrets.md)의 회전 절차를 사용한다.
+원인을 확인하고 [Secret 운영 가이드](../docs/operations/secrets.md)의 회전 절차를 사용한다.
 
 ### `bootstrap_route53_access_keys.py`
 
@@ -118,7 +197,7 @@ python3 scripts/bootstrap_nonprod_aws_access_keys.py \
 
 선행 조건은 dev·preview app-storage와 SES CloudFormation stack 배포다.
 
-## 2. AWS Secrets Manager source 생성
+## AWS Secrets Manager source 생성
 
 [`bootstrap_aws_secrets.py`](bootstrap_aws_secrets.py)는 세 worksheet를 읽어 Helm의
 ExternalSecret 계약과 일치하는 30개 JSON source를 구성한다. 이 중 prod/dev/preview의
@@ -157,7 +236,7 @@ python3 scripts/bootstrap_aws_secrets.py \
 실패하면 앞에서 성공한 source는 삭제하지 않는다. 원인을 해결하고 다시 실행하면 이미 생성된
 source는 `SKIP_MATCHED`로 건너뛴다.
 
-## 3. ESO bootstrap Secret 직접 주입
+## ESO bootstrap Secret 직접 주입
 
 [`bootstrap-external-secrets-aws.sh`](bootstrap-external-secrets-aws.sh)는 AWS 밖의 K3s에서
 External Secrets Operator가 최초로 AWS IAM role을 사용할 수 있도록 다음 Secret을 적용한다.
@@ -182,105 +261,8 @@ scripts/bootstrap-external-secrets-aws.sh
 `external_secrets_bootstrap` role이 같은 역할을 담당한다. 일반적인 최초 배포나 회전에서는
 Ansible을 사용하고, 이 스크립트는 수동 복구나 직접 `kubectl`로 관리할 때만 사용한다.
 
-## 4. 관측 ConfigMap·PrometheusRule 생성
+## 최초 설치와 운영 절차
 
-[`gen-configmaps.py`](gen-configmaps.py)는 [`observability/`](../observability/)의 사람이
-관리하는 dashboard·Loki alert 원본을 [`manifests/observability/`](../manifests/observability/)의
-ConfigMap으로, Prometheus alert 원본을
-[`manifests/observability-integrations/`](../manifests/observability-integrations/)의 PrometheusRule로 변환한다.
-
-```bash
-# 생성물 갱신
-python3 scripts/gen-configmaps.py
-
-# 파일을 바꾸지 않고 drift만 검사
-python3 scripts/gen-configmaps.py --check
-```
-
-쓰기 모드는 더 이상 허용 목록에 없는 dashboard 생성물을 제거할 수 있다. 원본과 생성물을
-같은 commit에서 검토하고, 생성된 ConfigMap·PrometheusRule을 직접 수정하지 않는다.
-
-권장 변경 순서:
-
-```bash
-python3 scripts/gen-configmaps.py
-git diff -- observability manifests/observability manifests/observability-integrations
-python3 scripts/gen-configmaps.py --check
-./scripts/validate.sh
-```
-
-## 5. 저장소 전체 검증
-
-[`validate.sh`](validate.sh)가 사람이 실행하는 단일 검증 진입점이다.
-
-```bash
-./scripts/validate.sh
-```
-
-주요 검사 범위:
-
-- 관측 원본과 생성된 ConfigMap·PrometheusRule의 drift
-- Python 문법과 [`tests/`](tests/) 단위 테스트
-- prod/dev/preview 앱 chart와 Secret chart Helm lint·render
-- 이미지 tag·digest, 환경값, Secret 이름, namespace와 NetworkPolicy 계약
-- PostgreSQL·PostGIS, preview DB lifecycle과 resource budget
-- Argo CD, cert-manager, ExternalDNS, Reloader chart와 보안 설정
-- kube-prometheus-stack CRD·RBAC·Operator workload, monitor/rule selector와 named Service port
-- Grafana, Loki, Tempo, OpenTelemetry 연결과 설정, 원본·렌더된 모든 Prometheus rule 문법
-- native AlertmanagerConfig의 global 참조·Discord SecretKeySelector (실제 runtime 설정 생성은 live reconcile에서 확인)
-- CloudFormation, Ansible, Kubernetes YAML과 schema
-- 남은 과거 이름, Terraform 파일, placeholder와 운영 gate가 의도한 안전 상태인지
-
-Helm과 PyYAML은 필수다. `cfn-lint`, `ansible-playbook`, `kubeconform`, `promtool`, Docker가
-없으면 관련 검사는 skip되므로 출력 전체를 확인한다. Argo CD 검증은 저장소에 고정한 Helm
-버전과 chart checksum을 요구하며 chart 다운로드를 위해 네트워크를 사용한다. 검증 중 Helm
-chart 다운로드, Docker image pull과 로컬 cache 변경은 발생할 수 있지만 AWS, GitHub나
-Kubernetes 상태는 바꾸지 않는다. 최종 기준은
-[GitHub Actions workflow](../.github/workflows/validate.yml)의 `Static validation` 성공이다.
-
-### 내부 validator
-
-아래 파일은 `validate.sh`가 필요한 렌더 결과와 출력 디렉터리를 준비한 뒤 호출한다. 특별한
-디버깅 목적이 아니라면 직접 실행하지 않는다.
-
-| 파일 | 검사 영역 |
-|---|---|
-| [`validate_argocd.py`](validate_argocd.py) | Argo CD Helm·CRD·workload·ServiceAccount 권한 |
-| [`validate_edge_platform.py`](validate_edge_platform.py) | cert-manager·ExternalDNS·Reloader·Route53·TLS/DNS gate |
-| [`validate_observability.py`](validate_observability.py) | chart·CRD·RBAC·Operator image/resource·ServiceMonitor·NetworkPolicy·runtime config |
-| [`validate_contracts.py`](validate_contracts.py) | AWS·Helm·Secret·PostgreSQL·preview 등 UMC 전용 교차 파일 계약 |
-
-## 6. 단위 테스트
-
-[`tests/`](tests/)는 `validate.sh`에서 자동 실행된다.
-
-| 파일 | 주요 검증 |
-|---|---|
-| [`test_ansible_bootstrap_contracts.py`](tests/test_ansible_bootstrap_contracts.py) | K3s installer pin, server-side apply, 개인 OpenSSH·UFW와 비공개 Kubernetes API |
-| [`test_bootstrap_aws_secrets.py`](tests/test_bootstrap_aws_secrets.py) | worksheet parser, 30개 source mapping, 환경 분리, stdin 전달과 오류 메시지 비노출 |
-| [`test_bootstrap_route53_access_keys.py`](tests/test_bootstrap_route53_access_keys.py) | 안전한 `.env.prod`, Route53 stack 계약, access key 발급과 실패 rollback |
-| [`test_validate_observability.py`](tests/test_validate_observability.py) | Operator Pod·monitor selector, named port와 cluster RBAC 권한 경계 |
-
-테스트만 실행하려면 다음을 사용한다.
-
-```bash
-python3 -m unittest discover -s scripts/tests -p 'test_*.py'
-```
-
-## 최초 배포 때의 권장 순서
-
-```text
-1. CloudFormation stack 배포
-2. 세 bootstrap_*_access_keys.py 최초 실행
-3. .env.*의 외부 서비스 값까지 완성
-4. bootstrap_aws_secrets.py dry-run
-5. 검토 후 bootstrap_aws_secrets.py --apply
-6. ./scripts/validate.sh
-7. 최초 Git push와 Static validation 성공 확인
-8. GitHub에서 일반 변경은 PR로 제한하고 배포 bot만 direct push 예외로 설정
-9. Ansible로 개인 SSH 접근 검증·K3s·Argo CD·ESO bootstrap
-10. SecretStore와 ExternalSecret의 Ready 상태 확인
-```
-
-access key와 Secrets Manager source가 이미 준비됐다면 1~5번을 무조건 반복하지 않는다. 먼저
-dry-run과 AWS metadata로 현재 상태를 확인하고, 실제로 필요한 변경만 수행한다.
+AWS 자원과 Secret 준비 순서는 [Secret 운영](../docs/operations/secrets.md),
+서버 설치는 [Ansible 초기 구성](../docs/operations/ansible-bootstrap.md)을 따른다.
+이 페이지는 각 도구의 입력·출력과 변경 범위를 설명하며 별도의 설치 순서를 복제하지 않는다.

@@ -1,5 +1,7 @@
 ---
 # 첫 실행은 기존 관리 경로를 보존한다. 공인 SSH 검증 후에만 true로 승격한다.
 ssh_access_finalize: false
+# 개인 계정과 공개키만 선언한다. DB 접속용 계정은 db_tunnel 역할과 허용 목적지를 함께 지정한다.
 ssh_access_users: []
+# 최종 전환 전 제어 노드에서 새 SSH 연결을 검증할 공인 주소다.
 ssh_access_public_host: ""

@@ -1,3 +1,4 @@
+{{/* dev의 /test 경로만 Basic Auth로 보호한다. gate 하나가 꺼지면 Middleware와 Ingress를 모두 생략한다. */}}
 {{- if and .Values.deployment.enabled .Values.ingress.enabled .Values.testApi.enabled }}
 {{- if ne .Values.environment "dev" }}
 {{- fail "testApi.enabled=true는 dev 환경에서만 허용된다" }}

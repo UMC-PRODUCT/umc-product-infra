@@ -58,6 +58,7 @@ def serialize_env(env_file: str, values: dict[str, str]) -> str:
     ) + "\n"
 
 
+# 원장의 특수문자를 그대로 보존하되 중복·미등록 키와 허용하지 않은 빈 값은 거부한다.
 class WorksheetParserTests(unittest.TestCase):
     def test_preview_requires_its_own_docs_basic_auth_entry(self) -> None:
         values = valid_worksheets()[".env.preview"]
@@ -94,6 +95,7 @@ class WorksheetParserTests(unittest.TestCase):
             uploader.parse_env_text(serialize_env(".env.dev", values), ".env.dev")
 
 
+# 원본 키의 목적지 매핑과 환경별 자격증명 분리를 검증해 다른 용도의 Secret 재사용을 막는다.
 class PayloadTests(unittest.TestCase):
     def test_smtp_password_is_only_in_prod_and_dev_email_sources(self) -> None:
         payloads = uploader.build_payloads(valid_worksheets())
@@ -215,6 +217,7 @@ class PayloadTests(unittest.TestCase):
             uploader.validate_worksheet_values(values, "351284652562")
 
 
+# 비밀 payload는 stdin으로만 보내고 AWS 오류를 전달할 때도 원문에 든 값을 노출하지 않는다.
 class AwsTransportTests(unittest.TestCase):
     def test_secret_payload_is_sent_only_through_stdin(self) -> None:
         sentinel = "SECRET_SENTINEL_MUST_NOT_ENTER_ARGV"

@@ -1,5 +1,7 @@
 # App metrics는 OTLP push를 유지한다. kube-prometheus-stack이 소유하지 않는
 # 플랫폼 Service만 선택하고 기존 dashboard/alert의 job label을 보존한다.
+# release=prometheus는 Prometheus가 이 정의를 찾는 label이다. spec.selector는 Pod가 아닌 Service를 선택한다.
+# endpoints.port는 Service의 포트 이름과 일치해야 하며 namespaceSelector는 그 Service의 위치를 정한다.
 apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor
 metadata:
@@ -86,6 +88,7 @@ spec:
       interval: 30s
       scrapeTimeout: 10s
 ---
+# 운영 DB exporter만 수집한다. dev·preview DB에는 이 monitor가 적용되지 않는다.
 apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor
 metadata:

@@ -1,33 +1,40 @@
 # Cafe24 단일 노드 이전
 
-대상은 public IPv4 `1.255.226.166`, CPU 8코어, RAM 32GB, SSD 500GB인 새 Cafe24 서버다.
+현재 Cafe24 운영 기본 inventory는 `ansible/inventories/idc-new/hosts.yml`이다.
+이 문서는 별도로 확정한 기존 서버에서 새 Cafe24 단일 노드로 이전할 때 사용한다.
 이 문서는 실행 승인이나 현재 배포 상태를 대신하지 않는다. 작업 창, 중단 허용 시간, 이전 대상과
-단계별 담당자를 확정한 승인된 작업에서만 실행한다. GitHub SSO·배포팀·OAuth App 준비와
-관리자 계정 비활성화는 별도 인증 작업이며, 여기서 완료됐다고 가정하지 않는다.
+단계별 담당자를 확정한 승인된 작업에서만 실행한다. Argo CD는 운영자 전용 `admin`과 공용 조회
+계정 `umc-viewer`를 사용하며, 이전 뒤에도 로그인과 조회·변경 권한 분리를 검증한다.
 
 ## 1. 대상과 복구 자료 확정
 
-- 기존 `ansible/inventories/idc/hosts.yml`은 기존 서버용으로 보존한다. 새 서버에는
-  `ansible/inventories/idc-new/hosts.yml`만 사용한다. 두 inventory가 서로 다른 서버인지 확인한다.
+- 기존 서버용 inventory는 저장소 밖의 별도 로컬 파일로 준비하고 절대 경로를 `OLD_INVENTORY`에
+  지정한다. 새 서버용 inventory도 별도 파일로 준비해 절대 경로를 `TARGET_INVENTORY`에 지정한다.
+  현재 운영용 `inventories/idc-new/hosts.yml`을 새 서버 준비에 재사용하거나 덮어쓰지 않는다.
+  파일명 차이만으로 판단하지 않고 두 inventory의 공인 IP·SSH host key를 대조해 서로 다른
+  서버임을 확인한다. K3s 설치 후에는 Node UID도 대조한다. 새 공인 IPv4는 `TARGET_PUBLIC_IP`에 지정한다.
 - 기존 Git revision, image digest, Node UID, DB 목록·크기·owner, PVC/PV·mount, controller·앱
   replica, CronJob/Job, DNS A/TXT·TTL·ownership을 운영 기록에 남긴다.
 - prod·dev·존재하는 Preview DB는 모두 보존한다. 폐기가 허용된 것은 모니터링 이력뿐이다.
   DB/PVC/PV 삭제, K3s uninstall, 디스크 초기화, 자동 rollback은 이 절차에 없다.
 - 두 노드 밖에 복구 가능한 backup을 확보한다. 실제 DB 버전·extension과 도구 호환성을 확인한다.
   Git 기준은 PostgreSQL 18/PostGIS 3.6이며 이전 과정에 DB 업그레이드를 섞지 않는다.
-- OS·DB·dump·restore·관측 데이터의 실제 여유 용량을 확인한다. SSD 500GB 표기나
+- OS·DB·dump·restore·관측 데이터의 실제 여유 용량을 확인한다. 제공업체의 SSD 용량 표기나
   `local-path` PVC 요청 크기는 실제 여유 공간 또는 quota를 보장하지 않는다.
 - 이전 창에는 앱 image 변경, DB migration, Preview PR/label 변경과 수동 배포를 동결한다.
   비밀값·dump 내용은 Git·로그·채팅에 남기지 않고, Secret 값이나 kubeconfig를 조회·복사하지 않는다.
 
 이하 명령은 저장소의 `ansible/`에서 실행한다. 대상 inventory 생략은 금지한다.
-`inventories/idc-new/hosts.example.yml`을 같은 디렉터리의 `hosts.yml`로 복사하되 기존 파일은
-덮어쓰지 않는다. 새 서버의 개인 SSH 관리자·공개키·console과 제공업체의 공인 TCP 22 허용을
+`OLD_INVENTORY`, `TARGET_INVENTORY`, `TARGET_PUBLIC_IP`는 작업 대상 확인 후 직접 지정하며
+기본값을 두지 않는다. `${변수:?}`는 미설정·빈 값이면 명령 실행 전에 중단한다.
+`inventories/idc-new/hosts.example.yml`을 새 `TARGET_INVENTORY` 경로에 복사하되 기존 파일은
+덮어쓰지 않는다. 예제의 Cafe24 주소를 새 서버의 실제 주소로 바꾼다.
+새 서버의 개인 SSH 관리자·공개키·console과 제공업체의 공인 TCP 22 허용을
 검토한다. `ssh_access_public_host`는 새 공인 IP, `ssh_access_users`는 승인한 개인 계정 목록,
 `ssh_access_confirm: true`, `ssh_access_finalize: false`로 시작한다. 기존 접속 경로와 세션을 유지한다.
 
 ```bash
-ansible-playbook -i inventories/idc-new/hosts.yml playbooks/ssh-access.yml
+ansible-playbook -i "${TARGET_INVENTORY:?새 서버 inventory 절대 경로 필요}" playbooks/ssh-access.yml
 ```
 
 별도 terminal에서 새 서버 공인 IP에 개인 관리자로 접속해 host key와 `sudo -n true`를 검증한다.
@@ -35,17 +42,17 @@ ansible-playbook -i inventories/idc-new/hosts.yml playbooks/ssh-access.yml
 개인 `admin`, `ssh_access_finalize: true`로 바꾼 뒤 전환을 마무리한다.
 
 ```bash
-ansible-playbook -i inventories/idc-new/hosts.yml playbooks/ssh-access.yml
+ansible-playbook -i "${TARGET_INVENTORY:?새 서버 inventory 절대 경로 필요}" playbooks/ssh-access.yml
 ```
 
 개인 관리자 재접속을 확인한 뒤에만 기존 세션을 닫고 `bootstrap_confirm: true`로 전환한다.
-상세 접근 검증은 [SSH 초기 구성](../ansible/README.md)을 따른다.
+상세 접근 검증은 [SSH 초기 구성](../operations/ansible-bootstrap.md)을 따른다.
 
 ```bash
-ansible -i inventories/idc-new/hosts.yml k3s_servers -m ansible.builtin.ping
-ansible -i inventories/idc-new/hosts.yml k3s_servers --become -m ansible.builtin.ping
-ansible-playbook -i inventories/idc-new/hosts.yml --syntax-check playbooks/bootstrap.yml
-ansible-playbook -i inventories/idc-new/hosts.yml --check --tags preflight playbooks/bootstrap.yml
+ansible -i "${TARGET_INVENTORY:?새 서버 inventory 절대 경로 필요}" k3s_servers -m ansible.builtin.ping
+ansible -i "${TARGET_INVENTORY:?새 서버 inventory 절대 경로 필요}" k3s_servers --become -m ansible.builtin.ping
+ansible-playbook -i "${TARGET_INVENTORY:?새 서버 inventory 절대 경로 필요}" --syntax-check playbooks/bootstrap.yml
+ansible-playbook -i "${TARGET_INVENTORY:?새 서버 inventory 절대 경로 필요}" --check --tags preflight playbooks/bootstrap.yml
 ```
 
 ## 2. 새 서버 Core만 설치
@@ -55,8 +62,8 @@ ansible-playbook -i inventories/idc-new/hosts.yml --check --tags preflight playb
 AWS source와 secret-zero는 기존 승인된 경로로 준비한다.
 
 ```bash
-ansible-playbook -i inventories/idc-new/hosts.yml playbooks/bootstrap.yml
-ansible -i inventories/idc-new/hosts.yml k3s_servers --become -m ansible.builtin.command -a '/usr/local/bin/k3s kubectl get applications,applicationsets -A -o name'
+ansible-playbook -i "${TARGET_INVENTORY:?새 서버 inventory 절대 경로 필요}" playbooks/bootstrap.yml
+ansible -i "${TARGET_INVENTORY:?새 서버 inventory 절대 경로 필요}" k3s_servers --become -m ansible.builtin.command -a '/usr/local/bin/k3s kubectl get applications,applicationsets -A -o name'
 ```
 
 마지막 결과가 비어 있고 K3s Node·Argo CD가 준비됐는지 확인한다. 개인 관리자 공인 SSH와
@@ -66,21 +73,23 @@ console 복구 경로를 검증하고 DB 5432·Kubernetes API 6443의 외부 비
 
 ## 3. 기존 controller 동결 후 IP PR 반영
 
+`OLD_INVENTORY`가 사전에 확인한 기존 서버의 별도 inventory인지 다시 확인한다.
+기본 inventory나 `TARGET_INVENTORY`로 대체하지 않는다.
 기존 workload 이름·replica를 대조하고 아래 이름과 다르면 중단한다.
 root만 auto-sync 해제해도 자식 Application은 계속 동작하므로,
 기존 Argo CD의 두 reconciler와 ExternalDNS를 모두 중지한다. 기존 API는 이 단계까지 유지한다.
 
 ```bash
-ansible -i inventories/idc/hosts.yml k3s_servers --become -m ansible.builtin.command -a '/usr/local/bin/k3s kubectl -n argocd scale statefulset/argocd-application-controller --replicas=0'
-ansible -i inventories/idc/hosts.yml k3s_servers --become -m ansible.builtin.command -a '/usr/local/bin/k3s kubectl -n argocd scale deployment/argocd-applicationset-controller --replicas=0'
-ansible -i inventories/idc/hosts.yml k3s_servers --become -m ansible.builtin.command -a '/usr/local/bin/k3s kubectl -n external-dns scale deployment/external-dns --replicas=0'
+ansible -i "${OLD_INVENTORY:?확인한 기존 서버 inventory 절대 경로 필요}" k3s_servers --become -m ansible.builtin.command -a '/usr/local/bin/k3s kubectl -n argocd scale statefulset/argocd-application-controller --replicas=0'
+ansible -i "${OLD_INVENTORY:?확인한 기존 서버 inventory 절대 경로 필요}" k3s_servers --become -m ansible.builtin.command -a '/usr/local/bin/k3s kubectl -n argocd scale deployment/argocd-applicationset-controller --replicas=0'
+ansible -i "${OLD_INVENTORY:?확인한 기존 서버 inventory 절대 경로 필요}" k3s_servers --become -m ansible.builtin.command -a '/usr/local/bin/k3s kubectl -n external-dns scale deployment/external-dns --replicas=0'
 ```
 
 실제 replica와 실행 Pod가 0이며 진행 중인 sync가 없는지 확인한 뒤에만 Cafe24 IP/resource PR을
 merge한다. CI 성공과 merge revision을 기록한다. 기존 controller를 재시작하거나 기존 inventory로
 bootstrap을 재실행하지 않는다. 아직 DNS는 기존 주소여야 하며 수동 A/TXT 변경도 하지 않는다.
 merge 전 최신 `main`으로 rebase하고 모든 Ingress target과 ExternalDNS filter를 다시 검색한다.
-별도 인증 작업에서 공개 Argo Ingress가 추가됐다면 그 target도 새 IP로 맞춘 뒤 재검증한다.
+공개 Argo Ingress의 target도 같은 새 IP인지 재검증한다.
 
 ## 4. 새 서버 Prepare root
 
@@ -93,7 +102,7 @@ argocd_root_app_manifest_path: "{{ playbook_dir }}/../../bootstrap/root-app-prep
 ```
 
 ```bash
-ansible-playbook -i inventories/idc-new/hosts.yml playbooks/bootstrap.yml
+ansible-playbook -i "${TARGET_INVENTORY:?새 서버 inventory 절대 경로 필요}" playbooks/bootstrap.yml
 ```
 
 `root-app-prepare.yaml`은 prod/dev API Application, Preview ApplicationSet, ExternalDNS를
@@ -140,7 +149,7 @@ argocd_root_app_manifest_path: "{{ playbook_dir }}/../../bootstrap/root-app-veri
 ```
 
 ```bash
-ansible-playbook -i inventories/idc-new/hosts.yml playbooks/bootstrap.yml
+ansible-playbook -i "${TARGET_INVENTORY:?새 서버 inventory 절대 경로 필요}" playbooks/bootstrap.yml
 ```
 
 Verify는 ExternalDNS만 제외한다. 현재 Preview는 `deployment.enabled`와 `ingress.enabled`가
@@ -154,19 +163,20 @@ scheduler·외부 API 호출·데이터 정리 작업은 실행될 수 있다. �
 브라우저 접속은 기존 서버를 볼 수 있으므로 새 서버 검증의 증거로 쓰지 않는다.
 
 ```bash
-curl --resolve api.university.neordinary.com:443:1.255.226.166 --silent --show-error -o /dev/null -w '%{http_code}\n' https://api.university.neordinary.com/docs/scalar.html
+curl --resolve "api.university.neordinary.com:443:${TARGET_PUBLIC_IP:?새 서버 공인 IPv4 필요}" --silent --show-error -o /dev/null -w '%{http_code}\n' https://api.university.neordinary.com/docs/scalar.html
 ```
 
 readiness는 Pod의 management port 9090에 있고 외부 Service의 8080에는 노출하지 않는다.
 새 inventory를 명시해 별도로 확인한다.
 
 ```bash
-ansible -i inventories/idc-new/hosts.yml k3s_servers --become -m ansible.builtin.command -a '/usr/local/bin/k3s kubectl -n app wait --for=condition=Ready pod -l app.kubernetes.io/name=umc-product-server --timeout=300s'
+ansible -i "${TARGET_INVENTORY:?새 서버 inventory 절대 경로 필요}" k3s_servers --become -m ansible.builtin.command -a '/usr/local/bin/k3s kubectl -n app wait --for=condition=Ready pod -l app.kubernetes.io/name=umc-product-server --timeout=300s'
 ```
 
 dev와 승인된 Preview host도 실제 배포 목록에 맞춰 점검한다. 새 앱의 readiness, DB 연결·업무
-읽기/승인된 쓰기, dashboard·datasource, 익명 접근 차단과 사람별 로그인/권한을 검증한다.
-인증 main 변경의 적용·SSO 검증이 끝나지 않았다면 관리자 비활성화 완료로 표시하지 않는다.
+읽기/승인된 쓰기, dashboard·datasource와 익명 접근 차단을 검증한다. Grafana는 사람별 계정과
+권한을 확인하고, Argo CD는 `admin` 로그인과 `umc-viewer`의 조회 성공·변경 권한 거부를 확인한다.
+계정과 SSH 복구 경로는 [Argo CD 접근 가이드](../operations/tool-access.md#argo-cd-로컬-계정)를 따른다.
 
 ## 7. DNS를 마지막으로 전환
 
@@ -179,7 +189,7 @@ argocd_root_app_manifest_path: "{{ playbook_dir }}/../../bootstrap/root-app.yaml
 ```
 
 ```bash
-ansible-playbook -i inventories/idc-new/hosts.yml playbooks/bootstrap.yml
+ansible-playbook -i "${TARGET_INVENTORY:?새 서버 inventory 절대 경로 필요}" playbooks/bootstrap.yml
 ```
 
 새 ExternalDNS 한 개만 시작해 Git의 새 IP로 A/TXT를 수렴시킨다. authoritative DNS와 외부
@@ -195,5 +205,5 @@ restore까지 검증한 뒤 별도 폐기 승인을 받는다. 앱/DB 자동 복
 | 기존 DB 종료 후, 새 앱 시작 전 | 기존 DB/PVC와 dump를 보존한다. 원본의 쓰기 재개는 새 writer 부재를 검증한 뒤 승인한다. |
 | Verify 또는 DNS 전환 이후 | 양쪽 writer를 동시에 켜지 않는다. 새 데이터 변경·외부 부작용을 평가하고 데이터 정합성 복구 계획을 승인받는다. DNS만 되돌리거나 이전 dump를 덮어쓰지 않는다. |
 
-Secret 준비는 [Secret 운영](../docs/guides/secrets.md), 후속 backup 검증은
+Secret 준비는 [Secret 운영](../operations/secrets.md), 후속 backup 검증은
 [backup 활성화](backup-activation.md)를 따른다. 이 문서의 대상·중단 조건을 먼저 적용한다.

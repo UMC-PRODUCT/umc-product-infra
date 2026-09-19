@@ -1,6 +1,6 @@
 ---
-# readiness 검사 전에 tasks/main.yml의 flush_handlers가 이 재시작을 완료한다.
-# 따라서 설정 변경 뒤 검사는 항상 새 K3s 프로세스를 대상으로 한다.
+# 설정 변경 알림을 받으면 K3s를 재시작해 설정을 다시 읽게 한다.
+# tasks의 flush_handlers에서 실행되며, API 수신·노드 Ready는 재시작 뒤 별도로 기다린다.
 - name: Restart K3s
   ansible.builtin.systemd_service:
     name: k3s

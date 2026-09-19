@@ -7,11 +7,13 @@ set +x
 : "${ESO_AWS_ACCESS_KEY_ID:?ESO_AWS_ACCESS_KEY_ID가 필요하다}"
 : "${ESO_AWS_SECRET_ACCESS_KEY:?ESO_AWS_SECRET_ACCESS_KEY가 필요하다}"
 
+# namespace가 없으면 준비하고 이미 있으면 유지한 뒤, bootstrap Secret만 갱신한다.
 kubectl create namespace external-secrets --dry-run=client -o yaml | kubectl apply -f -
 
 access_key_id_b64="$(printf '%s' "${ESO_AWS_ACCESS_KEY_ID}" | base64 | tr -d '\n')"
 secret_access_key_b64="$(printf '%s' "${ESO_AWS_SECRET_ACCESS_KEY}" | base64 | tr -d '\n')"
 
+# 이 Secret 필드의 소유권 충돌은 bootstrap 관리자가 인수한다. 일반 앱 Secret 배포 경로가 아니다.
 kubectl apply --server-side --force-conflicts --field-manager=umc-bootstrap -f - <<EOF
 apiVersion: v1
 kind: Secret
@@ -27,6 +29,7 @@ data:
   secret-access-key: ${secret_access_key_b64}
 EOF
 
+# 후속 명령에 자격증명을 넘기지 않도록 shell 변수를 해제한다.
 unset access_key_id_b64 secret_access_key_b64
 unset ESO_AWS_ACCESS_KEY_ID ESO_AWS_SECRET_ACCESS_KEY
 

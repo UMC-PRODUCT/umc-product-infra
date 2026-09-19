@@ -16,6 +16,7 @@
 {{- /*
   PR Application이 삭제된 뒤 그 PR의 database만 지운다. 생성과 삭제가 서로 다른
   이름을 가리킬 수 없도록 target과 접속 계약은 createDatabase 값을 그대로 쓴다.
+  WITH (FORCE)는 해당 PR DB의 DataGrip 등 기존 연결도 종료하므로 PR 종료 전에 필요한 데이터를 보존한다.
 
   postgres-preview-secrets는 이 Application의 리소스가 아니라 platform의 secrets
   Application이 관리하므로 Application 리소스가 모두 prune된 뒤에도 PostDelete에서

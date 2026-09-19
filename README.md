@@ -1,21 +1,33 @@
-# umc-infra
+# UMC Product Infrastructure
 
-UMC Product의 단일 노드 K3s 클러스터를 선언적으로 운영하는 GitOps 저장소다.
-서버 초기 구성부터 앱·DB·DNS/TLS·관측·AWS 외부 자원의 계약을 관리한다.
+[![Views](https://hits.sh/github.com/UMC-PRODUCT/umc-product-infra.svg?style=for-the-badge&label=views&color=4db6ac&labelColor=282828)](https://hits.sh/github.com/UMC-PRODUCT/umc-product-infra/)
 
-모니터링을 보려면 [Grafana](https://grafana.university.neordinary.com)에 로그인한다.
-처음에는 [어떤 상황에 어떤 대시보드를 볼까?](observability/README.md#어떤-상황에-어떤-대시보드를-볼까)에서
-시작한다. 대시보드 목록과 CPU·메모리 수치를 읽을 때의 주의점도 함께 정리했다.
+UMC Product의 단일 노드 K3s 서버, 애플리케이션 배포, PostgreSQL, DNS/TLS와 모니터링을 관리하는 저장소다.
 
-> [!IMPORTANT]
-> 현재 values에서 prod/dev 앱과 API Ingress는 활성화되어 있다. 새 서버는 DB 복원 전에 앱을 시작하지 않도록
-> [이전 runbook](runbooks/cafe24-migration.md)의 준비 단계를 따른다. Preview 앱·API와 예약 backup은 비활성 상태다.
-> 공개 주소의 실제 Certificate·DNS·HTTPS 준비 상태는 배포 후 별도로 확인한다.
+- **Ansible**은 서버 초기 구성과 SSH 접근을 관리한다.
+- **Argo CD**는 Git에 반영된 Helm values와 manifest를 읽어 Kubernetes에 배포한다.
+- **CloudFormation**은 IAM·S3·SES 등 AWS 외부 자원을 관리한다.
+
+## 작업별 가이드
+
+처음 읽는다면 [저장소 설명](docs/repository-tour.md)에서 도구와 코드의 역할을 살펴본다.
+
+### 백엔드 개발자
+
+- [DB 접속](docs/guides/db-access.md): 공개키 전달부터 DataGrip 연결까지.
+- [Preview 사용](docs/guides/preview-environments.md): PR별 API·DB 사용과 종료 시 주의사항.
+- [Grafana·Argo CD 사용](docs/guides/monitoring.md): 로그인, 대시보드 선택, 로그·배포 상태 조회.
+
+### 인프라 담당자
+
+- [계정·서버·배포 관리](docs/README.md#인프라-담당자): 하려는 작업에 맞는 관리자 절차를 찾는다.
+- [백업·이전·복구](docs/README.md#위험-작업과-복구): 데이터나 서비스에 영향을 주는 작업의 사전 조건을 확인한다.
 
 ## 인프라 다이어그램
 
-처음 보는 경우 아래 순서대로 읽는다. 이미지를 누르면 원본 크기로 열리고, 생성 코드는
-[다이어그램 디렉터리](docs/diagrams/README.md)에서 확인할 수 있다.
+요청 경로부터 배포·Secret·Preview까지 여섯 그림을 순서대로 볼 수 있다.
+그림은 구조를 설명하며 실시간 배포 상태를 표시하지 않는다. 생성 원본과 읽는 방법은
+[다이어그램 안내](docs/diagrams/README.md)에 정리되어 있다. 이미지를 누르면 원본 크기로 열린다.
 
 ### 1. Traffic flow
 
@@ -32,121 +44,72 @@ infra `main`에 직접 반영하여 K3s에 배포하는 경로다.
 
 ### 3. GitOps tree
 
-Argo CD root Application부터 환경과 platform workload까지의 동기화 순서다.
+Argo CD root Application부터 환경과 platform workload까지의 구성과 sync wave를 보여준다.
 
 [![UMC Product GitOps 구조](docs/diagrams/out/gitops-tree.png)](docs/diagrams/out/gitops-tree.png)
 
 ### 4. Secret supply chain
 
-로컬 원장의 비밀값이 AWS Secrets Manager와 External Secrets를 거쳐 Pod에 도달하는 경로다.
+AWS Secrets Manager → ESO → namespace별 Secret → workload 경로다. ESO 최초 접속 키는 Ansible로 별도 주입한다.
 
 [![UMC Product Secret 공급 경로](docs/diagrams/out/secret-supply-chain.png)](docs/diagrams/out/secret-supply-chain.png)
 
 ### 5. Branch flow
 
-기능 브랜치가 dev와 prod로 승격되고 문제가 생기면 복구되는 경로다.
+기능 브랜치가 dev와 prod로 승격되는 경로다. 운영 복구는 정상 동작하던 image tag·digest를 Git에 반영한다.
+이미지 rollback과 DB 복원은 별개 작업이다.
 
 [![UMC Product 브랜치 흐름](docs/diagrams/out/branch-flow.png)](docs/diagrams/out/branch-flow.png)
 
 ### 6. Preview environment
 
-승인된 PR의 preview 환경이 생성·검증·삭제되는 수명주기다.
+승인된 내부 PR의 Preview 환경과 DB가 생성·삭제되는 수명주기다.
+사용 전 [Preview 사용 조건](docs/guides/preview-environments.md#사용-조건)을 확인한다.
+TLS는 공용 wildcard Certificate를 사용하며, PR 삭제 시 이 공용 인증서는 삭제하지 않는다.
 
 [![UMC Product Preview 환경](docs/diagrams/out/preview-env.png)](docs/diagrams/out/preview-env.png)
 
-## 작업 시작점
+## 환경과 배포
 
-문서를 전부 순서대로 읽을 필요는 없다. 하려는 작업의 시작점 하나만 연다.
+아래 브랜치는 **백엔드 저장소** 기준이다. Argo CD가 배포 설정을 읽는 브랜치는 **infra 저장소의 `main`**이다.
 
-| 하려는 일 | 시작점 |
+| 환경 | 용도 | 백엔드 소스 | 앱 / DB namespace |
+|---|---|---|---|
+| dev | 통합 개발·검증 | `develop` | `dev-app` / `dev-db` |
+| prod | 운영 | `main` | `app` / `db` |
+| preview | 승인된 PR 검증 | 내부 PR | `preview` |
+
+prod/dev는 백엔드 CI가 이미지를 발행하고 infra values의 tag·digest를 갱신하면 Argo CD가 배포한다.
+일상 배포에 Ansible을 다시 실행하지 않는다. 실행·확인·rollback은
+[배포 가이드](docs/operations/deployment.md), PR별 흐름은 [Preview 가이드](docs/guides/preview-environments.md)를 따른다.
+
+## 무엇을 어디서 수정하나
+
+| 변경하려는 것 | 원본 위치 |
 |---|---|
-| 빈 서버에 처음 설치하거나 Ansible을 재실행 | [Ansible README](ansible/README.md) |
-| Secret을 추가·변경·회전 | [비밀값 관리](docs/guides/secrets.md) |
-| DNS·TLS·Route 53을 변경 | [도메인과 TLS](docs/guides/domains-tls.md) |
-| 장애·느린 API·서버 자원 사용량 확인 | [상황별 대시보드 안내](observability/README.md#어떤-상황에-어떤-대시보드를-볼까) |
-| backup을 처음 활성화 | [Backup activation runbook](runbooks/backup-activation.md) |
-| 구조와 용어가 낯섦 | [저장소 처음 읽는 가이드](docs/guides/repository-tour.md) |
-| 이 구조를 선택한 이유를 확인 | [K3s 아키텍처 결정 기록](docs/architecture/k3s.md) |
+| 환경별 앱 이미지·환경변수·CPU·메모리 | [앱 Helm chart](charts/umc-product-server/)의 `values-dev.yaml`, `values-prod.yaml`, `values-preview.yaml` |
+| 서버 초기 구성·개인 SSH 계정·방화벽 | [ansible/](ansible/) |
+| 배포할 Application·프로젝트 권한·동기화 순서 | [bootstrap/](bootstrap/), [argocd/](argocd/) |
+| PostgreSQL·백업 Job | [manifests/postgres/](manifests/postgres/) |
+| Secret 경로와 namespace별 매핑 | [charts/umc-secrets/](charts/umc-secrets/) — 실제 값은 Git에 넣지 않음 |
+| DNS/TLS controller·인증서 | [argocd/applications/platform/](argocd/applications/platform/), [manifests/cert-manager/](manifests/cert-manager/) |
+| 모니터링 스택 설정 | [관측 스택 배포 설정](argocd/applications/platform/observability/) |
+| 대시보드·알림 규칙 | [observability/](observability/) — 원본 수정 후 생성물 갱신 |
+| AWS IAM·S3·SES 자원 | [cloud/aws/](cloud/aws/) |
+| 사용자·운영·복구 절차 | [docs/](docs/) |
+| 생성 및 검증 도구 | [scripts/](scripts/README.md) |
 
-## 무엇을 관리하나
+비밀값 변경은 로컬 `.env.*` 편집만으로 배포되지 않는다.
+[Secret 운영 가이드](docs/operations/secrets.md)의 AWS Secrets Manager → ESO 동기화 → 소비자 반영 순서를 따른다.
+서버 구매·호스팅 계약과 백엔드 애플리케이션 코드는 이 저장소에서 관리하지 않는다.
 
-| 계층 | 도구 | 이 저장소의 위치 | 역할 |
-|---|---|---|---|
-| 서버 초기 구성 | Ansible | `ansible/` | Ubuntu·개인 SSH 계정/DB 터널·UFW·K3s·Argo CD |
-| GitOps | Argo CD | `bootstrap/`, `argocd/` | Git과 Kubernetes 상태 일치 |
-| 애플리케이션 | Helm | `charts/umc-product-server/` | prod/dev/preview 공통 배포 계약 |
-| 비밀값 공급 | External Secrets | `charts/umc-secrets/` | AWS source를 namespace별 Secret으로 동기화 |
-| 앱 Secret 반영 | Reloader | `argocd/applications/platform/reloader.yaml` | 승인한 Secret 변경 시 단일 앱 Pod 재시작 |
-| 데이터 | Kubernetes manifest | `manifests/postgres/` | PostgreSQL 18·PostGIS 3.6·backup |
-| DNS/TLS | ExternalDNS·cert-manager | `argocd/`, `manifests/cert-manager/` | DNS record와 Let's Encrypt 인증서 |
-| 관측 | Prometheus·Loki·Tempo·OTel·Grafana | `observability/`, `argocd/` | metrics·logs·traces·alert |
-| AWS 외부 자원 | CloudFormation | `cloud/aws/` | IAM·Secrets Manager 접근·S3·SES·Route53 |
+## 라이선스
 
-Terraform은 사용하지 않는다. CloudFormation은 AWS 외부 자원에만 사용하고, Kubernetes 자원은
-Argo CD가 관리한다. Azure VM 또는 최종 IDC 생성, 상위 도메인의 NS 위임과 backend 코드는
-이 저장소의 관리 범위가 아니다.
+별도 표시가 없는 이 저장소의 자체 작성 코드·설정·문서는
+[GNU General Public License v3.0](LICENSE) (`GPL-3.0-only`)에 따라 사용·수정·재배포할 수 있다.
+코드나 수정본을 배포할 때에는 GPL에 따라 저작권·라이선스 고지를 유지하고 해당 소스 코드를 제공해야 한다.
+구체적인 조건은 [LICENSE](LICENSE) 원문을 따른다.
 
-## 폴더 지도
-
-```text
-umc-infra/
-├── ansible/                 # 빈 서버 → K3s·Argo CD
-├── bootstrap/               # Argo CD root Application
-├── argocd/                  # AppProject와 환경별 Application
-├── charts/                  # 앱과 ExternalSecret Helm chart
-├── manifests/               # cluster·DB·TLS·관측 raw manifest
-├── cloud/aws/               # IAM·S3·SES·Route53 CloudFormation
-├── observability/           # dashboard와 alert 원본
-├── docs/                    # 아키텍처·작업 가이드
-├── runbooks/                # backup 활성화 절차
-└── scripts/                 # 생성·검증·일회성 bootstrap 도구
-```
-
-## 환경
-
-환경별 host 계약은 다음과 같다.
-
-| 환경 | source | namespace | API host |
-|---|---|---|---|
-| prod | `main` | `app`, `db` | `api.university.neordinary.com` |
-| dev | `develop` | `dev-app`, `dev-db` | `api-dev.university.neordinary.com` |
-| preview | trusted PR head SHA | `preview` | `api-pr-<PR>.university.neordinary.com` |
-
-환경별 DB, resource, S3/SES와 확장 조건은 [아키텍처 결정 기록](docs/architecture/k3s.md),
-DNS와 접근 정책은 [도메인/TLS 가이드](docs/guides/domains-tls.md)를 따른다.
-
-## 현재 Git 설정과 남은 운영 확인
-
-| 영역 | Git desired state | 판단 | 실제 다음 단계 |
-|---|---|---|---|
-| DNS | Cafe24 `1.255.226.166`, ExternalDNS filter `/32` | 이관 대상 설정 | 전환 gate 검증 후 A·TXT 레코드 확인 |
-| TLS | Let's Encrypt production | 설정 완료 | Certificate의 최신 generation이 `Ready=True`인지 확인 |
-| Grafana | public Ingress 활성 | 배포 후 확인 | HTTPS 접속, 로그인과 팀원 권한 확인 |
-| prod/dev 앱 | `deployment.enabled: true`, image tag·digest 고정 | Git 활성 | 새 IDC는 DB 복원 뒤 앱 시작·migration·probe 검증 |
-| prod/dev API | `ingress.enabled: true` | Git 활성 | DNS 전환 전에 새 IDC의 인증서·HTTPS·API 인증 확인 |
-| Preview API | Deployment·Ingress 비활성 | 잠금 유지 | 신뢰된 PR 이미지 발행 CI를 만든 뒤 활성화 |
-| DB backup | `suspend: true` | 잠금 유지 | S3 업로드와 클러스터 외부 복원 테스트 성공 |
-| root/cluster 자동 삭제 | `prune: false` | 안전장치 유지 | 첫 운영 안정화와 삭제 복구 절차 검증 후 재검토 |
-
-Cafe24 IP 전환 PR을 merge하면 기존 클러스터의 Argo CD와 ExternalDNS에도 새 target이 반영될 수 있다.
-기존 클러스터의 root·DNS controller가 전환 전 상태를 유지하도록 중지·고정한 것을 먼저 검증하고,
-새 IDC의 검증을 마친 뒤 승인된 전환 순서로 DNS를 갱신한다.
-[Cafe24 이전 runbook](runbooks/cafe24-migration.md)의 준비·DB 복원·검증·DNS 전환 단계를 따른다.
-
-`설정 완료`는 실제 서비스 검증 완료를 뜻하지 않는다. DNS와 TLS controller는 클러스터가
-동작한 뒤 레코드와 Certificate를 만든다. prod/dev의 현재 values는 Deployment·Ingress가 활성화되어
-있으므로 새 IDC의 준비 단계에서는 해당 Application 생성을 보류해야 한다. Argo CD는 prod/dev Application 안에서
-Certificate → Deployment → Ingress 순서로 기다린다. Preview는 공용 wildcard Certificate가
-`Ready=True`인 것을 확인한 뒤 PR 이미지 발행과 함께 연다.
-
-## 로컬 검증
-
-저장소 루트에서 실행한다.
-
-```bash
-./scripts/validate.sh
-```
-
-Helm render, YAML과 Kubernetes schema, CloudFormation, Ansible, 관측 설정과 저장소 자체 계약을
-검사한다. 로컬에 필요한 도구가 없으면 일부 단계가 skip될 수 있으므로 전체 출력을 읽고,
-첫 bootstrap 전에는 GitHub Actions의 성공도 확인한다.
+외부 프로젝트·라이브러리·아이콘 등 제3자 자료에는 각 권리자의 라이선스가 적용된다.
+기존 저작권·라이선스 고지를 유지하며, 이 선언으로 제3자 자료를 재라이선스하지 않는다.
+활용 시 원본 저장소 링크와 활용 사례를 공유해 주면 좋다. 이는 추가적인 라이선스 의무가 아닌 자발적 요청이다.
