@@ -42,6 +42,7 @@ Grafana에서 앱·DB·서버 지표와 로그·trace를 보고, Argo CD에서 �
 |---|---|---|
 | 어디가 문제인지 모르겠다 | `UMC PRODUCT System Overview` | prod/dev 요청량·5xx 비율·응답 시간, 운영 DB·호스트 요약 |
 | API가 느리거나 에러가 늘었다 | `Application Detail` | HTTP 응답 시간, JVM 메모리·GC, HikariCP(DB 연결 풀) 포화 |
+| 구 API를 어떤 앱 버전이 아직 호출하는지 확인하고 싶다 | `API 호환성 · 사용 현황` | 후보 경로·메서드별 호출, 버전 누락, 최근 관측 시각. [사용 가이드](api-lifecycle.md) |
 | 에러 메시지와 원인을 찾고 싶다 | `서버팀 로그 탐색` | 같은 시간대의 ERROR 로그와 trace ID |
 | 특정 요청이 어디서 오래 걸렸는지 보고 싶다 | `API 처리 흐름 (Tempo)` | 요청 trace의 구간별 처리 시간. 로그의 trace ID로도 연결 가능 |
 | GraphQL 요청만 느리다 | `UMC PRODUCT — GraphQL` | GraphQL 요청량·지연·오류 |

@@ -1,0 +1,959 @@
+{
+  "apiVersion": "dashboard.grafana.app/v2",
+  "kind": "Dashboard",
+  "metadata": {
+    "name": "umc-product-api-lifecycle"
+  },
+  "spec": {
+    "annotations": [
+      {
+        "kind": "AnnotationQuery",
+        "spec": {
+          "builtIn": true,
+          "enable": true,
+          "hide": true,
+          "iconColor": "rgba(0, 211, 255, 1)",
+          "name": "Annotations & Alerts",
+          "query": {
+            "datasource": {
+              "name": "-- Grafana --"
+            },
+            "group": "grafana",
+            "kind": "DataQuery",
+            "spec": {},
+            "version": "v0"
+          }
+        }
+      }
+    ],
+    "cursorSync": "Crosshair",
+    "description": "구 API 제거 검토용 요청 근거. 앱 버전은 OTLP structured metadata로 조회하며 사용되지 않았다는 판정이나 자동 삭제를 제공하지 않는다.",
+    "editable": false,
+    "elements": {
+      "panel-1": {
+        "kind": "Panel",
+        "spec": {
+          "id": 1,
+          "title": "확인 순서와 관측 한계",
+          "description": "호출·버전 정보는 제거 검토의 근거 중 하나다.",
+          "links": [],
+          "data": {
+            "kind": "QueryGroup",
+            "spec": {
+              "queries": [],
+              "queryOptions": {
+                "timeFrom": "$window"
+              },
+              "transformations": []
+            }
+          },
+          "vizConfig": {
+            "kind": "VizConfig",
+            "group": "text",
+            "version": "13.0.1",
+            "spec": {
+              "fieldConfig": {
+                "defaults": {
+                  "unit": "short",
+                  "noValue": "관측 데이터 없음 · 확인 필요"
+                },
+                "overrides": []
+              },
+              "options": {
+                "mode": "markdown",
+                "content": "### 제거 판단을 위한 관측 근거\n**현재부터 선택한 1/7/14/30일**의 완료 로그를 조회합니다. 메서드와 경로 템플릿(예: `/api/v1/challengers/{challengerId}`)으로 후보 API를 좁히세요.\n\n**No data·목록 누락은 호출 0건이나 제거 가능이라는 뜻이 아닙니다.** 계측 시작일, 수집 실패, 보유 기간, 전체 API 목록을 함께 확인하세요. 드문 기수별 기능은 실제 업무 주기와 지원 종료 정책이 필요합니다.\n\n버전 상태: `provided` 정상 헤더 · `missing` 헤더 없음(UNKNOWN) · `invalid` 잘못된 헤더(UNKNOWN) · `not_instrumented` 상태 필드 없음(구서버/수집 확인). 응답 필드 소비 여부는 클라이언트 출시 코드에서 확인합니다.\n\nLoki는 90일 보관 선언이지만 이 화면은 조회 비용을 줄이기 위해 최대 30일을 선택합니다. Prometheus는 14일/4GB 보관이며 아래 메트릭은 **최근 5분 참고값**입니다. [사용 가이드](https://github.com/UMC-PRODUCT/umc-product-infra/blob/main/docs/guides/api-lifecycle.md) · [서버 제거 이슈](https://github.com/UMC-PRODUCT/umc-product-server/issues/new?template=api-lifecycle.yml)"
+              }
+            }
+          }
+        }
+      },
+      "panel-2": {
+        "kind": "Panel",
+        "spec": {
+          "id": 2,
+          "title": "선택 API 완료 로그 · $window",
+          "description": "선택 조건에 일치해 실제 수집된 완료 로그 수. 인증 필터 등 MVC 인터셉터 이전 요청과 유실 로그를 포함하지 않는다. No data를 0으로 치환하지 않는다.",
+          "links": [],
+          "data": {
+            "kind": "QueryGroup",
+            "spec": {
+              "queries": [
+                {
+                  "kind": "PanelQuery",
+                  "spec": {
+                    "refId": "A",
+                    "hidden": false,
+                    "query": {
+                      "kind": "DataQuery",
+                      "group": "loki",
+                      "version": "v0",
+                      "datasource": {
+                        "name": "loki"
+                      },
+                      "spec": {
+                        "editorMode": "code",
+                        "expr": "sum(count_over_time({service_name=~\"${service:regex}\"} | event=\"api_request_completed\" | label_format clientService=`{{ if .clientService }}{{ .clientService }}{{ else }}UNKNOWN{{ end }}` | clientService=~\"${client_service:regex}\" | method=~\"${method:regex}\" | uriTemplate=~`.*${uri_template:regex}.*` | label_format clientVersion=`{{ if .clientVersion }}{{ .clientVersion }}{{ else }}NOT_INSTRUMENTED{{ end }}`, clientVersionStatus=`{{ if .clientVersionStatus }}{{ .clientVersionStatus }}{{ else }}not_instrumented{{ end }}` | keep service_name, method, uriTemplate, clientService, clientVersion, clientVersionStatus, statusCode [$window]))",
+                        "queryType": "instant",
+                        "legendFormat": ""
+                      }
+                    }
+                  }
+                }
+              ],
+              "queryOptions": {
+                "timeFrom": "$window"
+              },
+              "transformations": []
+            }
+          },
+          "vizConfig": {
+            "kind": "VizConfig",
+            "group": "stat",
+            "version": "13.0.1",
+            "spec": {
+              "fieldConfig": {
+                "defaults": {
+                  "unit": "short",
+                  "noValue": "관측 데이터 없음 · 확인 필요"
+                },
+                "overrides": []
+              },
+              "options": {
+                "colorMode": "none",
+                "graphMode": "none",
+                "justifyMode": "auto",
+                "orientation": "auto",
+                "reduceOptions": {
+                  "calcs": [
+                    "lastNotNull"
+                  ],
+                  "fields": "",
+                  "values": false
+                },
+                "textMode": "auto"
+              }
+            }
+          }
+        }
+      },
+      "panel-3": {
+        "kind": "Panel",
+        "spec": {
+          "id": 3,
+          "title": "서비스 전체 HTTP 요청/초 · 최근 5분",
+          "description": "Prometheus 전체 서비스 참고값. 클라이언트·메서드·경로 필터를 적용하지 않으며 로그와 수집 범위가 다르다. 0이어도 전체 관측 기간의 로그 수집 정상이나 미사용을 증명하지 않는다.",
+          "links": [],
+          "data": {
+            "kind": "QueryGroup",
+            "spec": {
+              "queries": [
+                {
+                  "kind": "PanelQuery",
+                  "spec": {
+                    "refId": "A",
+                    "hidden": false,
+                    "query": {
+                      "kind": "DataQuery",
+                      "group": "prometheus",
+                      "version": "v0",
+                      "datasource": {
+                        "name": "prometheus"
+                      },
+                      "spec": {
+                        "editorMode": "code",
+                        "expr": "sum(rate(http_server_requests_milliseconds_count{application=~\"${service:regex}\"}[5m]))",
+                        "range": false,
+                        "instant": true,
+                        "format": "time_series",
+                        "legendFormat": ""
+                      }
+                    }
+                  }
+                }
+              ],
+              "queryOptions": {
+                "timeFrom": "$window"
+              },
+              "transformations": []
+            }
+          },
+          "vizConfig": {
+            "kind": "VizConfig",
+            "group": "stat",
+            "version": "13.0.1",
+            "spec": {
+              "fieldConfig": {
+                "defaults": {
+                  "unit": "reqps",
+                  "noValue": "관측 데이터 없음 · 확인 필요"
+                },
+                "overrides": []
+              },
+              "options": {
+                "colorMode": "none",
+                "graphMode": "none",
+                "justifyMode": "auto",
+                "orientation": "auto",
+                "reduceOptions": {
+                  "calcs": [
+                    "lastNotNull"
+                  ],
+                  "fields": "",
+                  "values": false
+                },
+                "textMode": "auto"
+              }
+            }
+          }
+        }
+      },
+      "panel-4": {
+        "kind": "Panel",
+        "spec": {
+          "id": 4,
+          "title": "전체 Collector 로그 전송 실패 · 최근 5분",
+          "description": "모든 서비스의 Collector 실패 건수 참고값. 0이어도 수신 거부·앱 내 유실·과거 공백을 배제할 수 없다. No data는 Collector 상태 확인이 필요하다.",
+          "links": [],
+          "data": {
+            "kind": "QueryGroup",
+            "spec": {
+              "queries": [
+                {
+                  "kind": "PanelQuery",
+                  "spec": {
+                    "refId": "A",
+                    "hidden": false,
+                    "query": {
+                      "kind": "DataQuery",
+                      "group": "prometheus",
+                      "version": "v0",
+                      "datasource": {
+                        "name": "prometheus"
+                      },
+                      "spec": {
+                        "editorMode": "code",
+                        "expr": "sum(increase(otelcol_exporter_send_failed_log_records[5m]))",
+                        "range": false,
+                        "instant": true,
+                        "format": "time_series",
+                        "legendFormat": ""
+                      }
+                    }
+                  }
+                }
+              ],
+              "queryOptions": {
+                "timeFrom": "$window"
+              },
+              "transformations": []
+            }
+          },
+          "vizConfig": {
+            "kind": "VizConfig",
+            "group": "stat",
+            "version": "13.0.1",
+            "spec": {
+              "fieldConfig": {
+                "defaults": {
+                  "unit": "short",
+                  "noValue": "관측 데이터 없음 · 확인 필요"
+                },
+                "overrides": []
+              },
+              "options": {
+                "colorMode": "none",
+                "graphMode": "none",
+                "justifyMode": "auto",
+                "orientation": "auto",
+                "reduceOptions": {
+                  "calcs": [
+                    "lastNotNull"
+                  ],
+                  "fields": "",
+                  "values": false
+                },
+                "textMode": "auto"
+              }
+            }
+          }
+        }
+      },
+      "panel-5": {
+        "kind": "Panel",
+        "spec": {
+          "id": 5,
+          "title": "API별 관측 호출 수 · $window",
+          "description": "전체 API 목록이 아니라 이 기간에 관측된 API 목록이다. 목록에 없는 API는 미관측 상태로 별도 검토한다. Loki series 제한 오류가 나면 클라이언트·메서드·경로 조건을 좁힌다.",
+          "links": [],
+          "data": {
+            "kind": "QueryGroup",
+            "spec": {
+              "queries": [
+                {
+                  "kind": "PanelQuery",
+                  "spec": {
+                    "refId": "A",
+                    "hidden": false,
+                    "query": {
+                      "kind": "DataQuery",
+                      "group": "loki",
+                      "version": "v0",
+                      "datasource": {
+                        "name": "loki"
+                      },
+                      "spec": {
+                        "editorMode": "code",
+                        "expr": "sort_desc(sum by (method, uriTemplate) (count_over_time({service_name=~\"${service:regex}\"} | event=\"api_request_completed\" | label_format clientService=`{{ if .clientService }}{{ .clientService }}{{ else }}UNKNOWN{{ end }}` | clientService=~\"${client_service:regex}\" | method=~\"${method:regex}\" | uriTemplate=~`.*${uri_template:regex}.*` | label_format clientVersion=`{{ if .clientVersion }}{{ .clientVersion }}{{ else }}NOT_INSTRUMENTED{{ end }}`, clientVersionStatus=`{{ if .clientVersionStatus }}{{ .clientVersionStatus }}{{ else }}not_instrumented{{ end }}` | keep service_name, method, uriTemplate, clientService, clientVersion, clientVersionStatus, statusCode [$window])))",
+                        "queryType": "instant",
+                        "legendFormat": "{{method}} {{uriTemplate}}"
+                      }
+                    }
+                  }
+                }
+              ],
+              "queryOptions": {
+                "timeFrom": "$window"
+              },
+              "transformations": []
+            }
+          },
+          "vizConfig": {
+            "kind": "VizConfig",
+            "group": "bargauge",
+            "version": "13.0.1",
+            "spec": {
+              "fieldConfig": {
+                "defaults": {
+                  "unit": "short",
+                  "noValue": "관측 데이터 없음 · 확인 필요"
+                },
+                "overrides": []
+              },
+              "options": {
+                "displayMode": "basic",
+                "orientation": "horizontal",
+                "reduceOptions": {
+                  "calcs": [
+                    "lastNotNull"
+                  ],
+                  "fields": "",
+                  "values": false
+                },
+                "showUnfilled": true,
+                "valueMode": "color",
+                "namePlacement": "left",
+                "sizing": "auto",
+                "minVizHeight": 24,
+                "minVizWidth": 8
+              }
+            }
+          }
+        }
+      },
+      "panel-6": {
+        "kind": "Panel",
+        "spec": {
+          "id": 6,
+          "title": "클라이언트 · 버전별 관측 호출 수 · $window",
+          "description": "요청 건수이며 사용자 수·설치 수가 아니다. UNKNOWN은 식별하지 못한 버전이며 NOT_INSTRUMENTED는 버전 필드가 없는 기록이다. 미관측 버전의 설치나 재접속 가능성을 배제하지 않는다.",
+          "links": [],
+          "data": {
+            "kind": "QueryGroup",
+            "spec": {
+              "queries": [
+                {
+                  "kind": "PanelQuery",
+                  "spec": {
+                    "refId": "A",
+                    "hidden": false,
+                    "query": {
+                      "kind": "DataQuery",
+                      "group": "loki",
+                      "version": "v0",
+                      "datasource": {
+                        "name": "loki"
+                      },
+                      "spec": {
+                        "editorMode": "code",
+                        "expr": "sort_desc(sum by (clientService, clientVersion) (count_over_time({service_name=~\"${service:regex}\"} | event=\"api_request_completed\" | label_format clientService=`{{ if .clientService }}{{ .clientService }}{{ else }}UNKNOWN{{ end }}` | clientService=~\"${client_service:regex}\" | method=~\"${method:regex}\" | uriTemplate=~`.*${uri_template:regex}.*` | label_format clientVersion=`{{ if .clientVersion }}{{ .clientVersion }}{{ else }}NOT_INSTRUMENTED{{ end }}`, clientVersionStatus=`{{ if .clientVersionStatus }}{{ .clientVersionStatus }}{{ else }}not_instrumented{{ end }}` | keep service_name, method, uriTemplate, clientService, clientVersion, clientVersionStatus, statusCode [$window])))",
+                        "queryType": "instant",
+                        "legendFormat": "{{clientService}} · {{clientVersion}}"
+                      }
+                    }
+                  }
+                }
+              ],
+              "queryOptions": {
+                "timeFrom": "$window"
+              },
+              "transformations": []
+            }
+          },
+          "vizConfig": {
+            "kind": "VizConfig",
+            "group": "bargauge",
+            "version": "13.0.1",
+            "spec": {
+              "fieldConfig": {
+                "defaults": {
+                  "unit": "short",
+                  "noValue": "관측 데이터 없음 · 확인 필요"
+                },
+                "overrides": []
+              },
+              "options": {
+                "displayMode": "basic",
+                "orientation": "horizontal",
+                "reduceOptions": {
+                  "calcs": [
+                    "lastNotNull"
+                  ],
+                  "fields": "",
+                  "values": false
+                },
+                "showUnfilled": true,
+                "valueMode": "color",
+                "namePlacement": "left",
+                "sizing": "auto",
+                "minVizHeight": 24,
+                "minVizWidth": 8
+              }
+            }
+          }
+        }
+      },
+      "panel-7": {
+        "kind": "Panel",
+        "spec": {
+          "id": 7,
+          "title": "버전 계측 상태 비중 · $window",
+          "description": "provided: 유효한 헤더, missing: 헤더 없음, invalid: 무효 헤더, not_instrumented: 상태 필드 없음. 전체 데이터가 없으면 비중도 알 수 없다. 없는 항목을 0으로 보충하지 않는다.",
+          "links": [],
+          "data": {
+            "kind": "QueryGroup",
+            "spec": {
+              "queries": [
+                {
+                  "kind": "PanelQuery",
+                  "spec": {
+                    "refId": "A",
+                    "hidden": false,
+                    "query": {
+                      "kind": "DataQuery",
+                      "group": "loki",
+                      "version": "v0",
+                      "datasource": {
+                        "name": "loki"
+                      },
+                      "spec": {
+                        "editorMode": "code",
+                        "expr": "sum by (clientVersionStatus) (count_over_time({service_name=~\"${service:regex}\"} | event=\"api_request_completed\" | label_format clientService=`{{ if .clientService }}{{ .clientService }}{{ else }}UNKNOWN{{ end }}` | clientService=~\"${client_service:regex}\" | method=~\"${method:regex}\" | uriTemplate=~`.*${uri_template:regex}.*` | label_format clientVersion=`{{ if .clientVersion }}{{ .clientVersion }}{{ else }}NOT_INSTRUMENTED{{ end }}`, clientVersionStatus=`{{ if .clientVersionStatus }}{{ .clientVersionStatus }}{{ else }}not_instrumented{{ end }}` | keep service_name, method, uriTemplate, clientService, clientVersion, clientVersionStatus, statusCode [$window]))",
+                        "queryType": "instant",
+                        "legendFormat": "{{clientVersionStatus}}"
+                      }
+                    }
+                  }
+                }
+              ],
+              "queryOptions": {
+                "timeFrom": "$window"
+              },
+              "transformations": []
+            }
+          },
+          "vizConfig": {
+            "kind": "VizConfig",
+            "group": "piechart",
+            "version": "13.0.1",
+            "spec": {
+              "fieldConfig": {
+                "defaults": {
+                  "unit": "short",
+                  "noValue": "관측 데이터 없음 · 확인 필요"
+                },
+                "overrides": []
+              },
+              "options": {
+                "pieType": "pie",
+                "displayLabels": [
+                  "name",
+                  "percent"
+                ],
+                "legend": {
+                  "displayMode": "table",
+                  "placement": "right",
+                  "showLegend": true,
+                  "values": [
+                    "value",
+                    "percent"
+                  ]
+                },
+                "reduceOptions": {
+                  "calcs": [
+                    "lastNotNull"
+                  ],
+                  "fields": "",
+                  "values": false
+                },
+                "tooltip": {
+                  "mode": "single",
+                  "sort": "none"
+                }
+              }
+            }
+          }
+        }
+      },
+      "panel-8": {
+        "kind": "Panel",
+        "spec": {
+          "id": 8,
+          "title": "최근 관측 요청 · 최신 200건",
+          "description": "첫 행의 시간이 선택 조건·기간에서 마지막으로 관측한 시각이다. 전체 수명 중 마지막 호출을 보장하지 않는다. 사용자 ID·IP·실제 요청 경로·trace ID는 결과에서 제외한다.",
+          "links": [],
+          "data": {
+            "kind": "QueryGroup",
+            "spec": {
+              "queries": [
+                {
+                  "kind": "PanelQuery",
+                  "spec": {
+                    "refId": "A",
+                    "hidden": false,
+                    "query": {
+                      "kind": "DataQuery",
+                      "group": "loki",
+                      "version": "v0",
+                      "datasource": {
+                        "name": "loki"
+                      },
+                      "spec": {
+                        "editorMode": "code",
+                        "expr": "{service_name=~\"${service:regex}\"} | event=\"api_request_completed\" | label_format clientService=`{{ if .clientService }}{{ .clientService }}{{ else }}UNKNOWN{{ end }}` | clientService=~\"${client_service:regex}\" | method=~\"${method:regex}\" | uriTemplate=~`.*${uri_template:regex}.*` | label_format clientVersion=`{{ if .clientVersion }}{{ .clientVersion }}{{ else }}NOT_INSTRUMENTED{{ end }}`, clientVersionStatus=`{{ if .clientVersionStatus }}{{ .clientVersionStatus }}{{ else }}not_instrumented{{ end }}` | keep service_name, method, uriTemplate, clientService, clientVersion, clientVersionStatus, statusCode | line_format `{{ .method }} {{ .uriTemplate }} | client={{ .clientService }} version={{ .clientVersion }} versionStatus={{ .clientVersionStatus }} http={{ .statusCode }}`",
+                        "queryType": "range",
+                        "legendFormat": "",
+                        "direction": "backward",
+                        "maxLines": 200
+                      }
+                    }
+                  }
+                }
+              ],
+              "queryOptions": {
+                "timeFrom": "$window"
+              },
+              "transformations": []
+            }
+          },
+          "vizConfig": {
+            "kind": "VizConfig",
+            "group": "logs",
+            "version": "13.0.1",
+            "spec": {
+              "fieldConfig": {
+                "defaults": {
+                  "unit": "short",
+                  "noValue": "관측 데이터 없음 · 확인 필요"
+                },
+                "overrides": []
+              },
+              "options": {
+                "dedupStrategy": "none",
+                "enableInfiniteScrolling": false,
+                "enableLogDetails": false,
+                "prettifyLogMessage": false,
+                "showCommonLabels": false,
+                "showControls": false,
+                "showFieldSelector": false,
+                "showLabels": false,
+                "showLevel": false,
+                "showTime": true,
+                "sortOrder": "Descending",
+                "timestampResolution": "ms",
+                "unwrappedColumns": false,
+                "wrapLogMessage": true
+              }
+            }
+          }
+        }
+      }
+    },
+    "layout": {
+      "kind": "GridLayout",
+      "spec": {
+        "items": [
+          {
+            "kind": "GridLayoutItem",
+            "spec": {
+              "element": {
+                "kind": "ElementReference",
+                "name": "panel-1"
+              },
+              "x": 0,
+              "y": 0,
+              "width": 24,
+              "height": 7
+            }
+          },
+          {
+            "kind": "GridLayoutItem",
+            "spec": {
+              "element": {
+                "kind": "ElementReference",
+                "name": "panel-2"
+              },
+              "x": 0,
+              "y": 7,
+              "width": 8,
+              "height": 4
+            }
+          },
+          {
+            "kind": "GridLayoutItem",
+            "spec": {
+              "element": {
+                "kind": "ElementReference",
+                "name": "panel-3"
+              },
+              "x": 8,
+              "y": 7,
+              "width": 8,
+              "height": 4
+            }
+          },
+          {
+            "kind": "GridLayoutItem",
+            "spec": {
+              "element": {
+                "kind": "ElementReference",
+                "name": "panel-4"
+              },
+              "x": 16,
+              "y": 7,
+              "width": 8,
+              "height": 4
+            }
+          },
+          {
+            "kind": "GridLayoutItem",
+            "spec": {
+              "element": {
+                "kind": "ElementReference",
+                "name": "panel-5"
+              },
+              "x": 0,
+              "y": 11,
+              "width": 12,
+              "height": 10
+            }
+          },
+          {
+            "kind": "GridLayoutItem",
+            "spec": {
+              "element": {
+                "kind": "ElementReference",
+                "name": "panel-6"
+              },
+              "x": 12,
+              "y": 11,
+              "width": 12,
+              "height": 10
+            }
+          },
+          {
+            "kind": "GridLayoutItem",
+            "spec": {
+              "element": {
+                "kind": "ElementReference",
+                "name": "panel-7"
+              },
+              "x": 0,
+              "y": 21,
+              "width": 24,
+              "height": 7
+            }
+          },
+          {
+            "kind": "GridLayoutItem",
+            "spec": {
+              "element": {
+                "kind": "ElementReference",
+                "name": "panel-8"
+              },
+              "x": 0,
+              "y": 28,
+              "width": 24,
+              "height": 10
+            }
+          }
+        ]
+      }
+    },
+    "links": [
+      {
+        "asDropdown": false,
+        "icon": "external link",
+        "includeVars": true,
+        "keepTime": false,
+        "tags": [],
+        "targetBlank": false,
+        "title": "System Overview",
+        "type": "link",
+        "url": "/d/umc-product-system-overview"
+      },
+      {
+        "asDropdown": false,
+        "icon": "external link",
+        "includeVars": true,
+        "keepTime": false,
+        "tags": [],
+        "targetBlank": false,
+        "title": "Application Detail",
+        "type": "link",
+        "url": "/d/umc-product-server-default"
+      },
+      {
+        "asDropdown": false,
+        "icon": "external link",
+        "includeVars": false,
+        "keepTime": false,
+        "tags": [],
+        "targetBlank": true,
+        "title": "사용 가이드",
+        "type": "link",
+        "url": "https://github.com/UMC-PRODUCT/umc-product-infra/blob/main/docs/guides/api-lifecycle.md"
+      },
+      {
+        "asDropdown": false,
+        "icon": "external link",
+        "includeVars": false,
+        "keepTime": false,
+        "tags": [],
+        "targetBlank": true,
+        "title": "제거 이슈",
+        "type": "link",
+        "url": "https://github.com/UMC-PRODUCT/umc-product-server/issues/new?template=api-lifecycle.yml"
+      }
+    ],
+    "liveNow": false,
+    "preload": false,
+    "tags": [
+      "umc-product",
+      "loki",
+      "api-lifecycle"
+    ],
+    "timeSettings": {
+      "autoRefresh": "",
+      "autoRefreshIntervals": [
+        "5s",
+        "10s",
+        "30s",
+        "1m",
+        "5m",
+        "15m",
+        "30m",
+        "1h"
+      ],
+      "fiscalYearStartMonth": 0,
+      "from": "now-7d",
+      "hideTimepicker": true,
+      "timezone": "Asia/Seoul",
+      "to": "now"
+    },
+    "title": "API 호환성 · 사용 현황",
+    "variables": [
+      {
+        "kind": "QueryVariable",
+        "spec": {
+          "allowCustomValue": true,
+          "current": {
+            "text": "prod-umc-product",
+            "value": "prod-umc-product"
+          },
+          "definition": "label_values(umc_product_service_fallback_info, application)",
+          "hide": "dontHide",
+          "includeAll": false,
+          "label": "Service",
+          "multi": false,
+          "name": "service",
+          "options": [],
+          "query": {
+            "datasource": {
+              "name": "prometheus"
+            },
+            "group": "prometheus",
+            "kind": "DataQuery",
+            "spec": {
+              "query": "label_values(umc_product_service_fallback_info, application)",
+              "refId": "StandardVariableQuery"
+            },
+            "version": "v0"
+          },
+          "refresh": "onDashboardLoad",
+          "regex": "",
+          "regexApplyTo": "value",
+          "skipUrlSync": false,
+          "sort": "alphabeticalAsc"
+        }
+      },
+      {
+        "kind": "CustomVariable",
+        "spec": {
+          "name": "window",
+          "label": "조회 기간 · 현재 기준",
+          "hide": "dontHide",
+          "skipUrlSync": false,
+          "query": "1d,7d,14d,30d",
+          "options": [
+            {
+              "text": "1d",
+              "value": "1d",
+              "selected": false
+            },
+            {
+              "text": "7d",
+              "value": "7d",
+              "selected": true
+            },
+            {
+              "text": "14d",
+              "value": "14d",
+              "selected": false
+            },
+            {
+              "text": "30d",
+              "value": "30d",
+              "selected": false
+            }
+          ],
+          "current": {
+            "text": "7d",
+            "value": "7d"
+          },
+          "allowCustomValue": false,
+          "multi": false,
+          "includeAll": false
+        }
+      },
+      {
+        "kind": "CustomVariable",
+        "spec": {
+          "name": "client_service",
+          "label": "클라이언트",
+          "hide": "dontHide",
+          "skipUrlSync": false,
+          "query": "IOS_APP,ANDROID_APP,UMC_WEBSITE,UMC_BACKOFFICE,UMC_TECH_BLOG,UNKNOWN",
+          "options": [
+            {
+              "text": "IOS_APP",
+              "value": "IOS_APP",
+              "selected": false
+            },
+            {
+              "text": "ANDROID_APP",
+              "value": "ANDROID_APP",
+              "selected": false
+            },
+            {
+              "text": "UMC_WEBSITE",
+              "value": "UMC_WEBSITE",
+              "selected": false
+            },
+            {
+              "text": "UMC_BACKOFFICE",
+              "value": "UMC_BACKOFFICE",
+              "selected": false
+            },
+            {
+              "text": "UMC_TECH_BLOG",
+              "value": "UMC_TECH_BLOG",
+              "selected": false
+            },
+            {
+              "text": "UNKNOWN",
+              "value": "UNKNOWN",
+              "selected": false
+            }
+          ],
+          "current": {
+            "text": "All",
+            "value": "$__all"
+          },
+          "allowCustomValue": false,
+          "multi": false,
+          "includeAll": true,
+          "allValue": ".*"
+        }
+      },
+      {
+        "kind": "CustomVariable",
+        "spec": {
+          "name": "method",
+          "label": "HTTP 메서드",
+          "hide": "dontHide",
+          "skipUrlSync": false,
+          "query": "GET,POST,PUT,PATCH,DELETE,HEAD,OPTIONS",
+          "options": [
+            {
+              "text": "GET",
+              "value": "GET",
+              "selected": false
+            },
+            {
+              "text": "POST",
+              "value": "POST",
+              "selected": false
+            },
+            {
+              "text": "PUT",
+              "value": "PUT",
+              "selected": false
+            },
+            {
+              "text": "PATCH",
+              "value": "PATCH",
+              "selected": false
+            },
+            {
+              "text": "DELETE",
+              "value": "DELETE",
+              "selected": false
+            },
+            {
+              "text": "HEAD",
+              "value": "HEAD",
+              "selected": false
+            },
+            {
+              "text": "OPTIONS",
+              "value": "OPTIONS",
+              "selected": false
+            }
+          ],
+          "current": {
+            "text": "All",
+            "value": "$__all"
+          },
+          "allowCustomValue": false,
+          "multi": false,
+          "includeAll": true,
+          "allValue": ".*"
+        }
+      },
+      {
+        "kind": "TextVariable",
+        "spec": {
+          "name": "uri_template",
+          "label": "경로 템플릿 포함검색",
+          "hide": "dontHide",
+          "skipUrlSync": false,
+          "query": "",
+          "current": {
+            "text": "",
+            "value": ""
+          }
+        }
+      }
+    ]
+  }
+}
