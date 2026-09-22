@@ -79,8 +79,8 @@ option이 아니다. 원본 변경 시 이 변수와 dashboard 간 링크를 함
 - `system-overview.json` — prod/dev 앱 비교와 production 인프라 요약 landing
 
 `api-lifecycle.json`은 native OTLP structured metadata를 직접 조회한다. `clientVersion`은
-인덱스 label이나 Prometheus label로 추가하지 않는다. 조회 비용을 줄이기 위해 1/7/14/30일
-선택지를 제공하고 자동 새로고침을 끈다. No data를 0으로 대체하거나 미관측 API를 삭제 가능으로
+인덱스 label이나 Prometheus label로 추가하지 않는다. 기본 7일로 시작하며 14/30일과 점검용
+1시간·6시간·1일 선택지를 제공하고 자동 새로고침을 끈다. No data를 0으로 대체하거나 미관측 API를 삭제 가능으로
 표시하지 않는다. 조회·제거 검토 절차는 [API 호환성 사용 가이드](../docs/guides/api-lifecycle.md)를 본다.
 
 다음 원본은 저장소에 보관하지만 초기 배포에서는 제외한다.
