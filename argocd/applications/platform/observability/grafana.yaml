@@ -142,6 +142,8 @@ spec:
                 access: proxy
                 url: http://loki.monitoring.svc.cluster.local:3100
                 jsonData:
+                  # 장기간 집계가 기본 30초 HTTP 제한으로 먼저 취소되지 않게 한다.
+                  timeout: "180"
                   derivedFields:
                     - datasourceUid: tempo
                       matcherRegex: '"traceId":"(\w+)"'
