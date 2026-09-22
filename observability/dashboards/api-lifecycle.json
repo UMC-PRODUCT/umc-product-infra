@@ -41,9 +41,7 @@
             "kind": "QueryGroup",
             "spec": {
               "queries": [],
-              "queryOptions": {
-                "timeFrom": "$window"
-              },
+              "queryOptions": {},
               "transformations": []
             }
           },
@@ -54,14 +52,13 @@
             "spec": {
               "fieldConfig": {
                 "defaults": {
-                  "unit": "short",
-                  "noValue": "관측 데이터 없음 · 확인 필요"
+                  "unit": "short"
                 },
                 "overrides": []
               },
               "options": {
                 "mode": "markdown",
-                "content": "### 제거 판단을 위한 관측 근거\n**현재부터 선택한 1/7/14/30일**의 완료 로그를 조회합니다. 메서드와 경로 템플릿(예: `/api/v1/challengers/{challengerId}`)으로 후보 API를 좁히세요.\n\n**No data·목록 누락은 호출 0건이나 제거 가능이라는 뜻이 아닙니다.** 계측 시작일, 수집 실패, 보유 기간, 전체 API 목록을 함께 확인하세요. 드문 기수별 기능은 실제 업무 주기와 지원 종료 정책이 필요합니다.\n\n버전 상태: `provided` 정상 헤더 · `missing` 헤더 없음(UNKNOWN) · `invalid` 잘못된 헤더(UNKNOWN) · `not_instrumented` 상태 필드 없음(구서버/수집 확인). 응답 필드 소비 여부는 클라이언트 출시 코드에서 확인합니다.\n\nLoki는 90일 보관 선언이지만 이 화면은 조회 비용을 줄이기 위해 최대 30일을 선택합니다. Prometheus는 14일/4GB 보관이며 아래 메트릭은 **최근 5분 참고값**입니다. [사용 가이드](https://github.com/UMC-PRODUCT/umc-product-infra/blob/main/docs/guides/api-lifecycle.md) · [서버 제거 이슈](https://github.com/UMC-PRODUCT/umc-product-server/issues/new?template=api-lifecycle.yml)"
+                "content": "**기본 1시간 조회** · 서비스 → 메서드·경로 템플릿 → 클라이언트 순서로 좁히세요. 7·14·30일 집계는 오래 걸릴 수 있으므로 필요한 때 선택하세요. 자동 새로고침은 꺼져 있습니다.\n\n**오류 아이콘은 조회 실패입니다.** 아이콘의 오류 메시지를 먼저 확인하세요. `No data`나 목록 누락도 호출 0건·제거 가능을 뜻하지 않습니다. 계측·수집 상태와 구버전 지원 정책을 함께 확인하세요.\n\n`provided` 정상 헤더 · `missing` 헤더 없음 · `invalid` 무효 헤더 · `not_instrumented` 계측 전/수집 확인. [사용 가이드](https://github.com/UMC-PRODUCT/umc-product-infra/blob/main/docs/guides/api-lifecycle.md)"
               }
             }
           }
@@ -92,7 +89,7 @@
                       },
                       "spec": {
                         "editorMode": "code",
-                        "expr": "sum(count_over_time({service_name=~\"${service:regex}\"} | event=\"api_request_completed\" | label_format clientService=`{{ if .clientService }}{{ .clientService }}{{ else }}UNKNOWN{{ end }}` | clientService=~\"${client_service:regex}\" | method=~\"${method:regex}\" | uriTemplate=~`.*${uri_template:regex}.*` | label_format clientVersion=`{{ if .clientVersion }}{{ .clientVersion }}{{ else }}NOT_INSTRUMENTED{{ end }}`, clientVersionStatus=`{{ if .clientVersionStatus }}{{ .clientVersionStatus }}{{ else }}not_instrumented{{ end }}` | keep service_name, method, uriTemplate, clientService, clientVersion, clientVersionStatus, statusCode [$window]))",
+                        "expr": "sum(count_over_time({service_name=~\"${service:regex}\"} | event=\"api_request_completed\" | label_format clientService=`{{ if .clientService }}{{ .clientService }}{{ else }}UNKNOWN{{ end }}` | clientService=~\"${client_service:regex}\" | method=~\"${method:regex}\" | uriTemplate=~`.*${uri_template:regex}.*` | keep service_name [$window]))",
                         "queryType": "instant",
                         "legendFormat": ""
                       }
@@ -113,8 +110,7 @@
             "spec": {
               "fieldConfig": {
                 "defaults": {
-                  "unit": "short",
-                  "noValue": "관측 데이터 없음 · 확인 필요"
+                  "unit": "short"
                 },
                 "overrides": []
               },
@@ -172,7 +168,7 @@
                 }
               ],
               "queryOptions": {
-                "timeFrom": "$window"
+                "timeFrom": "5m"
               },
               "transformations": []
             }
@@ -184,8 +180,7 @@
             "spec": {
               "fieldConfig": {
                 "defaults": {
-                  "unit": "reqps",
-                  "noValue": "관측 데이터 없음 · 확인 필요"
+                  "unit": "reqps"
                 },
                 "overrides": []
               },
@@ -243,7 +238,7 @@
                 }
               ],
               "queryOptions": {
-                "timeFrom": "$window"
+                "timeFrom": "5m"
               },
               "transformations": []
             }
@@ -255,8 +250,7 @@
             "spec": {
               "fieldConfig": {
                 "defaults": {
-                  "unit": "short",
-                  "noValue": "관측 데이터 없음 · 확인 필요"
+                  "unit": "short"
                 },
                 "overrides": []
               },
@@ -303,7 +297,7 @@
                       },
                       "spec": {
                         "editorMode": "code",
-                        "expr": "sort_desc(sum by (method, uriTemplate) (count_over_time({service_name=~\"${service:regex}\"} | event=\"api_request_completed\" | label_format clientService=`{{ if .clientService }}{{ .clientService }}{{ else }}UNKNOWN{{ end }}` | clientService=~\"${client_service:regex}\" | method=~\"${method:regex}\" | uriTemplate=~`.*${uri_template:regex}.*` | label_format clientVersion=`{{ if .clientVersion }}{{ .clientVersion }}{{ else }}NOT_INSTRUMENTED{{ end }}`, clientVersionStatus=`{{ if .clientVersionStatus }}{{ .clientVersionStatus }}{{ else }}not_instrumented{{ end }}` | keep service_name, method, uriTemplate, clientService, clientVersion, clientVersionStatus, statusCode [$window])))",
+                        "expr": "sort_desc(sum by (method, uriTemplate) (count_over_time({service_name=~\"${service:regex}\"} | event=\"api_request_completed\" | label_format clientService=`{{ if .clientService }}{{ .clientService }}{{ else }}UNKNOWN{{ end }}` | clientService=~\"${client_service:regex}\" | method=~\"${method:regex}\" | uriTemplate=~`.*${uri_template:regex}.*` | keep service_name, method, uriTemplate [$window])))",
                         "queryType": "instant",
                         "legendFormat": "{{method}} {{uriTemplate}}"
                       }
@@ -325,7 +319,8 @@
               "fieldConfig": {
                 "defaults": {
                   "unit": "short",
-                  "noValue": "관측 데이터 없음 · 확인 필요"
+                  "min": 0,
+                  "displayName": "${__data.fields.method} ${__data.fields.uriTemplate}"
                 },
                 "overrides": []
               },
@@ -337,14 +332,16 @@
                     "lastNotNull"
                   ],
                   "fields": "",
-                  "values": false
+                  "values": true,
+                  "limit": 5000
                 },
                 "showUnfilled": true,
                 "valueMode": "color",
                 "namePlacement": "left",
-                "sizing": "auto",
-                "minVizHeight": 24,
-                "minVizWidth": 8
+                "sizing": "manual",
+                "minVizHeight": 32,
+                "minVizWidth": 8,
+                "maxVizHeight": 32
               }
             }
           }
@@ -375,7 +372,7 @@
                       },
                       "spec": {
                         "editorMode": "code",
-                        "expr": "sort_desc(sum by (clientService, clientVersion) (count_over_time({service_name=~\"${service:regex}\"} | event=\"api_request_completed\" | label_format clientService=`{{ if .clientService }}{{ .clientService }}{{ else }}UNKNOWN{{ end }}` | clientService=~\"${client_service:regex}\" | method=~\"${method:regex}\" | uriTemplate=~`.*${uri_template:regex}.*` | label_format clientVersion=`{{ if .clientVersion }}{{ .clientVersion }}{{ else }}NOT_INSTRUMENTED{{ end }}`, clientVersionStatus=`{{ if .clientVersionStatus }}{{ .clientVersionStatus }}{{ else }}not_instrumented{{ end }}` | keep service_name, method, uriTemplate, clientService, clientVersion, clientVersionStatus, statusCode [$window])))",
+                        "expr": "sort_desc(sum by (clientService, clientVersion) (count_over_time({service_name=~\"${service:regex}\"} | event=\"api_request_completed\" | label_format clientService=`{{ if .clientService }}{{ .clientService }}{{ else }}UNKNOWN{{ end }}` | clientService=~\"${client_service:regex}\" | method=~\"${method:regex}\" | uriTemplate=~`.*${uri_template:regex}.*` | label_format clientVersion=`{{ if .clientVersion }}{{ .clientVersion }}{{ else }}NOT_INSTRUMENTED{{ end }}` | keep service_name, clientService, clientVersion [$window])))",
                         "queryType": "instant",
                         "legendFormat": "{{clientService}} · {{clientVersion}}"
                       }
@@ -397,7 +394,8 @@
               "fieldConfig": {
                 "defaults": {
                   "unit": "short",
-                  "noValue": "관측 데이터 없음 · 확인 필요"
+                  "min": 0,
+                  "displayName": "${__data.fields.clientService} ${__data.fields.clientVersion}"
                 },
                 "overrides": []
               },
@@ -409,14 +407,16 @@
                     "lastNotNull"
                   ],
                   "fields": "",
-                  "values": false
+                  "values": true,
+                  "limit": 5000
                 },
                 "showUnfilled": true,
                 "valueMode": "color",
                 "namePlacement": "left",
-                "sizing": "auto",
-                "minVizHeight": 24,
-                "minVizWidth": 8
+                "sizing": "manual",
+                "minVizHeight": 32,
+                "minVizWidth": 8,
+                "maxVizHeight": 32
               }
             }
           }
@@ -447,7 +447,7 @@
                       },
                       "spec": {
                         "editorMode": "code",
-                        "expr": "sum by (clientVersionStatus) (count_over_time({service_name=~\"${service:regex}\"} | event=\"api_request_completed\" | label_format clientService=`{{ if .clientService }}{{ .clientService }}{{ else }}UNKNOWN{{ end }}` | clientService=~\"${client_service:regex}\" | method=~\"${method:regex}\" | uriTemplate=~`.*${uri_template:regex}.*` | label_format clientVersion=`{{ if .clientVersion }}{{ .clientVersion }}{{ else }}NOT_INSTRUMENTED{{ end }}`, clientVersionStatus=`{{ if .clientVersionStatus }}{{ .clientVersionStatus }}{{ else }}not_instrumented{{ end }}` | keep service_name, method, uriTemplate, clientService, clientVersion, clientVersionStatus, statusCode [$window]))",
+                        "expr": "sum by (clientVersionStatus) (count_over_time({service_name=~\"${service:regex}\"} | event=\"api_request_completed\" | label_format clientService=`{{ if .clientService }}{{ .clientService }}{{ else }}UNKNOWN{{ end }}` | clientService=~\"${client_service:regex}\" | method=~\"${method:regex}\" | uriTemplate=~`.*${uri_template:regex}.*` | label_format clientVersionStatus=`{{ if .clientVersionStatus }}{{ .clientVersionStatus }}{{ else }}not_instrumented{{ end }}` | keep service_name, clientVersionStatus [$window]))",
                         "queryType": "instant",
                         "legendFormat": "{{clientVersionStatus}}"
                       }
@@ -468,8 +468,7 @@
             "spec": {
               "fieldConfig": {
                 "defaults": {
-                  "unit": "short",
-                  "noValue": "관측 데이터 없음 · 확인 필요"
+                  "unit": "short"
                 },
                 "overrides": []
               },
@@ -493,7 +492,8 @@
                     "lastNotNull"
                   ],
                   "fields": "",
-                  "values": false
+                  "values": true,
+                  "limit": 5000
                 },
                 "tooltip": {
                   "mode": "single",
@@ -552,8 +552,7 @@
             "spec": {
               "fieldConfig": {
                 "defaults": {
-                  "unit": "short",
-                  "noValue": "관측 데이터 없음 · 확인 필요"
+                  "unit": "short"
                 },
                 "overrides": []
               },
@@ -592,7 +591,7 @@
               "x": 0,
               "y": 0,
               "width": 24,
-              "height": 7
+              "height": 5
             }
           },
           {
@@ -603,7 +602,7 @@
                 "name": "panel-2"
               },
               "x": 0,
-              "y": 7,
+              "y": 5,
               "width": 8,
               "height": 4
             }
@@ -616,7 +615,7 @@
                 "name": "panel-3"
               },
               "x": 8,
-              "y": 7,
+              "y": 5,
               "width": 8,
               "height": 4
             }
@@ -629,7 +628,7 @@
                 "name": "panel-4"
               },
               "x": 16,
-              "y": 7,
+              "y": 5,
               "width": 8,
               "height": 4
             }
@@ -642,7 +641,7 @@
                 "name": "panel-5"
               },
               "x": 0,
-              "y": 11,
+              "y": 9,
               "width": 12,
               "height": 10
             }
@@ -655,7 +654,7 @@
                 "name": "panel-6"
               },
               "x": 12,
-              "y": 11,
+              "y": 9,
               "width": 12,
               "height": 10
             }
@@ -668,7 +667,7 @@
                 "name": "panel-7"
               },
               "x": 0,
-              "y": 21,
+              "y": 19,
               "width": 24,
               "height": 7
             }
@@ -681,7 +680,7 @@
                 "name": "panel-8"
               },
               "x": 0,
-              "y": 28,
+              "y": 26,
               "width": 24,
               "height": 10
             }
@@ -755,7 +754,7 @@
         "1h"
       ],
       "fiscalYearStartMonth": 0,
-      "from": "now-7d",
+      "from": "now-1h",
       "hideTimepicker": true,
       "timezone": "Asia/Seoul",
       "to": "now"
@@ -803,8 +802,18 @@
           "label": "조회 기간 · 현재 기준",
           "hide": "dontHide",
           "skipUrlSync": false,
-          "query": "1d,7d,14d,30d",
+          "query": "1h,6h,1d,7d,14d,30d",
           "options": [
+            {
+              "text": "1h",
+              "value": "1h",
+              "selected": true
+            },
+            {
+              "text": "6h",
+              "value": "6h",
+              "selected": false
+            },
             {
               "text": "1d",
               "value": "1d",
@@ -813,7 +822,7 @@
             {
               "text": "7d",
               "value": "7d",
-              "selected": true
+              "selected": false
             },
             {
               "text": "14d",
@@ -827,8 +836,8 @@
             }
           ],
           "current": {
-            "text": "7d",
-            "value": "7d"
+            "text": "1h",
+            "value": "1h"
           },
           "allowCustomValue": false,
           "multi": false,
