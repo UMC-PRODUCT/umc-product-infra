@@ -56,10 +56,11 @@ class ApiLifecycleDashboardTest(unittest.TestCase):
         self.assertIn("not_instrumented", states[0]["expr"])
         self.assertIn("{{ if .clientVersionStatus }}{{ .clientVersionStatus }}", states[0]["expr"])
 
-    def test_장기간_자동반복_조회를_기본으로_하지_않는다(self) -> None:
+    def test_기본_7일_관측을_유지하되_자동반복_조회는_하지_않는다(self) -> None:
         window = next(v["spec"] for v in self.spec["variables"] if v["spec"]["name"] == "window")
         self.assertIn("1h", {o["value"] for o in window["options"]})
-        self.assertEqual(window["current"]["value"], "1h")
+        self.assertEqual(window["current"]["value"], "7d")
+        self.assertEqual(self.spec["timeSettings"]["from"], "now-7d")
         self.assertFalse(window["allowCustomValue"])
         self.assertEqual(self.spec["timeSettings"]["autoRefresh"], "")
         for panel in self.panels:

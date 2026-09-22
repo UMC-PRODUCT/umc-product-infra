@@ -69,7 +69,7 @@ data:
                     "overrides": []
                   },
                   "options": {
-                    "content": "**기본 1시간 조회** · 서비스 → 메서드·경로 템플릿 → 클라이언트 순서로 좁히세요. 7·14·30일 집계는 오래 걸릴 수 있으므로 필요한 때 선택하세요. 자동 새로고침은 꺼져 있습니다.\n\n**오류 아이콘은 조회 실패입니다.** 아이콘의 오류 메시지를 먼저 확인하세요. `No data`나 목록 누락도 호출 0건·제거 가능을 뜻하지 않습니다. 계측·수집 상태와 구버전 지원 정책을 함께 확인하세요.\n\n`provided` 정상 헤더 · `missing` 헤더 없음 · `invalid` 무효 헤더 · `not_instrumented` 계측 전/수집 확인. [사용 가이드](https://github.com/UMC-PRODUCT/umc-product-infra/blob/main/docs/guides/api-lifecycle.md)",
+                    "content": "**기본 7일 조회** · 서비스 → 메서드·경로 템플릿 → 클라이언트 순서로 좁히세요. 더 긴 추세는 14·30일을 선택하세요. 기간이 길수록 조회가 느려질 수 있습니다. 자동 새로고침은 꺼져 있습니다.\n\n**오류 아이콘은 조회 실패입니다.** 아이콘의 오류 메시지를 먼저 확인하세요. `No data`나 목록 누락도 호출 0건·제거 가능을 뜻하지 않습니다. 계측·수집 상태와 구버전 지원 정책을 함께 확인하세요.\n\n`provided` 정상 헤더 · `missing` 헤더 없음 · `invalid` 무효 헤더 · `not_instrumented` 계측 전/수집 확인. [사용 가이드](https://github.com/UMC-PRODUCT/umc-product-infra/blob/main/docs/guides/api-lifecycle.md)",
                     "mode": "markdown"
                   }
                 },
@@ -767,7 +767,7 @@ data:
             "1h"
           ],
           "fiscalYearStartMonth": 0,
-          "from": "now-1h",
+          "from": "now-7d",
           "hideTimepicker": true,
           "timezone": "Asia/Seoul",
           "to": "now"
@@ -813,8 +813,8 @@ data:
             "spec": {
               "allowCustomValue": false,
               "current": {
-                "text": "1h",
-                "value": "1h"
+                "text": "7d",
+                "value": "7d"
               },
               "hide": "dontHide",
               "includeAll": false,
@@ -823,7 +823,7 @@ data:
               "name": "window",
               "options": [
                 {
-                  "selected": true,
+                  "selected": false,
                   "text": "1h",
                   "value": "1h"
                 },
@@ -838,7 +838,7 @@ data:
                   "value": "1d"
                 },
                 {
-                  "selected": false,
+                  "selected": true,
                   "text": "7d",
                   "value": "7d"
                 },
