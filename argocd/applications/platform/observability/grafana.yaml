@@ -183,6 +183,8 @@ spec:
               hosts: [grafana.university.neordinary.com]
 
         grafana.ini:
+          date_formats:
+            default_timezone: Asia/Seoul
           dashboards:
             # 로그인 후 전체 현황에서 시작하고 필요할 때 상세 대시보드로 내려간다.
             default_home_dashboard_path: /tmp/dashboards/UMC Product/system-overview.json
