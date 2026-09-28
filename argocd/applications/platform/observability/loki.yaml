@@ -71,7 +71,9 @@ spec:
               value: 512MiB
           resources:
             requests: { cpu: 100m, memory: 512Mi }
-            limits: { memory: 768Mi }
+            # 9/16 OOM 인시던트 임시 완화책으로 768Mi -> 1.5Gi 상향.
+            # 사용량 비교 후 재조정 예정.
+            limits: { memory: 1.5Gi }
           persistence:
             storageClass: local-path
             size: 5Gi

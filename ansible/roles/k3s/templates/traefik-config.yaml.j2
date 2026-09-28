@@ -9,6 +9,9 @@ spec:
     service:
       spec:
         allocateLoadBalancerNodePorts: false
+        # 단일 노드라 트래픽 쏠림 문제 없음. Local로 바꿔야 accessLog에
+        # 실제 클라이언트 IP가 남고, 기본값(Cluster)은 SNAT되어 원본 IP가 사라짐.
+        externalTrafficPolicy: Local
     ports:
       web:
         expose:
@@ -17,3 +20,14 @@ spec:
         forwardedHeaders:
           insecure: false
           trustedIPs: []
+    # 9/16 OOM 인시던트 후속 조치: 원본 IP 확보용 accessLog 활성화.
+    # 헤더는 기본 drop(개인정보 최소화), ClientHost 등 핵심 필드는 기본 포함됨.
+    # 주의: Loki로 자동 수집되지 않고 Pod stdout에만 남음(kubectl logs로만 확인 가능,
+    # Pod 재시작 시 유실). Loki 영구 저장은 별도 filelog receiver 추가가 필요함.
+    logs:
+      access:
+        enabled: true
+        format: json
+        fields:
+          headers:
+            defaultmode: drop
