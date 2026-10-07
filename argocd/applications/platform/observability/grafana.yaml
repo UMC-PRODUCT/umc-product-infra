@@ -56,8 +56,10 @@ spec:
             sha: e8fb0c4fa3c5a22d9d0eabd9c13cf5df9ce65cba6a062272f2a762f7a78284d6
           resources:
             # Cafe24 8코어 기준으로 임시 축소 전 ConfigMap 감시 CPU 예약량을 복원한다.
+            # limit은 평균 사용량(약 11m) 대비 쓰로틀링이 반복 발화해 버스트 여유를 늘렸다.
+            # 실측: kubectl top(2026-10) 기준 cpu 11m, memory 77Mi.
             requests: { cpu: 50m, memory: 64Mi }
-            limits: { cpu: 100m, memory: 128Mi }
+            limits: { cpu: 200m, memory: 128Mi }
           dashboards:
             enabled: true
             # Grafana의 home watcher보다 파일을 먼저 준비한다. WATCH는 종료하지
