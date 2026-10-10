@@ -30,7 +30,7 @@ APP_IMAGE = (
     "ghcr.io/umc-product/umc-product-server@sha256:"
     + "a" * 64
 )
-PREVIEW_APP_IMAGE = "ghcr.io/umc-product/umc-product-server:0123456789ab"
+PREVIEW_APP_IMAGE = APP_IMAGE
 TEST_NET_EDGE_TARGET = "203.0.113.10"
 CERTIFICATE_ISSUERS = {"letsencrypt-staging", "letsencrypt-production"}
 GOOGLE_CLIENT_ID_LIST = (
@@ -695,7 +695,7 @@ def validate_documentation_ingress_contract(
     environment: str,
 ) -> None:
     expected_host, expected_tls_secret, expected_service = edge_expectation(environment)
-    expected_namespace = "app" if environment == "prod" else "dev-app"
+    expected_namespace = {"prod": "app", "dev": "dev-app", "preview": "preview"}[environment]
     middleware_name = f"{expected_service}-docs-basic-auth"
 
     require(
@@ -1031,7 +1031,7 @@ def validate_render(
             f"{environment}: certificate key contract",
         )
 
-    documentation_enabled = environment in {"prod", "dev"}
+    documentation_enabled = environment in {"prod", "dev", "preview"}
     ingresses = [item for item in resources if item.get("kind") == "Ingress"]
     expected_ingress_count = (
         (1 + int(documentation_enabled) + int(test_api_enabled))
@@ -1175,12 +1175,19 @@ def validate_active_edge_fixture(path: Path) -> None:
 
 def validate_active_preview_edge_fixture(path: Path) -> None:
     resources = yaml_documents(path)
+    ingress = next(
+        item
+        for item in resources
+        if item.get("kind") == "Ingress"
+        and "external-dns.kubernetes.io/target"
+        in item["metadata"].get("annotations", {})
+    )
     require(
         not any(item.get("kind") == "Certificate" for item in resources),
         "active preview edge fixture: per-PR Certificate must stay disabled",
     )
     validate_ingress_contract(
-        resource(resources, "Ingress"),
+        ingress,
         "preview",
         TEST_NET_EDGE_TARGET,
         test_net_fixture=True,
@@ -1404,7 +1411,7 @@ def validate_secrets(path: Path) -> None:
     stores = [item for item in resources if item.get("kind") == "SecretStore"]
     external_secrets = [item for item in resources if item.get("kind") == "ExternalSecret"]
     require(len(stores) == 9, f"SecretStore count is {len(stores)}, expected 9")
-    require(len(external_secrets) == 31, f"ExternalSecret count is {len(external_secrets)}, expected 31")
+    require(len(external_secrets) == 32, f"ExternalSecret count is {len(external_secrets)}, expected 32")
 
     expected_names = {
         "app": set(PROD_REQUIRED_SECRETS + ["docs-basic-auth"]),
@@ -1417,7 +1424,7 @@ def validate_secrets(path: Path) -> None:
         },
         "dev-app": set(BASE_REQUIRED_SECRETS + ["docs-basic-auth"]),
         "dev-db": {"app-db", "postgres-secrets"},
-        "preview": set(BASE_REQUIRED_SECRETS + ["postgres-preview-secrets"]),
+        "preview": set(BASE_REQUIRED_SECRETS + ["postgres-preview-secrets", "docs-basic-auth"]),
         "monitoring": {"grafana-admin", "alertmanager-discord"},
         "argocd": {"preview-github-token"},
         "cert-manager": {"route53-credentials"},
@@ -1497,7 +1504,7 @@ def validate_secrets(path: Path) -> None:
     )
     iam_sources = set(re.findall(r"secret:(/umc-product/[^\"\n]+)-\?{6}", iam_text))
     require(sources == iam_sources, f"Secrets Manager/IAM paths differ: {sources ^ iam_sources}")
-    require(len(sources) == 29, f"Secrets Manager source count is {len(sources)}, expected 29")
+    require(len(sources) == 30, f"Secrets Manager source count is {len(sources)}, expected 30")
 
     uploader_properties = {
         spec.path: {property_name for property_name, _env_key in spec.properties}
@@ -1508,8 +1515,8 @@ def validate_secrets(path: Path) -> None:
         "secret uploader paths/properties must match rendered ExternalSecrets",
     )
     require(
-        len(SECRET_SPECS) == len(uploader_properties) == 29,
-        "secret uploader must contain 29 unique sources",
+        len(SECRET_SPECS) == len(uploader_properties) == 30,
+        "secret uploader must contain 30 unique sources",
     )
     renamed_properties = {
         "/umc-product/prod/backup-s3": {
@@ -1541,6 +1548,9 @@ def validate_secrets(path: Path) -> None:
             "users": "DOCS_BASIC_AUTH_USERS",
         },
         "/umc-product/dev/docs-basic-auth": {
+            "users": "DOCS_BASIC_AUTH_USERS",
+        },
+        "/umc-product/preview/docs-basic-auth": {
             "users": "DOCS_BASIC_AUTH_USERS",
         },
     }
@@ -1593,6 +1603,16 @@ def validate_preview_budget() -> None:
         for item in applicationset["spec"]["template"]["spec"]["source"]["helm"]["parameters"]
     }
     require(
+        parameters.get("deployment.enabled") == "true"
+        and parameters.get("ingress.enabled") == "true",
+        "preview: ApplicationSet must enable the PR Deployment and Ingress together",
+    )
+    require(
+        parameters.get("env.DEMODAY_QR_BASE_URL")
+        == "https://university.neordinary.com",
+        "preview: QR frontend origin must use the approved shared web address",
+    )
+    require(
         parameters.get("ingress.host")
         == "api-pr-{{ .number }}.university.neordinary.com",
         "preview: exact public hostname",
@@ -1623,6 +1643,11 @@ def validate_preview_budget() -> None:
         (ROOT / "charts" / "umc-product-server" / "values-preview.yaml").read_text(
             encoding="utf-8"
         )
+    )
+    require(
+        preview_values["deployment"]["enabled"] is False
+        and preview_values["ingress"]["enabled"] is False,
+        "preview: standalone values must remain disabled without PR metadata",
     )
     require(
         preview_values["certificate"]["enabled"] is False,
