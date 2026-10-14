@@ -924,6 +924,14 @@ def validate_render(
             "SPRING_APPLICATION_NAME": "prod-umc-product",
             "APP_ENVIRONMENT": "prod",
             "SSO_ISSUER": "https://api.university.neordinary.com",
+            "SSO_SOCIAL_GOOGLE_CLIENT_ID": GOOGLE_CLIENT_ID_LIST.split(",")[0],
+            "SSO_SOCIAL_GOOGLE_CALLBACK_URI": "https://api.university.neordinary.com/api/v1/auth/sso/social/google/callback",
+            "SSO_SOCIAL_APPLE_CALLBACK_URI": "https://api.university.neordinary.com/api/v1/auth/sso/social/apple/callback",
+            "SSO_SOCIAL_APPLE_ENABLED": "true",
+            "SSO_SOCIAL_KAKAO_CALLBACK_URI": "https://api.university.neordinary.com/api/v1/auth/sso/social/kakao/callback",
+            "SSO_SOCIAL_KAKAO_ENABLED": "true",
+            "SSO_SOCIAL_KAKAO_OIDC": "true",
+            "KAKAO_ALLOWED_REDIRECT_URIS": "https://api.university.neordinary.com/api/v1/auth/sso/social/kakao/callback",
             "CERTIFICATE_VERIFICATION_URL_TEMPLATE": "https://api.university.neordinary.com/api/v1/certificates/verify/{serialNumber}",
             "S3_BUCKET_NAME": "umc-product-prod-app-storage-351284652562-ap-northeast-2",
             "GOOGLE_CLIENT_ID_LIST": GOOGLE_CLIENT_ID_LIST,
@@ -979,7 +987,7 @@ def validate_render(
         "SSO_SOCIAL_GOOGLE_CLIENT_SECRET" not in environment_values,
         "Google Web client secret must come from Secret",
     )
-    if environment == "dev":
+    if environment in {"prod", "dev"}:
         require(
             environment_values.get("SSO_SOCIAL_GOOGLE_ENABLED") in {"true", "false"},
             f"{environment}: Google SSO enabled flag",
@@ -1494,7 +1502,7 @@ def validate_secrets(path: Path) -> None:
         expected = {key: key for key in expected_app_properties[name]}
         if name == "app-email" and item["metadata"]["namespace"] in {"app", "dev-app"}:
             expected["SMTP_PASSWORD"] = "SMTP_PASSWORD"
-        if name == "app-oauth" and item["metadata"]["namespace"] == "dev-app":
+        if name == "app-oauth" and item["metadata"]["namespace"] in {"app", "dev-app"}:
             expected["SSO_SOCIAL_GOOGLE_CLIENT_SECRET"] = "SSO_SOCIAL_GOOGLE_CLIENT_SECRET"
         require(
             properties == expected,
