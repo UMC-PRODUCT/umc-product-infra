@@ -48,6 +48,9 @@ OAUTH_PROPERTIES = (
     ("KAKAO_CLIENT_ID", "KAKAO_CLIENT_ID"),
     ("KAKAO_CLIENT_SECRET", "KAKAO_CLIENT_SECRET"),
 )
+GOOGLE_SSO_PROPERTIES = (
+    ("SSO_SOCIAL_GOOGLE_CLIENT_SECRET", "SSO_SOCIAL_GOOGLE_CLIENT_SECRET"),
+)
 STORAGE_PROPERTIES = (
     ("S3_ACCESS_KEY_ID", "S3_ACCESS_KEY_ID"),
     ("S3_SECRET_ACCESS_KEY", "S3_SECRET_ACCESS_KEY"),
@@ -87,7 +90,11 @@ def environment_specs(environment: str) -> tuple[SecretSpec, ...]:
     return (
         SecretSpec(f"{prefix}/app-db", env_file, DATABASE_PROPERTIES, environment),
         SecretSpec(f"{prefix}/app-jwt", env_file, JWT_PROPERTIES, environment),
-        SecretSpec(f"{prefix}/app-oauth", env_file, OAUTH_PROPERTIES, environment),
+        SecretSpec(
+            f"{prefix}/app-oauth", env_file,
+            OAUTH_PROPERTIES + (GOOGLE_SSO_PROPERTIES if environment in ("prod", "dev") else ()),
+            environment,
+        ),
         SecretSpec(
             f"{prefix}/app-storage", env_file, STORAGE_PROPERTIES, environment
         ),
@@ -226,12 +233,16 @@ def repo_root() -> Path:
 
 
 def expected_env_keys(env_file: str) -> set[str]:
-    return {
+    keys = {
         env_key
         for spec in SECRET_SPECS
         if spec.env_file == env_file
         for _property_name, env_key in spec.properties
     }
+    # Client ID는 원장에 함께 보관하되 비밀값이 아니므로 AWS payload 대신 Helm env에서 사용한다.
+    if env_file in (".env.prod", ".env.dev"):
+        keys.add("SSO_SOCIAL_GOOGLE_CLIENT_ID")
+    return keys
 
 
 # shell로 source하지 않고 KEY=VALUE를 문자 그대로 읽어 명령 실행과 임의 변수 주입을 막는다.
