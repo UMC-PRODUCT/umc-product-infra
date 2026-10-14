@@ -151,7 +151,15 @@ externalSecrets:
     store: aws-secretsmanager
     targetName: app-oauth
     remoteKey: app-oauth
-    data: *appOauthData
+    data:
+      APPLE_IOS_CLIENT_ID: APPLE_IOS_CLIENT_ID
+      APPLE_WEB_CLIENT_ID: APPLE_WEB_CLIENT_ID
+      APPLE_TEAM_ID: APPLE_TEAM_ID
+      APPLE_KEY_ID: APPLE_KEY_ID
+      APPLE_PRIVATE_KEY: APPLE_PRIVATE_KEY
+      KAKAO_CLIENT_ID: KAKAO_CLIENT_ID
+      KAKAO_CLIENT_SECRET: KAKAO_CLIENT_SECRET
+      SSO_SOCIAL_GOOGLE_CLIENT_SECRET: SSO_SOCIAL_GOOGLE_CLIENT_SECRET
   - name: app-storage
     namespace: dev-app
     store: aws-secretsmanager

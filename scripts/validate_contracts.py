@@ -944,6 +944,14 @@ def validate_render(
             "SPRING_APPLICATION_NAME": "dev-umc-product",
             "APP_ENVIRONMENT": "dev",
             "SSO_ISSUER": "https://api-dev.university.neordinary.com",
+            "SSO_SOCIAL_GOOGLE_CLIENT_ID": GOOGLE_CLIENT_ID_LIST.split(",")[0],
+            "SSO_SOCIAL_GOOGLE_CALLBACK_URI": "https://api-dev.university.neordinary.com/api/v1/auth/sso/social/google/callback",
+            "SSO_SOCIAL_APPLE_CALLBACK_URI": "https://api-dev.university.neordinary.com/api/v1/auth/sso/social/apple/callback",
+            "SSO_SOCIAL_APPLE_ENABLED": "true",
+            "SSO_SOCIAL_KAKAO_CALLBACK_URI": "https://api-dev.university.neordinary.com/api/v1/auth/sso/social/kakao/callback",
+            "SSO_SOCIAL_KAKAO_ENABLED": "true",
+            "SSO_SOCIAL_KAKAO_OIDC": "true",
+            "KAKAO_ALLOWED_REDIRECT_URIS": "https://api-dev.university.neordinary.com/api/v1/auth/sso/social/kakao/callback",
             "CERTIFICATE_VERIFICATION_URL_TEMPLATE": "https://api-dev.university.neordinary.com/api/v1/certificates/verify/{serialNumber}",
             "S3_BUCKET_NAME": "umc-product-dev-app-storage-351284652562-ap-northeast-2",
             "GOOGLE_CLIENT_ID_LIST": GOOGLE_CLIENT_ID_LIST,
@@ -966,6 +974,21 @@ def validate_render(
     }[environment]
     for key, expected in expected_environment.items():
         require(environment_values.get(key) == expected, f"{environment}: env {key}")
+
+    require(
+        "SSO_SOCIAL_GOOGLE_CLIENT_SECRET" not in environment_values,
+        "Google Web client secret must come from Secret",
+    )
+    if environment == "dev":
+        require(
+            environment_values.get("SSO_SOCIAL_GOOGLE_ENABLED") in {"true", "false"},
+            f"{environment}: Google SSO enabled flag",
+        )
+    else:
+        require(
+            environment_values.get("SSO_SOCIAL_GOOGLE_ENABLED", "false") == "false",
+            "preview must not enable Google server SSO",
+        )
 
     provider = environment_values.get("EMAIL_PROVIDER")
     require(provider in {"ses", "smtp"}, f"{environment}: email provider")
@@ -1471,6 +1494,8 @@ def validate_secrets(path: Path) -> None:
         expected = {key: key for key in expected_app_properties[name]}
         if name == "app-email" and item["metadata"]["namespace"] in {"app", "dev-app"}:
             expected["SMTP_PASSWORD"] = "SMTP_PASSWORD"
+        if name == "app-oauth" and item["metadata"]["namespace"] == "dev-app":
+            expected["SSO_SOCIAL_GOOGLE_CLIENT_SECRET"] = "SSO_SOCIAL_GOOGLE_CLIENT_SECRET"
         require(
             properties == expected,
             f"{item['metadata']['namespace']}/{name}: JSON property contract",

@@ -46,6 +46,16 @@ env:
   # dev 프론트 주소를 확정하기 전까지 공용 프론트를 사용한다. dev QR 플로우 검증 전 교체한다.
   DEMODAY_QR_BASE_URL: https://university.neordinary.com
   SSO_ISSUER: https://api-dev.university.neordinary.com
+  # macOS Google 소셜 SSO. Client Secret은 app-oauth Secret에서 공급한다.
+  SSO_SOCIAL_GOOGLE_ENABLED: "true"
+  SSO_SOCIAL_GOOGLE_CLIENT_ID: "882297658822-ag179p23eqhc5lti8ue5cgbf5phekbfh.apps.googleusercontent.com"
+  SSO_SOCIAL_GOOGLE_CALLBACK_URI: https://api-dev.university.neordinary.com/api/v1/auth/sso/social/google/callback
+  SSO_SOCIAL_APPLE_ENABLED: "true"
+  SSO_SOCIAL_APPLE_CALLBACK_URI: https://api-dev.university.neordinary.com/api/v1/auth/sso/social/apple/callback
+  SSO_SOCIAL_KAKAO_ENABLED: "true"
+  SSO_SOCIAL_KAKAO_CALLBACK_URI: https://api-dev.university.neordinary.com/api/v1/auth/sso/social/kakao/callback
+  SSO_SOCIAL_KAKAO_OIDC: "true"
+  KAKAO_ALLOWED_REDIRECT_URIS: https://api-dev.university.neordinary.com/api/v1/auth/sso/social/kakao/callback
   CERTIFICATE_VERIFICATION_URL_TEMPLATE: https://api-dev.university.neordinary.com/api/v1/certificates/verify/{serialNumber}
   S3_BUCKET_NAME: umc-product-dev-app-storage-351284652562-ap-northeast-2
   S3_REGION: ap-northeast-2
