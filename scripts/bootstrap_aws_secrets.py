@@ -92,7 +92,7 @@ def environment_specs(environment: str) -> tuple[SecretSpec, ...]:
         SecretSpec(f"{prefix}/app-jwt", env_file, JWT_PROPERTIES, environment),
         SecretSpec(
             f"{prefix}/app-oauth", env_file,
-            OAUTH_PROPERTIES + (GOOGLE_SSO_PROPERTIES if environment == "dev" else ()),
+            OAUTH_PROPERTIES + (GOOGLE_SSO_PROPERTIES if environment in ("prod", "dev") else ()),
             environment,
         ),
         SecretSpec(
@@ -240,7 +240,7 @@ def expected_env_keys(env_file: str) -> set[str]:
         for _property_name, env_key in spec.properties
     }
     # Client ID는 원장에 함께 보관하되 비밀값이 아니므로 AWS payload 대신 Helm env에서 사용한다.
-    if env_file == ".env.dev":
+    if env_file in (".env.prod", ".env.dev"):
         keys.add("SSO_SOCIAL_GOOGLE_CLIENT_ID")
     return keys
 
