@@ -52,8 +52,7 @@ env:
   SSO_SOCIAL_GOOGLE_ENABLED: "true"
   SSO_SOCIAL_GOOGLE_CLIENT_ID: "882297658822-ag179p23eqhc5lti8ue5cgbf5phekbfh.apps.googleusercontent.com"
   SSO_SOCIAL_GOOGLE_CALLBACK_URI: https://api.university.neordinary.com/api/v1/auth/sso/social/google/callback
-  # Apple Services ID의 서버 반환 주소를 등록한 뒤 활성화한다.
-  SSO_SOCIAL_APPLE_ENABLED: "false"
+  SSO_SOCIAL_APPLE_ENABLED: "true"
   SSO_SOCIAL_APPLE_CALLBACK_URI: https://api.university.neordinary.com/api/v1/auth/sso/social/apple/callback
   SSO_SOCIAL_KAKAO_ENABLED: "true"
   SSO_SOCIAL_KAKAO_CALLBACK_URI: https://api.university.neordinary.com/api/v1/auth/sso/social/kakao/callback
