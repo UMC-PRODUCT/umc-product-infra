@@ -48,6 +48,27 @@ property 목록은 문서에 복사하지 않고 위 코드에서 확인한다.
 - prod SES 자격증명은 dev/preview와 공유하지 않는다. dev/preview만 nonprod sender를 공유한다.
 - DB URL·username, bucket 이름, region, Spring profile, issuer URL과 발신 주소는 비밀이 아니므로 Helm values에 둔다.
 
+## Dev FCM 활성화
+
+Dev 앱의 `FCM_ENABLED=true`는 `dev-app/app-fcm`의 `FIREBASE_CONFIGURATION`을 사용한다.
+이 값의 AWS 원본은 `/umc-product/dev/app-fcm`이며, Prod 원본을 자동으로 복사하지 않는다.
+Preview는 FCM 비활성화와 자격증명 미주입을 유지한다.
+
+활성화 변경을 배포하기 전에 다음을 확인한다.
+
+1. 실제 Dev·Prod 앱의 Firebase 프로젝트와 서버 발송 권한을 대조하고, 사용할 Dev
+   service account를 결정한다. Secret 경로가 다르다는 사실만으로 Firebase 프로젝트가
+   분리됐다고 판단하지 않는다.
+2. Dev service-account JSON을 `.env.dev`의 `FIREBASE_CONFIGURATION`에 비표시 방식으로
+   준비하고 `/umc-product/dev/app-fcm` source를 만든다. JSON 원문을 Git·로그에 남기지 않는다.
+3. `cloud/aws/external-secrets-iam.yaml`의 Dev source 읽기 권한을 반영하고, ESO가
+   `dev-app/app-fcm`을 동기화해 `Ready=True`인지 확인한다. Secret 값은 출력하지 않는다.
+4. 대기 중인 알림 이벤트와 테스트 수신 대상을 확인한 뒤 GitOps로 Dev 활성화를 반영한다.
+   배포 후 Dev 앱의 Firebase 초기화·발송 결과와 테스트 기기의 실제 수신을 함께 확인한다.
+
+이미 비활성화로 처리가 끝난 이벤트는 설정 활성화만으로 다시 발송되지 않는다.
+검증에는 식별 가능한 새 알림을 사용하며 Prod 설정은 변경하지 않는다.
+
 ## 최초 준비
 
 모든 명령은 저장소 루트의 private terminal에서 실행한다.

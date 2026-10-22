@@ -40,6 +40,8 @@ env:
   SPRING_PROFILES_ACTIVE: dev
   SPRING_APPLICATION_NAME: dev-umc-product
   APP_ENVIRONMENT: dev
+  # Dev Firebase 연결과 app-fcm 동기화 상태를 확인한 뒤 활성화한다.
+  FCM_ENABLED: "true"
   APP_TEST_API_ENABLED: "true"
   # 외부 문서 경로는 별도 Traefik Basic Auth Ingress가 보호한다.
   OPENAPI_ENABLE: "true"
@@ -85,8 +87,18 @@ probes:
   startup:
     failureThreshold: 60
 
+# /umc-product/dev/app-fcm을 동기화한 dev-app Secret만 주입한다.
+requiredSecrets:
+  - app-db
+  - app-jwt
+  - app-oauth
+  - app-storage
+  - app-email
+  - app-fcm
+
 reloader:
   secretNames:
     - app-oauth
     - app-storage
     - app-email
+    - app-fcm

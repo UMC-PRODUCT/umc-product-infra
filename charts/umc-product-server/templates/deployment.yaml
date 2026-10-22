@@ -154,17 +154,17 @@ Secret 이름 검사는 값의 존재·유효성을 보장하지 않으므로 ES
 {{- if and (eq $environment "prod") (ne $fcmEnabled "true") -}}
 {{- fail "prod 환경은 FCM_ENABLED=true여야 한다" -}}
 {{- end -}}
-{{- if and (ne $environment "prod") (ne $fcmEnabled "false") -}}
-{{- fail "dev/preview 환경은 FCM_ENABLED=false여야 한다" -}}
+{{- if and (eq $environment "preview") (ne $fcmEnabled "false") -}}
+{{- fail "preview 환경은 FCM_ENABLED=false여야 한다" -}}
 {{- end -}}
 {{- if and (eq $fcmEnabled "true") (not (has "app-fcm" .Values.requiredSecrets)) -}}
 {{- fail "FCM_ENABLED=true이면 requiredSecrets에 app-fcm이 필요하다" -}}
 {{- end -}}
-{{- if and (ne $environment "prod") (has "app-fcm" .Values.requiredSecrets) -}}
-{{- fail "app-fcm은 prod 환경에서만 사용할 수 있다" -}}
+{{- if and (eq $environment "preview") (has "app-fcm" .Values.requiredSecrets) -}}
+{{- fail "preview 환경에는 app-fcm을 주입할 수 없다" -}}
 {{- end -}}
 {{/* DB/JWT 회전은 적용 순서 검토가 필요하므로 Reloader 자동 재시작 목록에서 제외한다. */}}
-{{- $expectedReloadSecrets := ternary (list "app-oauth" "app-storage" "app-email" "app-fcm") (list "app-oauth" "app-storage" "app-email") (eq $environment "prod") -}}
+{{- $expectedReloadSecrets := ternary (list "app-oauth" "app-storage" "app-email" "app-fcm") (list "app-oauth" "app-storage" "app-email") (has "app-fcm" .Values.requiredSecrets) -}}
 {{- if ne (toJson .Values.reloader.secretNames) (toJson $expectedReloadSecrets) -}}
 {{- fail "reloader.secretNames는 환경별 승인된 Secret 목록과 정확히 일치해야 한다" -}}
 {{- end -}}

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate local worksheets and create the 29 AWS Secrets Manager sources."""
+"""Validate local worksheets and create the AWS Secrets Manager sources."""
 
 from __future__ import annotations
 
@@ -150,6 +150,12 @@ SECRET_SPECS = (
         "prod",
     ),
     *environment_specs("dev")[:5],
+    SecretSpec(
+        "/umc-product/dev/app-fcm",
+        ".env.dev",
+        (("FIREBASE_CONFIGURATION", "FIREBASE_CONFIGURATION"),),
+        "dev",
+    ),
     SecretSpec(
         "/umc-product/dev/docs-basic-auth",
         ".env.dev",
@@ -409,12 +415,17 @@ def validate_worksheet_values(values: dict[str, dict[str, str]], account_id: str
         ):
             raise BootstrapError(f"{env_file} APPLE_PRIVATE_KEY format is invalid")
 
-    try:
-        firebase = json.loads(values[".env.prod"]["FIREBASE_CONFIGURATION"])
-    except json.JSONDecodeError as error:
-        raise BootstrapError(".env.prod FIREBASE_CONFIGURATION must be valid JSON") from error
-    if not isinstance(firebase, dict) or firebase.get("type") != "service_account":
-        raise BootstrapError(".env.prod FIREBASE_CONFIGURATION must be a service account")
+    for env_file in (".env.prod", ".env.dev"):
+        try:
+            firebase = json.loads(values[env_file]["FIREBASE_CONFIGURATION"])
+        except json.JSONDecodeError as error:
+            raise BootstrapError(
+                f"{env_file} FIREBASE_CONFIGURATION must be valid JSON"
+            ) from error
+        if not isinstance(firebase, dict) or firebase.get("type") != "service_account":
+            raise BootstrapError(
+                f"{env_file} FIREBASE_CONFIGURATION must be a service account"
+            )
 
     prod = values[".env.prod"]
     expected_backup_bucket = (

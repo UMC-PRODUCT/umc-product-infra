@@ -37,10 +37,11 @@ def valid_worksheets() -> dict[str, dict[str, str]]:
     for env_file in (".env.dev", ".env.preview"):
         values[env_file]["SES_ACCESS_KEY_ID"] = shared_ses[0]
         values[env_file]["SES_SECRET_ACCESS_KEY"] = shared_ses[1]
-    values[".env.prod"]["FIREBASE_CONFIGURATION"] = json.dumps(
-        {"type": "service_account", "private_key": "line1\nline2"},
-        separators=(",", ":"),
-    )
+    for env_file in (".env.prod", ".env.dev"):
+        values[env_file]["FIREBASE_CONFIGURATION"] = json.dumps(
+            {"type": "service_account", "private_key": "line1\nline2"},
+            separators=(",", ":"),
+        )
     values[".env.prod"]["BACKUP_AWS_REGION"] = uploader.SEOUL_REGION
     values[".env.prod"]["BACKUP_S3_EXPECTED_BUCKET_OWNER"] = "351284652562"
     values[".env.prod"]["BACKUP_S3_BUCKET"] = (
@@ -97,7 +98,7 @@ class PayloadTests(unittest.TestCase):
 
         payloads = uploader.build_payloads(values)
 
-        self.assertEqual(len(payloads), 29)
+        self.assertEqual(len(payloads), 30)
         self.assertIn("APPLE_WEB_CLIENT_ID", payloads["/umc-product/prod/app-oauth"])
         self.assertEqual(
             payloads["/umc-product/prod/app-oauth"]["APPLE_WEB_CLIENT_ID"], ""
@@ -151,6 +152,29 @@ class PayloadTests(unittest.TestCase):
                 ],
             },
         )
+
+    def test_fcm_source_uses_each_environment_and_is_absent_from_preview(self) -> None:
+        values = valid_worksheets()
+        values[".env.dev"]["FIREBASE_CONFIGURATION"] = json.dumps(
+            {"type": "service_account", "project_id": "dev-test-project"}
+        )
+        payloads = uploader.build_payloads(values)
+        for environment in ("prod", "dev"):
+            self.assertEqual(
+                payloads[f"/umc-product/{environment}/app-fcm"],
+                {"FIREBASE_CONFIGURATION": values[f".env.{environment}"]["FIREBASE_CONFIGURATION"]},
+            )
+        self.assertNotIn("/umc-product/preview/app-fcm", payloads)
+        self.assertNotIn("FIREBASE_CONFIGURATION", uploader.expected_env_keys(".env.preview"))
+
+    def test_rejects_invalid_firebase_configuration_in_prod_and_dev(self) -> None:
+        for env_file in (".env.prod", ".env.dev"):
+            for configuration in ("invalid-json", "[]", '{"type":"other"}'):
+                with self.subTest(env_file=env_file, configuration=configuration):
+                    values = valid_worksheets()
+                    values[env_file]["FIREBASE_CONFIGURATION"] = configuration
+                    with self.assertRaises(uploader.BootstrapError):
+                        uploader.validate_worksheet_values(values, "351284652562")
 
     def test_rejects_shared_route53_credentials(self) -> None:
         for cert_manager_key, external_dns_key in (
