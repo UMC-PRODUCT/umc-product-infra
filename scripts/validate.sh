@@ -103,7 +103,7 @@ if helm template umc-product-server charts/umc-product-server \
   exit 1
 fi
 
-# prod는 FCM을 끌 수 없고, FCM을 켠 Pod에는 Firebase Secret이 반드시 필요하다.
+# prod/dev는 FCM을 끌 수 없고, FCM을 켠 Pod에는 Firebase Secret이 반드시 필요하다.
 if helm template umc-product-server charts/umc-product-server \
   -f charts/umc-product-server/values-prod.yaml "${common_args[@]}" \
   --set-string env.FCM_ENABLED=false >/dev/null 2>&1; then
@@ -120,8 +120,15 @@ if helm template umc-product-server charts/umc-product-server \
 fi
 if helm template dev-umc-product-server charts/umc-product-server \
   -f charts/umc-product-server/values-dev.yaml "${common_args[@]}" \
-  --set-string env.FCM_ENABLED=true >/dev/null 2>&1; then
-  echo "dev FCM_ENABLED=true unexpectedly passed" >&2
+  --set-string env.FCM_ENABLED=false >/dev/null 2>&1; then
+  echo "dev FCM_ENABLED=false unexpectedly passed" >&2
+  exit 1
+fi
+if helm template dev-umc-product-server charts/umc-product-server \
+  -f charts/umc-product-server/values-dev.yaml "${common_args[@]}" \
+  --set 'requiredSecrets={app-db,app-jwt,app-oauth,app-storage,app-email}' \
+  >/dev/null 2>&1; then
+  echo "dev FCM without app-fcm unexpectedly passed" >&2
   exit 1
 fi
 
@@ -242,6 +249,20 @@ preview_args=(
   --set-string ingress.host=api-pr-42.university.neordinary.com
   --set-string 'ingress.tls[0].hosts[0]=api-pr-42.university.neordinary.com'
 )
+# Preview는 FCM 활성화와 Firebase Secret 주입을 모두 금지한다.
+if helm template umc-product-preview-42 charts/umc-product-server \
+  -f charts/umc-product-server/values-preview.yaml "${preview_args[@]}" \
+  --set-string env.FCM_ENABLED=true >/dev/null 2>&1; then
+  echo "preview FCM_ENABLED=true unexpectedly passed" >&2
+  exit 1
+fi
+if helm template umc-product-preview-42 charts/umc-product-server \
+  -f charts/umc-product-server/values-preview.yaml "${preview_args[@]}" \
+  --set 'requiredSecrets={app-db,app-jwt,app-oauth,app-storage,app-email,app-fcm}' \
+  >/dev/null 2>&1; then
+  echo "preview app-fcm unexpectedly passed" >&2
+  exit 1
+fi
 if helm template umc-product-preview-42 charts/umc-product-server \
   -f charts/umc-product-server/values-preview.yaml "${preview_args[@]}" \
   --set-string env.S3_BUCKET_NAME=umc-product-prod-app-storage-351284652562-ap-northeast-2 \

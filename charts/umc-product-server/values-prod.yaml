@@ -80,7 +80,7 @@ env:
 documentation:
   enabled: true
 
-# prod만 FCM을 활성화하므로 Firebase 자격증명 Secret을 추가로 주입한다.
+# Firebase 자격증명은 prod 전용 AWS source에서 공급한다.
 requiredSecrets:
   - app-db
   - app-jwt
