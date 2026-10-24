@@ -41,9 +41,9 @@ GOOGLE_CLIENT_ID_LIST = (
     "655033275728-f7jpdingakk1f4im8reegjmioth8jvnv.apps.googleusercontent.com"
 )
 BASE_REQUIRED_SECRETS = ["app-db", "app-jwt", "app-oauth", "app-storage", "app-email"]
-PROD_REQUIRED_SECRETS = [*BASE_REQUIRED_SECRETS, "app-fcm"]
+FCM_REQUIRED_SECRETS = [*BASE_REQUIRED_SECRETS, "app-fcm"]
 BASE_RELOADER_SECRETS = ["app-oauth", "app-storage", "app-email"]
-PROD_RELOADER_SECRETS = [*BASE_RELOADER_SECRETS, "app-fcm"]
+FCM_RELOADER_SECRETS = [*BASE_RELOADER_SECRETS, "app-fcm"]
 RELOADER_TRIGGER_ANNOTATION = "secret.reloader.stakater.com/reload"
 RELOADER_RUNTIME_POINTER = (
     "/spec/template/metadata/annotations/"
@@ -873,7 +873,7 @@ def validate_render(
         f"{environment}: read-only root filesystem",
     )
     expected_required_secrets = (
-        PROD_REQUIRED_SECRETS if environment == "prod" else BASE_REQUIRED_SECRETS
+        FCM_REQUIRED_SECRETS if environment in {"prod", "dev"} else BASE_REQUIRED_SECRETS
     )
     require(
         [item["secretRef"]["name"] for item in container["envFrom"]]
@@ -881,8 +881,8 @@ def validate_render(
         f"{environment}: required Secret order",
     )
     expected_reloader_secrets = (
-        PROD_RELOADER_SECRETS
-        if environment == "prod"
+        FCM_RELOADER_SECRETS
+        if environment in {"prod", "dev"}
         else BASE_RELOADER_SECRETS
     )
     actual_reloader_secrets = deployment["metadata"].get("annotations", {}).get(
@@ -946,7 +946,7 @@ def validate_render(
         "dev": {
             "APP_SEED_ENABLED": "true",
             "APP_TEST_API_ENABLED": "true",
-            "FCM_ENABLED": "false",
+            "FCM_ENABLED": "true",
             "OPENAPI_ENABLE": "true",
             "SPRING_PROFILES_ACTIVE": "dev",
             "SPRING_APPLICATION_NAME": "dev-umc-product",
@@ -1438,7 +1438,7 @@ def validate_secrets(path: Path) -> None:
     require(len(external_secrets) == 32, f"ExternalSecret count is {len(external_secrets)}, expected 32")
 
     expected_names = {
-        "app": set(PROD_REQUIRED_SECRETS + ["docs-basic-auth"]),
+        "app": set(FCM_REQUIRED_SECRETS + ["docs-basic-auth"]),
         "db": {
             "app-db",
             "postgres-secrets",
@@ -1446,7 +1446,7 @@ def validate_secrets(path: Path) -> None:
             "postgres-exporter",
             "backup-s3",
         },
-        "dev-app": set(BASE_REQUIRED_SECRETS + ["app-fcm", "docs-basic-auth"]),
+        "dev-app": set(FCM_REQUIRED_SECRETS + ["docs-basic-auth"]),
         "dev-db": {"app-db", "postgres-secrets"},
         "preview": set(BASE_REQUIRED_SECRETS + ["postgres-preview-secrets"]),
         "monitoring": {"grafana-admin", "alertmanager-discord"},
