@@ -165,6 +165,13 @@ externalSecrets:
     targetName: app-email
     remoteKey: app-email
     data: *appEmailData
+  - name: app-fcm
+    namespace: dev-app
+    store: aws-secretsmanager
+    targetName: app-fcm
+    remoteKey: app-fcm
+    data:
+      FIREBASE_CONFIGURATION: FIREBASE_CONFIGURATION
   - name: docs-basic-auth
     namespace: dev-app
     store: aws-secretsmanager

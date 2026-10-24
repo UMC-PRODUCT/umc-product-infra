@@ -1435,7 +1435,7 @@ def validate_secrets(path: Path) -> None:
     stores = [item for item in resources if item.get("kind") == "SecretStore"]
     external_secrets = [item for item in resources if item.get("kind") == "ExternalSecret"]
     require(len(stores) == 9, f"SecretStore count is {len(stores)}, expected 9")
-    require(len(external_secrets) == 31, f"ExternalSecret count is {len(external_secrets)}, expected 31")
+    require(len(external_secrets) == 32, f"ExternalSecret count is {len(external_secrets)}, expected 32")
 
     expected_names = {
         "app": set(PROD_REQUIRED_SECRETS + ["docs-basic-auth"]),
@@ -1446,7 +1446,7 @@ def validate_secrets(path: Path) -> None:
             "postgres-exporter",
             "backup-s3",
         },
-        "dev-app": set(BASE_REQUIRED_SECRETS + ["docs-basic-auth"]),
+        "dev-app": set(BASE_REQUIRED_SECRETS + ["app-fcm", "docs-basic-auth"]),
         "dev-db": {"app-db", "postgres-secrets"},
         "preview": set(BASE_REQUIRED_SECRETS + ["postgres-preview-secrets"]),
         "monitoring": {"grafana-admin", "alertmanager-discord"},
@@ -1530,7 +1530,22 @@ def validate_secrets(path: Path) -> None:
     )
     iam_sources = set(re.findall(r"secret:(/umc-product/[^\"\n]+)-\?{6}", iam_text))
     require(sources == iam_sources, f"Secrets Manager/IAM paths differ: {sources ^ iam_sources}")
-    require(len(sources) == 29, f"Secrets Manager source count is {len(sources)}, expected 29")
+    require(len(sources) == 30, f"Secrets Manager source count is {len(sources)}, expected 30")
+    iam_template = yaml.load(iam_text, Loader=CloudFormationLoader)
+    dev_resources = iam_template["Resources"]["DevRole"]["Properties"]["Policies"][0][
+        "PolicyDocument"
+    ]["Statement"][0]["Resource"]
+    expected_dev_resources = {
+        "arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:"
+        + source
+        + "-??????"
+        for source in sources
+        if source.startswith("/umc-product/dev/")
+    }
+    require(
+        set(dev_resources) == expected_dev_resources,
+        "DevRole must read only dev Secret sources",
+    )
 
     uploader_properties = {
         spec.path: {property_name for property_name, _env_key in spec.properties}
@@ -1541,8 +1556,8 @@ def validate_secrets(path: Path) -> None:
         "secret uploader paths/properties must match rendered ExternalSecrets",
     )
     require(
-        len(SECRET_SPECS) == len(uploader_properties) == 29,
-        "secret uploader must contain 29 unique sources",
+        len(SECRET_SPECS) == len(uploader_properties) == 30,
+        "secret uploader must contain 30 unique sources",
     )
     renamed_properties = {
         "/umc-product/prod/backup-s3": {
