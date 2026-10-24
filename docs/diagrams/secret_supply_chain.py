@@ -58,7 +58,7 @@ def build(theme: dict) -> None:
                 fontcolor=fg,
             )
             external = CRD(
-                "ExternalSecret 31\nexpected key/property 계약\nPeriodic 1h",
+                "ExternalSecret 32\nexpected key/property 계약\nPeriodic 1h",
                 fontcolor=fg,
             )
 
@@ -72,7 +72,7 @@ def build(theme: dict) -> None:
                 fontcolor=fg,
             )
             manager = SecretsManager(
-                "AWS Secrets Manager\nJSON source 29\n환경 prefix로 격리",
+                "AWS Secrets Manager\nJSON source 30\n환경 prefix로 격리",
                 fontcolor=fg,
             )
 

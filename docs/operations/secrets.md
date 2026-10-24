@@ -41,6 +41,10 @@ property 목록은 문서에 복사하지 않고 위 코드에서 확인한다.
 
 - `APPLE_PRIVATE_KEY`는 PEM 개행을 보존한다.
 - `FIREBASE_CONFIGURATION`은 service-account JSON 전체를 문자열로 저장하며 base64로 바꾸지 않는다.
+  prod/dev는 같은 Firebase 프로젝트의 자격증명을 사용할 수 있지만, AWS source는 각각
+  `/umc-product/prod/app-fcm`, `/umc-product/dev/app-fcm`으로 분리한다. preview에는 공급하지 않는다.
+  발송 대상은 각 DB의 활성 토큰이므로 운영 토큰을 dev DB에 복제하거나 같은 앱 설치 토큰을
+  양쪽에 등록하면 같은 기기가 개발·운영 알림을 모두 받는다. dev DB와 토큰을 분리해 운영한다.
 - `DOCS_BASIC_AUTH_USERS`는 `umc-docs:<bcrypt hash>` 형식의 htpasswd 한 줄이다. 원문
   비밀번호는 로컬 worksheet에서만 확인하고 AWS·Kubernetes에는 이 해시만 저장한다.
 - `POSTGRES_EXPORTER_PASSWORD`는 prod 모니터링 role 전용 값이다. DB 관리자,
@@ -129,6 +133,25 @@ python3 scripts/bootstrap_aws_secrets.py \
 
 초기 발급 스크립트는 기존 IAM key나 채워진 worksheet를 발견하면 중단한다. 이를 회전 도구로
 사용하지 않는다. `bootstrap_aws_secrets.py`도 기존 값이 다르면 자동 overwrite하지 않는다.
+
+## dev FCM 활성화
+
+`FCM_ENABLED`는 비밀값 worksheet가 아니라 `charts/umc-product-server/values-dev.yaml`에서
+설정한다. `.env.dev`에는 prod와 동일한 `FIREBASE_CONFIGURATION` JSON을 입력할 수 있다.
+
+적용 전 `./scripts/validate.sh`로 dev의 FCM·Secret 주입과 preview 비활성 계약을 검증한다.
+실제 반영은 다음 순서로 진행하며, 로컬 파일 변경만으로 AWS나 실행 중인 앱이 갱신되지는 않는다.
+
+1. 대상 AWS 계정·리전을 확인하고 `cloud/aws/external-secrets-iam.yaml`을 반영해 DevRole에
+   dev `app-fcm` source 읽기 권한을 추가한다. prod source 읽기 권한은 추가하지 않는다.
+2. `bootstrap_aws_secrets.py` dry-run으로 기존 source와 worksheet가 일치하는지 확인한 뒤
+   `/umc-product/dev/app-fcm`을 생성한다. 기존 source가 다르면 중단하고 차이부터 확인한다.
+3. `umc-secrets` GitOps 변경을 반영하고 `dev-app/app-fcm` ExternalSecret이 `Ready=True`인지 확인한다.
+4. dev 앱의 FCM·requiredSecrets·Reloader 변경을 GitOps로 반영하고 rollout/readiness와 테스트 기기의
+   실제 수신을 확인한다. 서로 다른 Argo CD Application의 sync wave만으로 이 순서를 보장하지 않는다.
+
+되돌릴 때는 dev 앱의 FCM·Secret 참조 설정을 함께 되돌린 뒤 dev ExternalSecret·AWS source·IAM
+권한을 정리한다. prod 설정과 source는 유지한다.
 
 ## 임시 Gmail SMTP와 SES 복귀
 
