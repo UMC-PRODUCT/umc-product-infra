@@ -938,7 +938,8 @@ def validate_render(
             "CORS_ALLOWED_ORIGIN_PATTERNS": (
                 "https://university.neordinary.com,"
                 "https://admin.university.neordinary.com,"
-                "https://tech.university.neordinary.com"
+                "https://tech.university.neordinary.com,"
+                "https://auth.university.neordinary.com"
             ),
             "DATABASE_USERNAME": "umc_product_app",
             "DATABASE_URL": "jdbc:postgresql://postgres.db.svc.cluster.local:5432/umc_product",
