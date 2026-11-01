@@ -962,12 +962,6 @@ def validate_render(
             "CERTIFICATE_VERIFICATION_URL_TEMPLATE": "https://api.university.neordinary.com/api/v1/certificates/verify/{serialNumber}",
             "S3_BUCKET_NAME": "umc-product-prod-app-storage-351284652562-ap-northeast-2",
             "GOOGLE_CLIENT_ID_LIST": GOOGLE_CLIENT_ID_LIST,
-            "CORS_ALLOWED_ORIGIN_PATTERNS": (
-                "https://university.neordinary.com,"
-                "https://admin.university.neordinary.com,"
-                "https://tech.university.neordinary.com,"
-                "https://auth.university.neordinary.com"
-            ),
             "DATABASE_USERNAME": "umc_product_app",
             "DATABASE_URL": "jdbc:postgresql://postgres.db.svc.cluster.local:5432/umc_product",
         },
