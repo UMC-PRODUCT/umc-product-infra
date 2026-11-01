@@ -6,9 +6,9 @@
 #
 # prod·dev 와 다른 점
 #   - 백업 없음. 프리뷰 데이터는 언제든 버려도 되는 것이다
-#   - 튜닝값 축소 (shared_buffers 256MB)
+#   - 메모리·shared_buffers는 dev와 같다 (2Gi, 512MB)
 #   - preview-lowest 우선순위 — 가장 낮은 보호 우선순위이며 실제 축출 순서는 다른 조건도 함께 판단
-#   - max_connections 60 — PR 3개 × Hikari 10과 bootstrap/운영 여유
+#   - max_connections 40 — PR 2개 × Hikari 10과 생성·복원·삭제 Job/운영 여유
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
@@ -45,14 +45,10 @@ spec:
           image: postgis/postgis:18-3.6@sha256:60f6ad1d21ea86a67d47780b9a0d1e1d200500f62b19293fa834d0dea80b8677 # prod·dev 와 같은 이미지
           args:
             - -c
-            - shared_buffers=256MB
+            - shared_buffers=512MB # dev와 같은 값, limits.memory 2Gi의 25%
             - -c
-            - effective_cache_size=768MB
-            - -c
-            - work_mem=8MB
-            - -c
-            # PR 3개 × Hikari 풀 10 + createdb/dropdb/운영 여유
-            - max_connections=60
+            # PR 2개 × Hikari 풀 10 + 생성·복원·삭제 Job/운영 여유
+            - max_connections=40
           ports:
             - name: postgres
               containerPort: 5432
@@ -71,11 +67,11 @@ spec:
               value: preview_bootstrap
           resources:
             requests:
-              cpu: 200m
-              memory: 1Gi
+              cpu: 250m
+              memory: 2Gi
             limits:
               cpu: 1000m
-              memory: 1Gi
+              memory: 2Gi
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true

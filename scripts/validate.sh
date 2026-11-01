@@ -92,7 +92,12 @@ for number in (42, 43):
     deployment, = [item for item in documents if item["kind"] == "Deployment"]
     ingress, = [item for item in documents if item["kind"] == "Ingress" and item["metadata"]["name"] == name]
     docs, = [item for item in documents if item["kind"] == "Ingress" and item["metadata"]["name"] == name + "-docs"]
-    middleware, = [item for item in documents if item["kind"] == "Middleware"]
+    middleware, = [item for item in documents if item["kind"] == "Middleware" and item["metadata"]["name"] == name + "-docs-basic-auth"]
+    test_api, = [item for item in documents if item["kind"] == "Ingress" and item["metadata"]["name"] == name + "-test-api"]
+    test_api_middleware, = [item for item in documents if item["kind"] == "Middleware" and item["metadata"]["name"] == name + "-test-api-basic-auth"]
+    assert test_api_middleware["spec"]["basicAuth"] == {"secret": "docs-basic-auth", "removeHeader": True}
+    assert test_api["metadata"]["annotations"]["traefik.ingress.kubernetes.io/router.middlewares"] == f"preview-{name}-test-api-basic-auth@kubernetescrd"
+    assert [item["path"] for item in test_api["spec"]["rules"][0]["http"]["paths"]] == ["/test"]
     assert deployment["metadata"]["name"] == ingress["metadata"]["name"] == name
     container = deployment["spec"]["template"]["spec"]["containers"][0]
     assert container["image"] == f"ghcr.io/umc-product/umc-product-server@{digest}"
@@ -105,14 +110,14 @@ for number in (42, 43):
     assert env["DEMODAY_QR_BASE_URL"] == "https://university.neordinary.com"
     assert env["DATABASE_URL"].endswith(f"/umc_product_pr{number}")
     assert env["OPENAPI_ENABLE"] == "true"
-    assert env["APP_TEST_API_ENABLED"] == "false"
+    assert env["APP_TEST_API_ENABLED"] == env["APP_SEED_ENABLED"] == "true"
     assert ingress["spec"]["rules"][0]["host"] == f"api-pr-{number}.university.neordinary.com"
     assert ingress["spec"]["tls"][0]["secretName"] == "preview-wildcard-tls"
     assert len([item for item in documents if item["kind"] == "Job"]) == 2
     # 누락된 발행 digest로는 Preview를 열지 못한다.
     invalid = subprocess.run(args + ["--set-string", "image.digest="], capture_output=True, text=True)
     assert invalid.returncode != 0
-print("Preview ApplicationSet renders digest-pinned images and protected docs for both PRs")
+print("Preview ApplicationSet renders digest-pinned images and protected docs·test API for both PRs")
 PY
 
 # test API 리소스는 testApi 값만으로 노출되지 않고 Deployment와 Ingress gate를 모두 따른다.

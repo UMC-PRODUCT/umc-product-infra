@@ -951,8 +951,8 @@ def validate_render(
             "DATABASE_URL": "jdbc:postgresql://postgres.dev-db.svc.cluster.local:5432/umc_product_dev",
         },
         "preview": {
-            "APP_SEED_ENABLED": "false",
-            "APP_TEST_API_ENABLED": "false",
+            "APP_SEED_ENABLED": "true",
+            "APP_TEST_API_ENABLED": "true",
             "FCM_ENABLED": "false",
             "SPRING_PROFILES_ACTIVE": "dev",
             "SPRING_APPLICATION_NAME": "preview-umc-product-pr42",
@@ -1218,8 +1218,8 @@ def validate_postgres() -> None:
         )
         if environment == "preview":
             require(
-                "max_connections=60" in container.get("args", []),
-                "preview: connection budget must match three slots",
+                "max_connections=40" in container.get("args", []),
+                "preview: connection budget must match two slots",
             )
 
         role_job = resource(yaml_documents(directory / "app-role-job.yaml"), "Job")
@@ -1588,9 +1588,9 @@ def validate_preview_budget() -> None:
             "count/certificates.cert-manager.io": "1",
             "count/services": "4",
             "count/deployments.apps": "2",
-            "requests.cpu": "1050m",
-            "requests.memory": "4416Mi",
-            "limits.memory": "7808Mi",
+            "requests.cpu": "1000m",
+            "requests.memory": "6464Mi",
+            "limits.memory": "8832Mi",
         },
         "preview: two-slot resource budget",
     )
@@ -1818,8 +1818,8 @@ def main() -> int:
             f"{environment}: testApi.enabled must be boolean",
         )
         require(
-            test_api_enabled is (environment == "dev"),
-            f"{environment}: test API must be enabled only in dev",
+            test_api_enabled is (environment in {"dev", "preview"}),
+            f"{environment}: test API must be enabled only in dev and preview",
         )
         validate_render(
             Path(filename),

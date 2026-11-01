@@ -18,13 +18,14 @@ networkPolicy:
 
 priorityClassName: preview-lowest
 
+# dev와 같은 자원이다. 같은 JVM 옵션(MaxRAMPercentage=75)에서 힙 상한도 dev와 같아진다.
 resources:
   requests:
-    cpu: 200m
-    memory: 1Gi
+    cpu: 250m
+    memory: 2Gi
   limits:
     cpu: 1500m
-    memory: 2Gi
+    memory: 3Gi
 
 # PR 번호별 DB를 분리하되 app role은 모든 Preview가 공유하므로 외부·fork 코드를 실행하지 않는다.
 createDatabase:
@@ -49,13 +50,21 @@ env:
   S3_REGION: ap-northeast-2
   SES_REGION: ap-northeast-2
   EMAIL_NO_REPLY_ADDRESS: no-reply-nonprod@university.neordinary.com
-  APP_SEED_ENABLED: "false"
+  # dev와 같이 test·seed API를 연다. /test 경로는 아래 testApi Ingress의 Basic Auth로 보호한다.
+  APP_SEED_ENABLED: "true"
+  APP_TEST_API_ENABLED: "true"
   DATABASE_URL: ""
   DATABASE_USERNAME: umc_product_preview_app
   MEDIA_STORAGE_PURGE_ENABLED: "false"
   PRIVACY_RETENTION_ENABLED: "false"
 
 documentation:
+  enabled: true
+  basicAuth:
+    existingSecret: docs-basic-auth
+
+# Swagger에서 `/test/token/access`로 토큰을 받아 테스트한다. 문서와 같은 Preview 공용 자격증명이다.
+testApi:
   enabled: true
   basicAuth:
     existingSecret: docs-basic-auth

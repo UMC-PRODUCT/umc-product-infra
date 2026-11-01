@@ -221,10 +221,10 @@ htpasswd -nB -C 12 umc-docs
 
 ### Preview 문서 인증
 
-모든 PR의 `/docs`, `/docs-json` 경로는 Preview 전용 고정 사용자 `umc-docs`와 공용
-비밀번호를 사용한다. `preview` namespace의 `docs-basic-auth` Secret 한 개를 각 PR의
-문서용 Traefik Middleware가 참조하며, PR이 닫혀도 이 공용 Secret은 유지된다.
-일반 API 인증과 개발용 test API의 공개 범위는 이 문서 인증 설정으로 변경되지 않는다.
+모든 PR의 `/docs`, `/docs-json`, `/test` 경로는 Preview 전용 고정 사용자 `umc-docs`와 공용
+비밀번호를 사용한다. dev와 같이 `preview` namespace의 `docs-basic-auth` Secret 한 개를 각 PR의
+문서용·test API용 Traefik Middleware가 함께 참조하며, PR이 닫혀도 이 공용 Secret은 유지된다.
+일반 API 인증은 이 문서 인증 설정으로 변경되지 않는다.
 
 Preview 문서를 처음 활성화하기 전에 prod/dev와 다른 비밀번호로 위 대화형 명령을 실행하고,
 생성한 htpasswd 한 줄을 private `.env.preview`의 `DOCS_BASIC_AUTH_USERS`에 넣는다.
