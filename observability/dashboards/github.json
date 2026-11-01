@@ -861,7 +861,7 @@
       "fiscalYearStartMonth": 0,
       "from": "now-7d",
       "hideTimepicker": false,
-      "timezone": "browser",
+      "timezone": "Asia/Seoul",
       "to": "now"
     },
     "title": "UMC PRODUCT — GitHub Activity",

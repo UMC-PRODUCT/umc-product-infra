@@ -29,8 +29,9 @@ spec:
           tag: 0.152.0 # compose와 동일
           digest: sha256:f41d7995565df3733b7568702073a9c490792f9c6ac60684fe6a4da21a313f8d
         resources:
-          # Cafe24 8코어 기준의 초기 예약량이다. accepted/refused/export 지표로 재조정한다.
-          requests: { cpu: 250m, memory: 512Mi }
+          # Cafe24 8코어 기준의 초기 예약량이었다. 실측(kubectl top, 2026-10) cpu 2m, memory 87Mi
+          # 기준으로 request를 내렸다. memory_limiter가 limit 기준 퍼센트로 동작하므로 limit은 유지한다.
+          requests: { cpu: 50m, memory: 256Mi }
           limits: { memory: 1Gi }
         # 사용하지 않는 receiver port는 Service에서도 닫고, Collector 자체 metrics만
         # Prometheus가 scrape할 수 있게 연다.

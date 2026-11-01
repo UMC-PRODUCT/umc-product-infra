@@ -41,9 +41,9 @@ GOOGLE_CLIENT_ID_LIST = (
     "655033275728-f7jpdingakk1f4im8reegjmioth8jvnv.apps.googleusercontent.com"
 )
 BASE_REQUIRED_SECRETS = ["app-db", "app-jwt", "app-oauth", "app-storage", "app-email"]
-PROD_REQUIRED_SECRETS = [*BASE_REQUIRED_SECRETS, "app-fcm"]
+FCM_REQUIRED_SECRETS = [*BASE_REQUIRED_SECRETS, "app-fcm"]
 BASE_RELOADER_SECRETS = ["app-oauth", "app-storage", "app-email"]
-PROD_RELOADER_SECRETS = [*BASE_RELOADER_SECRETS, "app-fcm"]
+FCM_RELOADER_SECRETS = [*BASE_RELOADER_SECRETS, "app-fcm"]
 RELOADER_TRIGGER_ANNOTATION = "secret.reloader.stakater.com/reload"
 RELOADER_RUNTIME_POINTER = (
     "/spec/template/metadata/annotations/"
@@ -879,7 +879,7 @@ def validate_render(
         f"{environment}: read-only root filesystem",
     )
     expected_required_secrets = (
-        PROD_REQUIRED_SECRETS if environment == "prod" else BASE_REQUIRED_SECRETS
+        FCM_REQUIRED_SECRETS if environment in {"prod", "dev"} else BASE_REQUIRED_SECRETS
     )
     require(
         [item["secretRef"]["name"] for item in container["envFrom"]]
@@ -887,8 +887,8 @@ def validate_render(
         f"{environment}: required Secret order",
     )
     expected_reloader_secrets = (
-        PROD_RELOADER_SECRETS
-        if environment == "prod"
+        FCM_RELOADER_SECRETS
+        if environment in {"prod", "dev"}
         else BASE_RELOADER_SECRETS
     )
     actual_reloader_secrets = deployment["metadata"].get("annotations", {}).get(
@@ -930,13 +930,22 @@ def validate_render(
             "SPRING_APPLICATION_NAME": "prod-umc-product",
             "APP_ENVIRONMENT": "prod",
             "SSO_ISSUER": "https://api.university.neordinary.com",
+            "SSO_SOCIAL_GOOGLE_CLIENT_ID": GOOGLE_CLIENT_ID_LIST.split(",")[0],
+            "SSO_SOCIAL_GOOGLE_CALLBACK_URI": "https://api.university.neordinary.com/api/v1/auth/sso/social/google/callback",
+            "SSO_SOCIAL_APPLE_CALLBACK_URI": "https://api.university.neordinary.com/api/v1/auth/sso/social/apple/callback",
+            "SSO_SOCIAL_APPLE_ENABLED": "true",
+            "SSO_SOCIAL_KAKAO_CALLBACK_URI": "https://api.university.neordinary.com/api/v1/auth/sso/social/kakao/callback",
+            "SSO_SOCIAL_KAKAO_ENABLED": "true",
+            "SSO_SOCIAL_KAKAO_OIDC": "true",
+            "KAKAO_ALLOWED_REDIRECT_URIS": "https://api.university.neordinary.com/api/v1/auth/sso/social/kakao/callback",
             "CERTIFICATE_VERIFICATION_URL_TEMPLATE": "https://api.university.neordinary.com/api/v1/certificates/verify/{serialNumber}",
             "S3_BUCKET_NAME": "umc-product-prod-app-storage-351284652562-ap-northeast-2",
             "GOOGLE_CLIENT_ID_LIST": GOOGLE_CLIENT_ID_LIST,
             "CORS_ALLOWED_ORIGIN_PATTERNS": (
                 "https://university.neordinary.com,"
                 "https://admin.university.neordinary.com,"
-                "https://tech.university.neordinary.com"
+                "https://tech.university.neordinary.com,"
+                "https://auth.university.neordinary.com"
             ),
             "DATABASE_USERNAME": "umc_product_app",
             "DATABASE_URL": "jdbc:postgresql://postgres.db.svc.cluster.local:5432/umc_product",
@@ -944,12 +953,20 @@ def validate_render(
         "dev": {
             "APP_SEED_ENABLED": "true",
             "APP_TEST_API_ENABLED": "true",
-            "FCM_ENABLED": "false",
+            "FCM_ENABLED": "true",
             "OPENAPI_ENABLE": "true",
             "SPRING_PROFILES_ACTIVE": "dev",
             "SPRING_APPLICATION_NAME": "dev-umc-product",
             "APP_ENVIRONMENT": "dev",
             "SSO_ISSUER": "https://api-dev.university.neordinary.com",
+            "SSO_SOCIAL_GOOGLE_CLIENT_ID": GOOGLE_CLIENT_ID_LIST.split(",")[0],
+            "SSO_SOCIAL_GOOGLE_CALLBACK_URI": "https://api-dev.university.neordinary.com/api/v1/auth/sso/social/google/callback",
+            "SSO_SOCIAL_APPLE_CALLBACK_URI": "https://api-dev.university.neordinary.com/api/v1/auth/sso/social/apple/callback",
+            "SSO_SOCIAL_APPLE_ENABLED": "true",
+            "SSO_SOCIAL_KAKAO_CALLBACK_URI": "https://api-dev.university.neordinary.com/api/v1/auth/sso/social/kakao/callback",
+            "SSO_SOCIAL_KAKAO_ENABLED": "true",
+            "SSO_SOCIAL_KAKAO_OIDC": "true",
+            "KAKAO_ALLOWED_REDIRECT_URIS": "https://api-dev.university.neordinary.com/api/v1/auth/sso/social/kakao/callback",
             "CERTIFICATE_VERIFICATION_URL_TEMPLATE": "https://api-dev.university.neordinary.com/api/v1/certificates/verify/{serialNumber}",
             "S3_BUCKET_NAME": "umc-product-dev-app-storage-351284652562-ap-northeast-2",
             "GOOGLE_CLIENT_ID_LIST": GOOGLE_CLIENT_ID_LIST,
@@ -972,6 +989,21 @@ def validate_render(
     }[environment]
     for key, expected in expected_environment.items():
         require(environment_values.get(key) == expected, f"{environment}: env {key}")
+
+    require(
+        "SSO_SOCIAL_GOOGLE_CLIENT_SECRET" not in environment_values,
+        "Google Web client secret must come from Secret",
+    )
+    if environment in {"prod", "dev"}:
+        require(
+            environment_values.get("SSO_SOCIAL_GOOGLE_ENABLED") in {"true", "false"},
+            f"{environment}: Google SSO enabled flag",
+        )
+    else:
+        require(
+            environment_values.get("SSO_SOCIAL_GOOGLE_ENABLED", "false") == "false",
+            "preview must not enable Google server SSO",
+        )
 
     provider = environment_values.get("EMAIL_PROVIDER")
     require(provider in {"ses", "smtp"}, f"{environment}: email provider")
@@ -1455,10 +1487,10 @@ def validate_secrets(path: Path) -> None:
     stores = [item for item in resources if item.get("kind") == "SecretStore"]
     external_secrets = [item for item in resources if item.get("kind") == "ExternalSecret"]
     require(len(stores) == 9, f"SecretStore count is {len(stores)}, expected 9")
-    require(len(external_secrets) == 34, f"ExternalSecret count is {len(external_secrets)}, expected 34")
+    require(len(external_secrets) == 35, f"ExternalSecret count is {len(external_secrets)}, expected 35")
 
     expected_names = {
-        "app": set(PROD_REQUIRED_SECRETS + ["docs-basic-auth"]),
+        "app": set(FCM_REQUIRED_SECRETS + ["docs-basic-auth"]),
         "db": {
             "app-db",
             "postgres-secrets",
@@ -1466,7 +1498,7 @@ def validate_secrets(path: Path) -> None:
             "postgres-exporter",
             "backup-s3",
         },
-        "dev-app": set(BASE_REQUIRED_SECRETS + ["docs-basic-auth"]),
+        "dev-app": set(FCM_REQUIRED_SECRETS + ["docs-basic-auth"]),
         "dev-db": {"app-db", "postgres-secrets", "postgres-preview-dump"},
         "preview": set(
             BASE_REQUIRED_SECRETS + ["postgres-preview-secrets", "docs-basic-auth", "dev-db-dump"]
@@ -1524,6 +1556,8 @@ def validate_secrets(path: Path) -> None:
         expected = {key: key for key in expected_app_properties[name]}
         if name == "app-email":
             expected["SMTP_PASSWORD"] = "SMTP_PASSWORD"
+        if name == "app-oauth" and item["metadata"]["namespace"] in {"app", "dev-app"}:
+            expected["SSO_SOCIAL_GOOGLE_CLIENT_SECRET"] = "SSO_SOCIAL_GOOGLE_CLIENT_SECRET"
         require(
             properties == expected,
             f"{item['metadata']['namespace']}/{name}: JSON property contract",
@@ -1550,7 +1584,22 @@ def validate_secrets(path: Path) -> None:
     )
     iam_sources = set(re.findall(r"secret:(/umc-product/[^\"\n]+)-\?{6}", iam_text))
     require(sources == iam_sources, f"Secrets Manager/IAM paths differ: {sources ^ iam_sources}")
-    require(len(sources) == 32, f"Secrets Manager source count is {len(sources)}, expected 32")
+    require(len(sources) == 33, f"Secrets Manager source count is {len(sources)}, expected 33")
+    iam_template = yaml.load(iam_text, Loader=CloudFormationLoader)
+    dev_resources = iam_template["Resources"]["DevRole"]["Properties"]["Policies"][0][
+        "PolicyDocument"
+    ]["Statement"][0]["Resource"]
+    expected_dev_resources = {
+        "arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:"
+        + source
+        + "-??????"
+        for source in sources
+        if source.startswith("/umc-product/dev/")
+    }
+    require(
+        set(dev_resources) == expected_dev_resources,
+        "DevRole must read only dev Secret sources",
+    )
 
     uploader_properties = {
         spec.path: {property_name for property_name, _env_key in spec.properties}
@@ -1561,8 +1610,8 @@ def validate_secrets(path: Path) -> None:
         "secret uploader paths/properties must match rendered ExternalSecrets",
     )
     require(
-        len(SECRET_SPECS) == len(uploader_properties) == 32,
-        "secret uploader must contain 32 unique sources",
+        len(SECRET_SPECS) == len(uploader_properties) == 33,
+        "secret uploader must contain 33 unique sources",
     )
     renamed_properties = {
         "/umc-product/prod/backup-s3": {
