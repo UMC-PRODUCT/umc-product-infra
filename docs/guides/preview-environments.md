@@ -34,11 +34,12 @@ Argo CD의 `preview-head-sha`는 최신 PR 커밋, `preview-deployed-sha`는 배
 
 - API 주소: `https://api-pr-<PR번호>.university.neordinary.com`
 - API 문서: 위 주소의 `/docs/scalar.html`
+- 테스트용 토큰: 위 주소의 `/test/token/access`에서 회원 ID로 액세스 토큰을 받는다. dev와 같은 test·seed API가 열려 있다.
 - 로그·메트릭·트레이스: Grafana에서 서비스 `preview-umc-product-pr<PR번호>` 선택
 
 예를 들어 PR 27의 API 주소는 `https://api-pr-27.university.neordinary.com`이다.
 앱에서 테스트할 때는 API 서버 주소를 해당 Preview 주소로 바꾼다.
-`/docs`와 `/docs-json`은 고정 계정 `umc-docs`의 Basic Auth로 보호된다.
+`/docs`, `/docs-json`, `/test`는 고정 계정 `umc-docs`의 Basic Auth로 보호된다.
 모든 PR이 Preview 전용 비밀번호를 공유하며 PR 생성·삭제·재배포 때 바뀌지 않는다.
 비밀번호는 관리자가 승인된 채널로 별도 전달한다. 일반 API 인증에는 이 문서용 인증을 추가하지 않는다.
 
