@@ -80,6 +80,17 @@ Git에 복구할 이미지를 반영하는 작업과 DB 복원은 따로 판단�
      `preview/dev-db-dump` ExternalSecret의 `Ready=True`를 확인한다.
   3. dev postgres Application의 `postgres-preview-dump-role` Job 성공과 dev-db·preview NetworkPolicy 동기화를 확인한다.
 
+### 메일 수집 (Mailpit)
+
+- PR 앱 Pod에 Mailpit sidecar가 붙는다. 앱은 `smtp-capture.university.neordinary.com:1025`로 보내고,
+  이 이름은 `hostAliases`로 `127.0.0.1`에 묶여 있다. 공개 DNS 레코드는 만들지 않는다.
+- SMTP는 loopback에만 bind하고 STARTTLS·인증을 요구한다. 인증서는 `preview-wildcard-tls`, 비밀번호는
+  `app-email`의 preview 전용 `SMTP_PASSWORD`다. 릴레이(`MP_SMTP_RELAY_*`) 설정은 두지 않는다.
+- UI는 `mail-pr-<PR>` Ingress와 `docs-basic-auth` Middleware로만 연다. NetworkPolicy는 Traefik→8025만 허용한다.
+- 활성화 전 `.env.preview`에 `SMTP_PASSWORD`를 넣고 `/umc-product/preview/app-email` source에 property를 추가한 뒤
+  `preview/app-email` ExternalSecret을 force-sync한다. 값이 없으면 앱과 Mailpit이 모두 기동하지 못한다.
+- 확인: 인증메일 요청 → 해당 PR 수신함에만 표시, 원래 수신자 보존, 다른 PR 수신함에는 없음, Mailpit 로그에 relay 없음.
+
 ## 공유 범위와 보안 경계
 
 모든 PR은 `preview` namespace와 PostgreSQL Pod 한 대를 공유하고 database만 PR별로 나눈다.

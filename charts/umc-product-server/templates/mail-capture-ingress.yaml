@@ -1,0 +1,57 @@
+{{/*
+Preview 메일 수집함(Mailpit) UI를 PR별 host로 연다. 문서·test API와 같은 Preview 공용 Basic Auth로 보호한다.
+수집한 메일은 밖으로 보내지 않는다. SMTP 포트는 Pod 안의 loopback에만 열려 있다.
+*/}}
+{{- if and .Values.deployment.enabled .Values.ingress.enabled .Values.mailCapture.enabled }}
+{{- $host := required "mailCapture.enabled=true이면 mailCapture.uiHost가 필수" .Values.mailCapture.uiHost }}
+{{- if or (eq (lower $host) "invalid") (hasSuffix ".invalid" (lower $host)) }}
+{{- fail "mailCapture.enabled=true이면 .invalid가 아닌 실제 mailCapture.uiHost가 필요함" }}
+{{- end }}
+{{- if not (hasSuffix ".university.neordinary.com" $host) }}
+{{- fail "mailCapture.uiHost는 공용 wildcard 인증서가 덮는 *.university.neordinary.com이어야 함" }}
+{{- end }}
+{{- $secretName := required "mailCapture.ui.basicAuth.existingSecret이 필수" .Values.mailCapture.ui.basicAuth.existingSecret }}
+{{- $middlewareName := printf "%s-mail-basic-auth" (include "umc-product-server.fullname" .) }}
+---
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: {{ $middlewareName }}
+  labels:
+    {{- include "umc-product-server.labels" . | nindent 4 }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+spec:
+  basicAuth:
+    secret: {{ $secretName | quote }}
+    removeHeader: true
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "umc-product-server.fullname" . }}-mail
+  labels:
+    {{- include "umc-product-server.labels" . | nindent 4 }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+    external-dns.kubernetes.io/managed-by: umc-infra
+    external-dns.kubernetes.io/target: {{ .Values.externalDNS.target | quote }}
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    traefik.ingress.kubernetes.io/router.middlewares: {{ printf "%s-%s@kubernetescrd" .Release.Namespace $middlewareName | quote }}
+spec:
+  ingressClassName: {{ .Values.ingress.className | quote }}
+  rules:
+    - host: {{ $host | quote }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "umc-product-server.fullname" . }}
+                port:
+                  name: mail-ui
+  tls:
+    - hosts: [{{ $host | quote }}]
+      secretName: {{ .Values.mailCapture.tlsSecret | quote }}
+{{- end }}

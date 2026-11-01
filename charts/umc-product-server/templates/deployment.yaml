@@ -110,7 +110,25 @@ Secret 이름 검사는 값의 존재·유효성을 보장하지 않으므로 ES
 {{- if hasKey .Values.env "SMTP_PASSWORD" -}}
 {{- fail "SMTP_PASSWORD는 env가 아닌 app-email Secret으로 주입해야 한다" -}}
 {{- end -}}
-{{- if eq $emailProvider "smtp" -}}
+{{- $mailCapture := .Values.mailCapture.enabled -}}
+{{- if and $mailCapture (ne $environment "preview") -}}
+{{- fail "mailCapture는 preview 환경에서만 사용할 수 있다" -}}
+{{- end -}}
+{{- if and $mailCapture (ne $emailProvider "smtp") -}}
+{{- fail "mailCapture.enabled=true이면 EMAIL_PROVIDER=smtp로 Pod 안의 Mailpit에 보내야 한다" -}}
+{{- end -}}
+{{- if and $mailCapture (eq $emailProvider "smtp") -}}
+{{/* Preview는 외부 SMTP로 보내지 않는다. hostAliases로 loopback에 묶은 이름과 wildcard 인증서로 STARTTLS·인증을 유지한다. */}}
+{{- if or (ne (get .Values.env "SMTP_HOST") .Values.mailCapture.smtpHost) (ne (toString (get .Values.env "SMTP_PORT")) (toString .Values.mailCapture.smtpPort)) -}}
+{{- fail "mailCapture는 SMTP_HOST·SMTP_PORT가 Pod 안 Mailpit 주소와 같아야 한다" -}}
+{{- end -}}
+{{- if ne (get .Values.env "SMTP_USERNAME") .Values.mailCapture.smtpUsername -}}
+{{- fail "mailCapture는 SMTP_USERNAME이 Mailpit 인증 사용자와 같아야 한다" -}}
+{{- end -}}
+{{- if ne $noReplyAddress "no-reply-nonprod@university.neordinary.com" -}}
+{{- fail "preview는 공용 no-reply-nonprod@university.neordinary.com 발신 주소를 사용해야 한다" -}}
+{{- end -}}
+{{- else if eq $emailProvider "smtp" -}}
 {{- if eq $environment "preview" -}}
 {{- fail "preview는 Gmail SMTP 자격증명을 공유하지 않는다" -}}
 {{- end -}}
@@ -205,6 +223,12 @@ spec:
       securityContext:
         {{- toYaml .Values.podSecurityContext | nindent 8 }}
       terminationGracePeriodSeconds: 60
+      {{- if $mailCapture }}
+      # SMTP host 이름을 loopback에 묶는다. 공개 DNS에는 이 이름이 없어 외부로 새지 않는다.
+      hostAliases:
+        - ip: 127.0.0.1
+          hostnames: [{{ .Values.mailCapture.smtpHost | quote }}]
+      {{- end }}
       containers:
         - name: {{ .Chart.Name }}
           {{- if $imageDigest }}
@@ -266,6 +290,66 @@ spec:
               mountPath: /tmp
             - name: logs
               mountPath: /app/logs
+        {{- if $mailCapture }}
+        # 앱이 보낸 메일을 받아 보관만 한다. 릴레이 설정을 두지 않아 실제 수신자에게 전달되지 않는다.
+        - name: mailpit
+          image: {{ .Values.mailCapture.image | quote }}
+          imagePullPolicy: IfNotPresent
+          # SMTP 인증 파일을 Secret 값으로 만든 뒤 Mailpit을 실행한다. 비밀번호는 명령행 인자에 두지 않는다.
+          command: ["/bin/sh", "-ec"]
+          args:
+            - |
+              umask 077
+              printf '%s:%s\n' "$SMTP_USERNAME" "$SMTP_PASSWORD" > /data/smtp-auth
+              unset SMTP_PASSWORD
+              exec /mailpit
+          ports:
+            - name: mail-ui
+              containerPort: {{ .Values.mailCapture.uiPort }}
+              protocol: TCP
+          env:
+            - name: SMTP_USERNAME
+              value: {{ .Values.mailCapture.smtpUsername | quote }}
+            - name: SMTP_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: app-email, key: SMTP_PASSWORD }
+            - name: MP_SMTP_BIND_ADDR
+              value: {{ printf "127.0.0.1:%v" .Values.mailCapture.smtpPort | quote }}
+            - name: MP_UI_BIND_ADDR
+              value: {{ printf "0.0.0.0:%v" .Values.mailCapture.uiPort | quote }}
+            - name: MP_SMTP_AUTH_FILE
+              value: /data/smtp-auth
+            - name: MP_SMTP_REQUIRE_STARTTLS
+              value: "true"
+            - name: MP_SMTP_TLS_CERT
+              value: /tls/tls.crt
+            - name: MP_SMTP_TLS_KEY
+              value: /tls/tls.key
+            - name: MP_DATABASE
+              value: /data/mailpit.db
+            - name: MP_MAX_MESSAGES
+              value: {{ .Values.mailCapture.maxMessages | quote }}
+            - name: MP_SMTP_DISABLE_RDNS
+              value: "true"
+            - name: MP_DISABLE_VERSION_CHECK
+              value: "true"
+            - name: MP_BLOCK_REMOTE_CSS_AND_FONTS
+              value: "true"
+          readinessProbe:
+            tcpSocket:
+              port: mail-ui
+            periodSeconds: 10
+          resources:
+            {{- toYaml .Values.mailCapture.resources | nindent 12 }}
+          securityContext:
+            {{- toYaml .Values.containerSecurityContext | nindent 12 }}
+          volumeMounts:
+            - name: mailpit-data
+              mountPath: /data
+            - name: mailpit-tls
+              mountPath: /tls
+              readOnly: true
+        {{- end }}
       volumes:
         - name: tmp
           emptyDir:
@@ -273,4 +357,12 @@ spec:
         - name: logs
           emptyDir:
             sizeLimit: 512Mi
+        {{- if $mailCapture }}
+        - name: mailpit-data
+          emptyDir:
+            sizeLimit: 256Mi
+        - name: mailpit-tls
+          secret:
+            secretName: {{ .Values.mailCapture.tlsSecret | quote }}
+        {{- end }}
 {{- end }}

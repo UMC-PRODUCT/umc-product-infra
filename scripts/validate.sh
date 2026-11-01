@@ -308,6 +308,7 @@ preview_args=(
   --set-string 'env.CERTIFICATE_VERIFICATION_URL_TEMPLATE=https://api-pr-42.university.neordinary.com/api/v1/certificates/verify/{serialNumber}'
   --set-string ingress.host=api-pr-42.university.neordinary.com
   --set-string 'ingress.tls[0].hosts[0]=api-pr-42.university.neordinary.com'
+  --set-string mailCapture.uiHost=mail-pr-42.university.neordinary.com
 )
 # Preview는 FCM 활성화와 Firebase Secret 주입을 모두 금지한다.
 if helm template umc-product-preview-42 charts/umc-product-server \

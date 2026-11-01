@@ -105,7 +105,8 @@ def environment_specs(environment: str) -> tuple[SecretSpec, ...]:
         ),
         SecretSpec(
             f"{prefix}/app-email", env_file,
-            EMAIL_PROPERTIES + (SMTP_PROPERTIES if environment in ("prod", "dev") else ()),
+            # preview의 SMTP_PASSWORD는 Gmail이 아닌 Pod 안 Mailpit 인증용 값이다.
+            EMAIL_PROPERTIES + SMTP_PROPERTIES,
             environment,
         ),
         SecretSpec(

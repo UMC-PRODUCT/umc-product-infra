@@ -844,11 +844,17 @@ def validate_render(
         == {"http": 8080, "management": 9090},
         f"{environment}: container ports",
     )
+    # Preview는 Pod 안 Mailpit UI만 추가로 연다. SMTP와 management는 Service로 노출하지 않는다.
+    expected_service_ports = [
+        {"name": "http", "port": 80, "targetPort": "http", "protocol": "TCP"}
+    ] + (
+        [{"name": "mail-ui", "port": 8025, "targetPort": "mail-ui", "protocol": "TCP"}]
+        if environment == "preview"
+        else []
+    )
     require(
         service["spec"]["type"] == "ClusterIP"
-        and service["spec"]["ports"] == [
-            {"name": "http", "port": 80, "targetPort": "http", "protocol": "TCP"}
-        ],
+        and service["spec"]["ports"] == expected_service_ports,
         f"{environment}: management port must not be exposed",
     )
     probes = {
@@ -1002,7 +1008,15 @@ def validate_render(
     provider = environment_values.get("EMAIL_PROVIDER")
     require(provider in {"ses", "smtp"}, f"{environment}: email provider")
     require("SMTP_PASSWORD" not in environment_values, "SMTP password must come from Secret")
-    if provider == "smtp":
+    if provider == "smtp" and environment == "preview":
+        # Preview는 Pod 안 Mailpit으로만 보낸다. 외부 SMTP 주소나 Gmail 계정을 쓰지 않는다.
+        for key, expected in {
+            "SMTP_HOST": "smtp-capture.university.neordinary.com", "SMTP_PORT": "1025",
+            "SMTP_USERNAME": "umc-preview",
+            "EMAIL_NO_REPLY_ADDRESS": "no-reply-nonprod@university.neordinary.com",
+        }.items():
+            require(environment_values.get(key) == expected, f"{environment}: env {key}")
+    elif provider == "smtp":
         require(environment in {"prod", "dev"}, "preview must not use Gmail SMTP")
         for key, expected in {
             "SMTP_HOST": "smtp.gmail.com", "SMTP_PORT": "587",
@@ -1229,8 +1243,20 @@ def validate_active_preview_edge_fixture(path: Path) -> None:
         item
         for item in resources
         if item.get("kind") == "Ingress"
-        and "external-dns.kubernetes.io/target"
-        in item["metadata"].get("annotations", {})
+        and item["metadata"]["name"] == "umc-product-server-pr-42"
+    )
+    mail_ingress = next(
+        item
+        for item in resources
+        if item.get("kind") == "Ingress"
+        and item["metadata"]["name"] == "umc-product-server-pr-42-mail"
+    )
+    require(
+        mail_ingress["spec"]["rules"][0]["host"] == "mail-pr-42.university.neordinary.com"
+        and mail_ingress["spec"]["tls"][0]["secretName"] == "preview-wildcard-tls"
+        and mail_ingress["metadata"]["annotations"]["traefik.ingress.kubernetes.io/router.middlewares"]
+        == "preview-umc-product-server-pr-42-mail-basic-auth@kubernetescrd",
+        "active preview edge fixture: mail capture UI must use the wildcard TLS and Basic Auth",
     )
     require(
         not any(item.get("kind") == "Certificate" for item in resources),
@@ -1528,7 +1554,7 @@ def validate_secrets(path: Path) -> None:
             for datum in item["spec"]["data"]
         }
         expected = {key: key for key in expected_app_properties[name]}
-        if name == "app-email" and item["metadata"]["namespace"] in {"app", "dev-app"}:
+        if name == "app-email":
             expected["SMTP_PASSWORD"] = "SMTP_PASSWORD"
         if name == "app-oauth" and item["metadata"]["namespace"] in {"app", "dev-app"}:
             expected["SSO_SOCIAL_GOOGLE_CLIENT_SECRET"] = "SSO_SOCIAL_GOOGLE_CLIENT_SECRET"
@@ -1657,9 +1683,9 @@ def validate_preview_budget() -> None:
             "count/certificates.cert-manager.io": "1",
             "count/services": "4",
             "count/deployments.apps": "2",
-            "requests.cpu": "1000m",
-            "requests.memory": "6464Mi",
-            "limits.memory": "9344Mi",
+            "requests.cpu": "1040m",
+            "requests.memory": "6592Mi",
+            "limits.memory": "9600Mi",
         },
         "preview: two-slot resource budget",
     )

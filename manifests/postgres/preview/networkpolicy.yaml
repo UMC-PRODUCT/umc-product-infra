@@ -59,6 +59,8 @@ spec:
               app.kubernetes.io/instance: traefik-kube-system
       ports:
         - { protocol: TCP, port: 8080 }
+        # Mailpit 메일 수집함 UI. SMTP(1025)는 Pod loopback에만 열려 정책 대상이 아니다.
+        - { protocol: TCP, port: 8025 }
   egress:
     - to:
         - podSelector:
