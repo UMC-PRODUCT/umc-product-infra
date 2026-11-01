@@ -48,6 +48,16 @@ env:
   FCM_ENABLED: "true"
   DEMODAY_QR_BASE_URL: https://university.neordinary.com
   SSO_ISSUER: https://api.university.neordinary.com
+  # macOS Google 소셜 SSO. Client Secret은 app-oauth Secret에서 공급한다.
+  SSO_SOCIAL_GOOGLE_ENABLED: "true"
+  SSO_SOCIAL_GOOGLE_CLIENT_ID: "882297658822-ag179p23eqhc5lti8ue5cgbf5phekbfh.apps.googleusercontent.com"
+  SSO_SOCIAL_GOOGLE_CALLBACK_URI: https://api.university.neordinary.com/api/v1/auth/sso/social/google/callback
+  SSO_SOCIAL_APPLE_ENABLED: "true"
+  SSO_SOCIAL_APPLE_CALLBACK_URI: https://api.university.neordinary.com/api/v1/auth/sso/social/apple/callback
+  SSO_SOCIAL_KAKAO_ENABLED: "true"
+  SSO_SOCIAL_KAKAO_CALLBACK_URI: https://api.university.neordinary.com/api/v1/auth/sso/social/kakao/callback
+  SSO_SOCIAL_KAKAO_OIDC: "true"
+  KAKAO_ALLOWED_REDIRECT_URIS: https://api.university.neordinary.com/api/v1/auth/sso/social/kakao/callback
   CERTIFICATE_VERIFICATION_URL_TEMPLATE: https://api.university.neordinary.com/api/v1/certificates/verify/{serialNumber}
   S3_BUCKET_NAME: umc-product-prod-app-storage-351284652562-ap-northeast-2
   S3_REGION: ap-northeast-2
@@ -59,7 +69,7 @@ env:
   SMTP_USERNAME: umcproduct1227@gmail.com
   EMAIL_NO_REPLY_ADDRESS: umcproduct1227@gmail.com
   GOOGLE_CLIENT_ID_LIST: "882297658822-ag179p23eqhc5lti8ue5cgbf5phekbfh.apps.googleusercontent.com,882297658822-qaf493b6fu6a9f33artnu435jimkoome.apps.googleusercontent.com,882297658822-gsl0u8uo78qtt5h0ggkm421sml9c02pd.apps.googleusercontent.com,882297658822-d47kcffbv3eoms278pak6rcv21lhcei8.apps.googleusercontent.com,655033275728-f7jpdingakk1f4im8reegjmioth8jvnv.apps.googleusercontent.com"
-  CORS_ALLOWED_ORIGIN_PATTERNS: "https://university.neordinary.com,https://admin.university.neordinary.com,https://tech.university.neordinary.com"
+  CORS_ALLOWED_ORIGIN_PATTERNS: "https://university.neordinary.com,https://admin.university.neordinary.com,https://tech.university.neordinary.com,https://auth.university.neordinary.com"
   APP_SEED_ENABLED: "false"
   # 앱은 관리자 계정이 아닌 전용 DB role을 쓰며 비밀번호는 app-db Secret에서 받는다.
   DATABASE_URL: jdbc:postgresql://postgres.db.svc.cluster.local:5432/umc_product
@@ -70,7 +80,7 @@ env:
 documentation:
   enabled: true
 
-# prod만 FCM을 활성화하므로 Firebase 자격증명 Secret을 추가로 주입한다.
+# Firebase 자격증명은 prod 전용 AWS source에서 공급한다.
 requiredSecrets:
   - app-db
   - app-jwt
