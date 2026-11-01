@@ -579,7 +579,7 @@ data:
         "to": "now"
       },
       "timepicker": {},
-      "timezone": "browser",
+      "timezone": "Asia/Seoul",
       "title": "UMC PRODUCT — Cache",
       "uid": "umc-product-cache",
       "version": 2
