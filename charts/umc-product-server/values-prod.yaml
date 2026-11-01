@@ -58,6 +58,8 @@ env:
   SSO_SOCIAL_KAKAO_CALLBACK_URI: https://api.university.neordinary.com/api/v1/auth/sso/social/kakao/callback
   SSO_SOCIAL_KAKAO_OIDC: "true"
   KAKAO_ALLOWED_REDIRECT_URIS: https://api.university.neordinary.com/api/v1/auth/sso/social/kakao/callback
+  # Auth App이 Kakao JS SDK로 받은 ID Token의 aud(JavaScript 키). 공개 키라 Secret이 아니다.
+  KAKAO_ALLOWED_ID_TOKEN_AUDIENCES: "4e79ba06223b60e13ad76bb6aec8f2b9"
   CERTIFICATE_VERIFICATION_URL_TEMPLATE: https://api.university.neordinary.com/api/v1/certificates/verify/{serialNumber}
   S3_BUCKET_NAME: umc-product-prod-app-storage-351284652562-ap-northeast-2
   S3_REGION: ap-northeast-2

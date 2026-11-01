@@ -33,6 +33,7 @@ APP_IMAGE = (
 PREVIEW_APP_IMAGE = APP_IMAGE
 TEST_NET_EDGE_TARGET = "203.0.113.10"
 CERTIFICATE_ISSUERS = {"letsencrypt-staging", "letsencrypt-production"}
+KAKAO_JAVASCRIPT_KEY = "4e79ba06223b60e13ad76bb6aec8f2b9"
 GOOGLE_CLIENT_ID_LIST = (
     "882297658822-ag179p23eqhc5lti8ue5cgbf5phekbfh.apps.googleusercontent.com,"
     "882297658822-qaf493b6fu6a9f33artnu435jimkoome.apps.googleusercontent.com,"
@@ -959,6 +960,7 @@ def validate_render(
             "SSO_SOCIAL_KAKAO_ENABLED": "true",
             "SSO_SOCIAL_KAKAO_OIDC": "true",
             "KAKAO_ALLOWED_REDIRECT_URIS": "https://api.university.neordinary.com/api/v1/auth/sso/social/kakao/callback",
+            "KAKAO_ALLOWED_ID_TOKEN_AUDIENCES": KAKAO_JAVASCRIPT_KEY,
             "CERTIFICATE_VERIFICATION_URL_TEMPLATE": "https://api.university.neordinary.com/api/v1/certificates/verify/{serialNumber}",
             "S3_BUCKET_NAME": "umc-product-prod-app-storage-351284652562-ap-northeast-2",
             "GOOGLE_CLIENT_ID_LIST": GOOGLE_CLIENT_ID_LIST,
@@ -982,6 +984,7 @@ def validate_render(
             "SSO_SOCIAL_KAKAO_ENABLED": "true",
             "SSO_SOCIAL_KAKAO_OIDC": "true",
             "KAKAO_ALLOWED_REDIRECT_URIS": "https://api-dev.university.neordinary.com/api/v1/auth/sso/social/kakao/callback",
+            "KAKAO_ALLOWED_ID_TOKEN_AUDIENCES": KAKAO_JAVASCRIPT_KEY,
             "CERTIFICATE_VERIFICATION_URL_TEMPLATE": "https://api-dev.university.neordinary.com/api/v1/certificates/verify/{serialNumber}",
             "S3_BUCKET_NAME": "umc-product-dev-app-storage-351284652562-ap-northeast-2",
             "GOOGLE_CLIENT_ID_LIST": GOOGLE_CLIENT_ID_LIST,
