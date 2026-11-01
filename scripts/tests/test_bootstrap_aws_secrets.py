@@ -100,13 +100,13 @@ class WorksheetParserTests(unittest.TestCase):
 
 # 원본 키의 목적지 매핑과 환경별 자격증명 분리를 검증해 다른 용도의 Secret 재사용을 막는다.
 class PayloadTests(unittest.TestCase):
-    def test_smtp_password_is_only_in_prod_and_dev_email_sources(self) -> None:
+    def test_every_email_source_has_its_own_smtp_password(self) -> None:
         payloads = uploader.build_payloads(valid_worksheets())
         for environment in ("prod", "dev", "preview"):
             properties = payloads[f"/umc-product/{environment}/app-email"]
             self.assertIn("SES_ACCESS_KEY_ID", properties)
             self.assertIn("SES_SECRET_ACCESS_KEY", properties)
-            self.assertEqual("SMTP_PASSWORD" in properties, environment != "preview")
+            self.assertIn("SMTP_PASSWORD", properties)
 
     def test_all_sources_and_special_remaps(self) -> None:
         values = valid_worksheets()

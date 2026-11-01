@@ -151,7 +151,8 @@ Gmail 발신 주소만 넣으면 SMTP로 바뀌지 않는다. provider 설정은
   `SMTP_PASSWORD` property만 추가한다. SES 키와 다른 property를 삭제·덮어쓰지 않는다.
   `bootstrap_aws_secrets.py --apply`는 기존 Secret 갱신 도구가 아니므로 AWS 콘솔의
   **보안 암호 값 검색 → 편집**에서 갱신하거나, 기존 JSON을 보존하는 안전한 갱신 절차를 사용한다.
-- preview는 SES만 사용한다. Gmail 앱 비밀번호를 preview Secret에 복제하지 않는다.
+- preview는 Gmail 앱 비밀번호를 복제하지 않는다. `.env.preview`의 `SMTP_PASSWORD`는 Pod 안 Mailpit 인증에만 쓰는
+  preview 전용 난수다. 이미 만든 `/umc-product/preview/app-email` source에는 `SMTP_PASSWORD` property만 추가한다.
 
 적용 순서:
 

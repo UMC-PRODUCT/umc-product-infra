@@ -301,6 +301,7 @@ preview_args=(
   --set-string 'env.CERTIFICATE_VERIFICATION_URL_TEMPLATE=https://api-pr-42.university.neordinary.com/api/v1/certificates/verify/{serialNumber}'
   --set-string ingress.host=api-pr-42.university.neordinary.com
   --set-string 'ingress.tls[0].hosts[0]=api-pr-42.university.neordinary.com'
+  --set-string mailCapture.uiHost=mail-pr-42.university.neordinary.com
 )
 if helm template umc-product-preview-42 charts/umc-product-server \
   -f charts/umc-product-server/values-preview.yaml "${preview_args[@]}" \

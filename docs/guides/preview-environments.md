@@ -34,6 +34,7 @@ Argo CD의 `preview-head-sha`는 최신 PR 커밋, `preview-deployed-sha`는 배
 
 - API 주소: `https://api-pr-<PR번호>.university.neordinary.com`
 - API 문서: 위 주소의 `/docs/scalar.html`
+- 메일 수집함: `https://mail-pr-<PR번호>.university.neordinary.com`
 - 테스트용 토큰: 위 주소의 `/test/token/access`에서 회원 ID로 액세스 토큰을 받는다. dev와 같은 test·seed API가 열려 있다.
 - 로그·메트릭·트레이스: Grafana에서 서비스 `preview-umc-product-pr<PR번호>` 선택
 
@@ -84,8 +85,10 @@ PR을 닫거나 `preview` 라벨을 제거하면 Preview와 전용 DB가 자동�
 
 ## 테스트할 때 알아둘 점
 
-- **이메일:** Preview는 SES를 사용한다. SES 샌드박스에서는 검증된 수신자만 테스트할 수 있으며,
-  dev의 Gmail 발송 성공과는 별개다.
+- **이메일:** Preview는 메일을 실제 수신자에게 보내지 않는다. 앱이 보낸 메일은 같은 Pod의 Mailpit에 모이고,
+  `https://mail-pr-<PR번호>.university.neordinary.com`에서 원래 수신자·제목·본문을 확인한다.
+  문서·test API와 같은 Preview 공용 Basic Auth를 쓰며, PR마다 수신함이 따로다. Pod가 다시 뜨면 수신함은 비워진다.
+  실제 메일 서비스에서의 도착·스팸 판정은 dev에서 확인한다.
 - **소셜 로그인:** 모바일 앱이 받은 Google·Kakao·Apple 토큰을 Preview API로 보내는 흐름을 테스트한다.
   웹 OAuth의 PR별 동적 콜백은 지원하지 않는다.
 - **QR:** QR 웹 주소는 dev와 같은 `https://university.neordinary.com`이다. 별도 웹 Preview를 만들거나

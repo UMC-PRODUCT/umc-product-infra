@@ -59,6 +59,26 @@ testApi:
   basicAuth:
     existingSecret: docs-basic-auth
 
+# Preview 메일 수집(Mailpit sidecar). 앱은 Pod 안 loopback으로 STARTTLS·인증 SMTP를 보내고,
+# Mailpit은 릴레이 없이 보관만 한다. 인증서는 preview 공용 wildcard Secret, 비밀번호는 app-email Secret을 쓴다.
+mailCapture:
+  enabled: false
+  image: axllent/mailpit:v1.27.0@sha256:fb84cfb1c3a33007cfdee8ba5a77b8c6c894de5b1a368372ddc5c965cf5c0b6d
+  # hostAliases로 127.0.0.1에 묶는 이름. 공용 wildcard 인증서가 덮고, 공개 DNS 레코드는 만들지 않는다.
+  smtpHost: smtp-capture.university.neordinary.com
+  smtpPort: 1025
+  smtpUsername: umc-preview
+  uiPort: 8025
+  uiHost: ""
+  tlsSecret: preview-wildcard-tls
+  maxMessages: 500
+  ui:
+    basicAuth:
+      existingSecret: docs-basic-auth
+  resources:
+    requests: { cpu: 20m, memory: 64Mi }
+    limits: { memory: 128Mi }
+
 # prod/dev cert-manager Certificate는 Deployment와 독립적으로 먼저 발급한다. Preview는
 # namespace 공용 와일드카드 Secret을 사용하므로 환경 overlay에서 비활성화한다.
 certificate:

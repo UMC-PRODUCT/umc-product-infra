@@ -207,10 +207,8 @@ externalSecrets:
     store: aws-secretsmanager
     targetName: app-email
     remoteKey: app-email
-    # preview는 SES만 사용하며 Gmail 자격증명을 공유하지 않는다.
-    data:
-      SES_ACCESS_KEY_ID: SES_ACCESS_KEY_ID
-      SES_SECRET_ACCESS_KEY: SES_SECRET_ACCESS_KEY
+    # preview의 SMTP_PASSWORD는 Gmail이 아니라 Pod 안 Mailpit 인증용 preview 전용 값이다.
+    data: *appEmailData
 
   # PR마다 생성하지 않고 Preview namespace의 문서 라우터들이 함께 사용한다.
   - name: docs-basic-auth

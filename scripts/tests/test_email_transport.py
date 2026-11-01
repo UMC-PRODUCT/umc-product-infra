@@ -78,7 +78,7 @@ class EmailTransportTests(unittest.TestCase):
                 with self.subTest(environment=environment, override=override):
                     self.assertNotEqual(self.render(environment, override).returncode, 0)
 
-    def test_preview_secret_does_not_receive_gmail_password(self) -> None:
+    def test_each_namespace_reads_smtp_password_from_its_own_prefix(self) -> None:
         result = subprocess.run(
             ["helm", "template", "umc-secrets", "charts/umc-secrets"],
             cwd=ROOT, text=True, capture_output=True, check=False,
@@ -86,7 +86,66 @@ class EmailTransportTests(unittest.TestCase):
         for item in self.documents(result):
             if item["kind"] == "ExternalSecret" and item["metadata"]["name"] == "app-email":
                 keys = {datum["secretKey"] for datum in item["spec"]["data"]}
-                self.assertEqual("SMTP_PASSWORD" in keys, item["metadata"]["namespace"] != "preview")
+                self.assertIn("SMTP_PASSWORD", keys)
+
+    def render_preview(self, *overrides: str) -> subprocess.CompletedProcess:
+        command = [
+            "helm", "template", "umc-product-preview-42", "charts/umc-product-server",
+            "--namespace", "preview",
+            "-f", "charts/umc-product-server/values-preview.yaml",
+            "--set", "deployment.enabled=true", "--set", "ingress.enabled=true",
+            "--set-string", "image.tag=0123456789ab",
+            "--set-string", "image.digest=sha256:" + "a" * 64,
+            "--set", "fullnameOverride=umc-product-server-pr-42",
+            "--set", "ingress.host=api-pr-42.university.neordinary.com",
+            "--set", "ingress.tls[0].hosts[0]=api-pr-42.university.neordinary.com",
+            "--set", "mailCapture.uiHost=mail-pr-42.university.neordinary.com",
+            "--set", "createDatabase.name=umc_product_pr42",
+            "--set", "env.DATABASE_URL=jdbc:postgresql://postgres-preview.preview.svc.cluster.local:5432/umc_product_pr42",
+            "--set", "env.SPRING_APPLICATION_NAME=preview-umc-product-pr42",
+            "--set", "env.APP_ENVIRONMENT=preview-pr-42",
+            "--set", "env.SSO_ISSUER=https://api-pr-42.university.neordinary.com",
+            "--set", "env.CERTIFICATE_VERIFICATION_URL_TEMPLATE=https://api-pr-42.university.neordinary.com/api/v1/certificates/verify/{serialNumber}",
+            "--set", "env.DEMODAY_QR_BASE_URL=https://university.neordinary.com",
+        ]
+        for override in overrides:
+            command.extend(["--set-string", override])
+        return subprocess.run(command, cwd=ROOT, text=True, capture_output=True, check=False)
+
+    def test_preview_mail_stays_in_pod_mailpit_without_relay(self) -> None:
+        documents = self.documents(self.render_preview())
+        deployment = next(item for item in documents if item["kind"] == "Deployment")
+        pod = deployment["spec"]["template"]["spec"]
+        self.assertEqual(
+            pod["hostAliases"],
+            [{"ip": "127.0.0.1", "hostnames": ["smtp-capture.university.neordinary.com"]}],
+        )
+        app, mailpit = pod["containers"]
+        env = {item["name"]: item.get("value") for item in app["env"]}
+        self.assertEqual((env["EMAIL_PROVIDER"], env["SMTP_HOST"], env["SMTP_PORT"]),
+                         ("smtp", "smtp-capture.university.neordinary.com", "1025"))
+        mail_env = {item["name"]: item for item in mailpit["env"]}
+        self.assertEqual(mail_env["MP_SMTP_BIND_ADDR"]["value"], "127.0.0.1:1025")
+        self.assertEqual(mail_env["MP_SMTP_REQUIRE_STARTTLS"]["value"], "true")
+        self.assertEqual(mail_env["SMTP_PASSWORD"]["valueFrom"]["secretKeyRef"],
+                         {"name": "app-email", "key": "SMTP_PASSWORD"})
+        self.assertFalse([name for name in mail_env if name.startswith("MP_SMTP_RELAY")])
+        self.assertIn("@sha256:", mailpit["image"])
+        ingress = next(item for item in documents
+                       if item["kind"] == "Ingress" and item["metadata"]["name"].endswith("-mail"))
+        self.assertEqual(ingress["spec"]["rules"][0]["host"], "mail-pr-42.university.neordinary.com")
+        self.assertEqual(ingress["spec"]["tls"][0]["secretName"], "preview-wildcard-tls")
+        self.assertIn("-mail-basic-auth@kubernetescrd",
+                      ingress["metadata"]["annotations"]["traefik.ingress.kubernetes.io/router.middlewares"])
+
+    def test_preview_rejects_external_smtp(self) -> None:
+        for override in (
+            "env.SMTP_HOST=smtp.gmail.com", "env.SMTP_PORT=587",
+            "env.SMTP_USERNAME=umcproduct1227@gmail.com", "env.EMAIL_PROVIDER=ses",
+            "mailCapture.uiHost=mail.example.com",
+        ):
+            with self.subTest(override=override):
+                self.assertNotEqual(self.render_preview(override).returncode, 0)
 
 
 if __name__ == "__main__":

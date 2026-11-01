@@ -25,5 +25,12 @@ spec:
       port: {{ .Values.service.port }}
       targetPort: http
       protocol: TCP
+    {{- if .Values.mailCapture.enabled }}
+    # Preview 메일 수집함 UI. SMTP는 Pod loopback에만 열려 Service로 노출하지 않는다.
+    - name: mail-ui
+      port: {{ .Values.mailCapture.uiPort }}
+      targetPort: mail-ui
+      protocol: TCP
+    {{- end }}
     # management(9090)는 kubelet health probe 전용이며 Service로 노출하지 않는다.
 {{- end }}
