@@ -26,6 +26,7 @@ DASHBOARD_DIRECTORY = pathlib.Path("observability/dashboards")
 
 DASHBOARD_ALLOWLIST = (
     "api-flow.json",
+    "api-lifecycle.json",
     "cache.json",
     "graphql.json",
     "node-exporter-host.json",
