@@ -62,6 +62,24 @@ Git에 복구할 이미지를 반영하는 작업과 DB 복원은 따로 판단�
   지우는지 확인한다. 남아 있으면 라벨을 다시 붙일 때 검사 없이 이전 이미지로 생성된다.
   fork PR은 라벨이 붙더라도 trusted CI가 이미지 발행을 거부하는지 확인한다.
 
+### dev 데이터 복원
+
+- PR DB는 createdb Job이 `charts/umc-product-server/files/preview-database-bootstrap.sh`로 만든다.
+  dev는 읽기 전용 role `umc_product_dev_preview_dump`(연결 2개 제한)로만 덤프하고, preview 앱에는 dev 자격증명을 주지 않는다.
+- 복원이 끝나면 database 주석에 `umc-preview-restore-complete <시각> source=umc_product_dev`를 남긴다.
+  주석이 있는 DB는 Job이 다시 돌아도 건드리지 않고, 주석이 없는 DB는 중간 실패로 보고 지운 뒤 다시 복원한다.
+- 복원 대상 이름은 `umc_product_pr<숫자>`만 허용한다. 이름·owner 검사가 실패하면 SQL을 보내지 않는다.
+- **주석 없이 이미 있던 PR DB는 다음 생성 Job에서 지워진다.** 복원 기능 적용 전에 만든 PR DB가 있으면
+  필요한 데이터를 먼저 옮기거나 라벨을 뗐다 붙여 새로 만든다.
+- 복원 뒤 외부 실행 상태 정리 목록은 `files/preview-external-state-cleanup.sql`이다. backend에 새 토큰·outbox 테이블이
+  생기면 이 파일에 추가한다. 없는 테이블·컬럼은 건너뛴다.
+- dev가 develop보다 늦어 PR 마이그레이션과 맞지 않으면 앱의 Flyway 검증이 기동을 멈춘다. repair나 baseline으로 숨기지 않는다.
+- 활성화 전 준비:
+  1. `.env.dev`와 `.env.preview`에 같은 `DEV_DB_PREVIEW_DUMP_PASSWORD`를 넣고 bootstrap으로 dev·preview 두 source를 만든다.
+  2. ESO IAM(`cloud/aws/external-secrets-iam.yaml`) 변경을 적용하고 `dev-db/postgres-preview-dump`,
+     `preview/dev-db-dump` ExternalSecret의 `Ready=True`를 확인한다.
+  3. dev postgres Application의 `postgres-preview-dump-role` Job 성공과 dev-db·preview NetworkPolicy 동기화를 확인한다.
+
 ## 공유 범위와 보안 경계
 
 모든 PR은 `preview` namespace와 PostgreSQL Pod 한 대를 공유하고 database만 PR별로 나눈다.

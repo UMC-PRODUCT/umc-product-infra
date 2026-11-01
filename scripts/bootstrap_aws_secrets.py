@@ -65,6 +65,11 @@ POSTGRES_PROPERTIES = (
     ("POSTGRES_PASSWORD", "POSTGRES_PASSWORD"),
 )
 DOCS_BASIC_AUTH_PROPERTIES = (("users", "DOCS_BASIC_AUTH_USERS"),)
+# dev 덤프 전용 role 비밀번호. dev-db(role 생성)와 preview(복원 Job 접속)가 같은 값을 써야 하므로
+# .env.dev와 .env.preview에 같은 값을 적고, 업로드 전에 두 값이 같은지 검사한다.
+DEV_DB_PREVIEW_DUMP_PROPERTIES = (
+    ("DEV_DB_PREVIEW_DUMP_PASSWORD", "DEV_DB_PREVIEW_DUMP_PASSWORD"),
+)
 
 
 class BootstrapError(RuntimeError):
@@ -163,7 +168,19 @@ SECRET_SPECS = (
         "dev",
     ),
     *environment_specs("dev")[5:],
+    SecretSpec(
+        "/umc-product/dev/postgres-preview-dump",
+        ".env.dev",
+        DEV_DB_PREVIEW_DUMP_PROPERTIES,
+        "dev",
+    ),
     *environment_specs("preview"),
+    SecretSpec(
+        "/umc-product/preview/dev-db-dump",
+        ".env.preview",
+        DEV_DB_PREVIEW_DUMP_PROPERTIES,
+        "preview",
+    ),
     SecretSpec(
         "/umc-product/preview/docs-basic-auth",
         ".env.preview",
@@ -358,6 +375,12 @@ def validate_worksheet_values(values: dict[str, dict[str, str]], account_id: str
     ]
     database_values.append(values[".env.prod"]["RO_PASSWORD"])
     database_values.append(values[".env.prod"]["POSTGRES_EXPORTER_PASSWORD"])
+    dump_passwords = {
+        values[env_file]["DEV_DB_PREVIEW_DUMP_PASSWORD"] for env_file in (".env.dev", ".env.preview")
+    }
+    if len(dump_passwords) != 1:
+        raise BootstrapError("DEV_DB_PREVIEW_DUMP_PASSWORD must match in .env.dev and .env.preview")
+    database_values.append(values[".env.dev"]["DEV_DB_PREVIEW_DUMP_PASSWORD"])
     if len(set(database_values)) != len(database_values):
         raise BootstrapError("database passwords must differ by role and environment")
 

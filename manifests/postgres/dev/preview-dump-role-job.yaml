@@ -1,0 +1,113 @@
+# PR Preview가 dev DB를 덤프할 때만 쓰는 읽기 전용 role(umc_product_dev_preview_dump).
+# 앱 role(umc_product_dev_app)은 쓰기 권한이 있어 재사용하지 않는다. prod readonly·exporter role과 같은 원칙이다.
+# 비밀번호는 dev-db의 postgres-preview-dump Secret이 공급하고, preview namespace의 dev-db-dump Secret과 같은 값이다.
+# 연결 수를 2로 묶어 Preview 생성이 dev DB 연결을 잠식하지 않게 한다.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: postgres-preview-dump-role
+  namespace: dev-db
+  labels:
+    app.kubernetes.io/name: postgres-preview-dump-role
+    app.kubernetes.io/component: database-bootstrap
+    environment: dev
+  annotations:
+    # Job spec 변경은 삭제·재생성으로 반영되며 아래 SQL도 다시 실행될 수 있다.
+    argocd.argoproj.io/sync-options: Force=true,Replace=true
+    argocd.argoproj.io/sync-wave: "2" # DB와 app role bootstrap 이후
+spec:
+  activeDeadlineSeconds: 300
+  backoffLimit: 3
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: postgres-preview-dump-role
+        app.kubernetes.io/component: database-bootstrap
+        environment: dev
+    spec:
+      restartPolicy: Never
+      priorityClassName: dev-low
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999
+        runAsGroup: 999
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: psql
+          image: postgis/postgis:18-3.6@sha256:60f6ad1d21ea86a67d47780b9a0d1e1d200500f62b19293fa834d0dea80b8677
+          command: ["sh", "-c"]
+          # 조회 권한만 준다. ON_ERROR_STOP은 다음 SQL 실행을 멈출 뿐 앞선 권한 변경을 되돌리지 않는다.
+          args:
+            - |
+              set -eu
+              database_ready=false
+              for i in $(seq 1 40); do
+                if pg_isready -q; then
+                  database_ready=true
+                  break
+                fi
+                sleep 3
+              done
+              test "$database_ready" = true
+              psql -v ON_ERROR_STOP=1 --set=dump_pw="$DUMP_PASSWORD" <<'SQL'
+              SELECT format('CREATE ROLE umc_product_dev_preview_dump LOGIN PASSWORD %L', :'dump_pw')
+                WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'umc_product_dev_preview_dump') \gexec
+              SELECT format('ALTER ROLE umc_product_dev_preview_dump LOGIN PASSWORD %L', :'dump_pw')
+                WHERE EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'umc_product_dev_preview_dump') \gexec
+              ALTER ROLE umc_product_dev_preview_dump
+                NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLICATION NOBYPASSRLS CONNECTION LIMIT 2;
+              DO $role_check$
+              BEGIN
+                IF EXISTS (
+                  SELECT 1 FROM pg_auth_members
+                  WHERE member = (SELECT oid FROM pg_roles WHERE rolname = 'umc_product_dev_preview_dump')
+                ) THEN
+                  RAISE EXCEPTION 'umc_product_dev_preview_dump must not inherit another role';
+                END IF;
+              END
+              $role_check$;
+              GRANT CONNECT ON DATABASE :"DBNAME" TO umc_product_dev_preview_dump;
+              GRANT USAGE ON SCHEMA public TO umc_product_dev_preview_dump;
+              GRANT SELECT ON ALL TABLES IN SCHEMA public TO umc_product_dev_preview_dump;
+              GRANT SELECT ON ALL SEQUENCES IN SCHEMA public TO umc_product_dev_preview_dump;
+              -- Flyway는 umc_product_dev_app으로 실행하므로 그 role이 앞으로 만드는 객체에도 적용한다.
+              ALTER DEFAULT PRIVILEGES FOR ROLE umc_product_dev_app IN SCHEMA public
+                GRANT SELECT ON TABLES TO umc_product_dev_preview_dump;
+              ALTER DEFAULT PRIVILEGES FOR ROLE umc_product_dev_app IN SCHEMA public
+                GRANT SELECT ON SEQUENCES TO umc_product_dev_preview_dump;
+              SQL
+          env:
+            - name: PGHOST
+              value: postgres.dev-db.svc.cluster.local
+            - name: PGUSER
+              valueFrom:
+                secretKeyRef: { name: postgres-secrets, key: POSTGRES_USER }
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef: { name: postgres-secrets, key: POSTGRES_PASSWORD }
+            - name: PGDATABASE
+              value: umc_product_dev
+            - name: PGCONNECT_TIMEOUT
+              value: "5"
+            - name: PGOPTIONS
+              value: "-c statement_timeout=30s -c lock_timeout=10s"
+            - name: DUMP_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: postgres-preview-dump, key: DEV_DB_PREVIEW_DUMP_PASSWORD }
+          resources:
+            requests: { cpu: 50m, memory: 64Mi }
+            limits: { memory: 128Mi }
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: 64Mi

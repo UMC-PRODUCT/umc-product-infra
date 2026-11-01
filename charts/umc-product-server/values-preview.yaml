@@ -31,6 +31,14 @@ resources:
 createDatabase:
   enabled: true
   owner: umc_product_preview_app
+  # 처음 만들 때 dev DB를 복원한다. 덤프·복원 시간을 고려해 기한을 늘리고, 재시도는 완료 표시로 보호된다.
+  activeDeadlineSeconds: 1800
+  backoffLimit: 2
+  resources:
+    requests: { cpu: 100m, memory: 128Mi }
+    limits: { memory: 512Mi }
+  copyFromDev:
+    enabled: true
 
 # 활성화 후 PR 종료 시 해당 DB와 기존 연결을 정리한다. 공용 PostgreSQL·인증서는 유지한다.
 deleteDatabase:

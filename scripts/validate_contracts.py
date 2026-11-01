@@ -1172,6 +1172,24 @@ def validate_render(
         script = createdb_container["args"][0]
         require("CREATE EXTENSION IF NOT EXISTS postgis;" in script, "preview: postgis bootstrap")
         require("CREATE EXTENSION IF NOT EXISTS btree_gist;" in script, "preview: btree_gist bootstrap")
+        createdb_env = {item["name"]: item for item in createdb_container["env"]}
+        require(
+            createdb_env["COPY_FROM_DEV"]["value"] == "true"
+            and createdb_env["SOURCE_USER"]["value"] == "umc_product_dev_preview_dump"
+            and createdb_env["SOURCE_PASSWORD"]["valueFrom"]["secretKeyRef"]["name"] == "dev-db-dump",
+            "preview: createdb must copy dev only through the read-only dump role",
+        )
+        require(
+            createdb["spec"]["template"]["metadata"]["labels"].get(
+                "infra.university.neordinary.com/dev-db-reader"
+            )
+            == "true",
+            "preview: only the createdb Pod may match the dev DB reader NetworkPolicy",
+        )
+        require(
+            "WITH (FORCE)" in script and "umc-preview-restore-complete" in script,
+            "preview: createdb must rebuild only databases without the restore marker",
+        )
 
 
 def validate_active_edge_fixture(path: Path) -> None:
@@ -1443,7 +1461,7 @@ def validate_secrets(path: Path) -> None:
     stores = [item for item in resources if item.get("kind") == "SecretStore"]
     external_secrets = [item for item in resources if item.get("kind") == "ExternalSecret"]
     require(len(stores) == 9, f"SecretStore count is {len(stores)}, expected 9")
-    require(len(external_secrets) == 33, f"ExternalSecret count is {len(external_secrets)}, expected 33")
+    require(len(external_secrets) == 35, f"ExternalSecret count is {len(external_secrets)}, expected 35")
 
     expected_names = {
         "app": set(FCM_REQUIRED_SECRETS + ["docs-basic-auth"]),
@@ -1455,8 +1473,10 @@ def validate_secrets(path: Path) -> None:
             "backup-s3",
         },
         "dev-app": set(FCM_REQUIRED_SECRETS + ["docs-basic-auth"]),
-        "dev-db": {"app-db", "postgres-secrets"},
-        "preview": set(BASE_REQUIRED_SECRETS + ["postgres-preview-secrets", "docs-basic-auth"]),
+        "dev-db": {"app-db", "postgres-secrets", "postgres-preview-dump"},
+        "preview": set(
+            BASE_REQUIRED_SECRETS + ["postgres-preview-secrets", "docs-basic-auth", "dev-db-dump"]
+        ),
         "monitoring": {"grafana-admin", "alertmanager-discord"},
         "argocd": {"preview-github-token"},
         "cert-manager": {"route53-credentials"},
@@ -1538,7 +1558,7 @@ def validate_secrets(path: Path) -> None:
     )
     iam_sources = set(re.findall(r"secret:(/umc-product/[^\"\n]+)-\?{6}", iam_text))
     require(sources == iam_sources, f"Secrets Manager/IAM paths differ: {sources ^ iam_sources}")
-    require(len(sources) == 31, f"Secrets Manager source count is {len(sources)}, expected 31")
+    require(len(sources) == 33, f"Secrets Manager source count is {len(sources)}, expected 33")
     iam_template = yaml.load(iam_text, Loader=CloudFormationLoader)
     dev_resources = iam_template["Resources"]["DevRole"]["Properties"]["Policies"][0][
         "PolicyDocument"
@@ -1564,8 +1584,8 @@ def validate_secrets(path: Path) -> None:
         "secret uploader paths/properties must match rendered ExternalSecrets",
     )
     require(
-        len(SECRET_SPECS) == len(uploader_properties) == 31,
-        "secret uploader must contain 31 unique sources",
+        len(SECRET_SPECS) == len(uploader_properties) == 33,
+        "secret uploader must contain 33 unique sources",
     )
     renamed_properties = {
         "/umc-product/prod/backup-s3": {
@@ -1639,7 +1659,7 @@ def validate_preview_budget() -> None:
             "count/deployments.apps": "2",
             "requests.cpu": "1000m",
             "requests.memory": "6464Mi",
-            "limits.memory": "8832Mi",
+            "limits.memory": "9344Mi",
         },
         "preview: two-slot resource budget",
     )

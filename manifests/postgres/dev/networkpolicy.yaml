@@ -31,8 +31,19 @@ spec:
                 values: [database-bootstrap, database-cleanup]
         - podSelector:
             matchLabels:
-              app.kubernetes.io/name: postgres-app-role
               app.kubernetes.io/component: database-bootstrap
+            matchExpressions:
+              - key: app.kubernetes.io/name
+                operator: In
+                values: [postgres-app-role, postgres-preview-dump-role]
+        # PR Preview 생성 Job만 dev 덤프를 위해 읽기 전용 role로 접속한다. 앱 Pod는 포함하지 않는다.
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: preview
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/component: database-bootstrap
+              infra.university.neordinary.com/dev-db-reader: "true"
       ports:
         - { protocol: TCP, port: 5432 }
 ---
@@ -61,7 +72,7 @@ spec:
         - { protocol: UDP, port: 53 }
         - { protocol: TCP, port: 53 }
 ---
-# 앱 role 초기화 Job의 송신도 별도로 허용해야 DB의 ingress 허용과 함께 연결이 성립한다.
+# 앱 role·Preview 덤프 role 초기화 Job의 송신도 별도로 허용해야 DB의 ingress 허용과 함께 연결이 성립한다.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -74,8 +85,11 @@ metadata:
 spec:
   podSelector:
     matchLabels:
-      app.kubernetes.io/name: postgres-app-role
       app.kubernetes.io/component: database-bootstrap
+    matchExpressions:
+      - key: app.kubernetes.io/name
+        operator: In
+        values: [postgres-app-role, postgres-preview-dump-role]
   policyTypes: [Egress]
   egress:
     - to:

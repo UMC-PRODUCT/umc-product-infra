@@ -45,6 +45,9 @@ def valid_worksheets() -> dict[str, dict[str, str]]:
             {"type": "service_account", "private_key": f"{env_file}:line1\nline2"},
             separators=(",", ":"),
         )
+    values[".env.preview"]["DEV_DB_PREVIEW_DUMP_PASSWORD"] = values[".env.dev"][
+        "DEV_DB_PREVIEW_DUMP_PASSWORD"
+    ]
     values[".env.prod"]["BACKUP_AWS_REGION"] = uploader.SEOUL_REGION
     values[".env.prod"]["BACKUP_S3_EXPECTED_BUCKET_OWNER"] = "351284652562"
     values[".env.prod"]["BACKUP_S3_BUCKET"] = (
@@ -112,7 +115,7 @@ class PayloadTests(unittest.TestCase):
 
         payloads = uploader.build_payloads(values)
 
-        self.assertEqual(len(payloads), 31)
+        self.assertEqual(len(payloads), 33)
         self.assertIn("APPLE_WEB_CLIENT_ID", payloads["/umc-product/prod/app-oauth"])
         self.assertEqual(
             payloads["/umc-product/prod/app-oauth"]["APPLE_WEB_CLIENT_ID"], ""
@@ -141,6 +144,11 @@ class PayloadTests(unittest.TestCase):
                 ]
             },
         )
+        dump_password = {
+            "DEV_DB_PREVIEW_DUMP_PASSWORD": values[".env.dev"]["DEV_DB_PREVIEW_DUMP_PASSWORD"]
+        }
+        self.assertEqual(payloads["/umc-product/dev/postgres-preview-dump"], dump_password)
+        self.assertEqual(payloads["/umc-product/preview/dev-db-dump"], dump_password)
         self.assertEqual(
             payloads["/umc-product/platform/monitoring/grafana-admin"]["admin-user"],
             values[".env.prod"]["GRAFANA_ADMIN_USER"],
@@ -171,6 +179,13 @@ class PayloadTests(unittest.TestCase):
                 ],
             },
         )
+
+
+    def test_dev_dump_password_must_match_between_dev_and_preview(self) -> None:
+        values = valid_worksheets()
+        values[".env.preview"]["DEV_DB_PREVIEW_DUMP_PASSWORD"] = "different"
+        with self.assertRaisesRegex(uploader.BootstrapError, "DEV_DB_PREVIEW_DUMP_PASSWORD"):
+            uploader.validate_worksheet_values(values, "351284652562")
 
     def test_rejects_invalid_preview_docs_htpasswd_without_exposing_it(self) -> None:
         values = valid_worksheets()
