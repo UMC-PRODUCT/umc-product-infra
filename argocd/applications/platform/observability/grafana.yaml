@@ -56,8 +56,10 @@ spec:
             sha: e8fb0c4fa3c5a22d9d0eabd9c13cf5df9ce65cba6a062272f2a762f7a78284d6
           resources:
             # Cafe24 8코어 기준으로 임시 축소 전 ConfigMap 감시 CPU 예약량을 복원한다.
+            # limit은 평균 사용량(약 11m) 대비 쓰로틀링이 반복 발화해 버스트 여유를 늘렸다.
+            # 실측: kubectl top(2026-10) 기준 cpu 11m, memory 77Mi.
             requests: { cpu: 50m, memory: 64Mi }
-            limits: { cpu: 100m, memory: 128Mi }
+            limits: { cpu: 200m, memory: 128Mi }
           dashboards:
             enabled: true
             # Grafana의 home watcher보다 파일을 먼저 준비한다. WATCH는 종료하지
@@ -142,6 +144,8 @@ spec:
                 access: proxy
                 url: http://loki.monitoring.svc.cluster.local:3100
                 jsonData:
+                  # 장기간 집계가 기본 30초 HTTP 제한으로 먼저 취소되지 않게 한다.
+                  timeout: "180"
                   derivedFields:
                     - datasourceUid: tempo
                       matcherRegex: '"traceId":"(\w+)"'
@@ -181,6 +185,8 @@ spec:
               hosts: [grafana.university.neordinary.com]
 
         grafana.ini:
+          date_formats:
+            default_timezone: Asia/Seoul
           dashboards:
             # 로그인 후 전체 현황에서 시작하고 필요할 때 상세 대시보드로 내려간다.
             default_home_dashboard_path: /tmp/dashboards/UMC Product/system-overview.json

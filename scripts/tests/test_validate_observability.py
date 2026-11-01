@@ -20,6 +20,7 @@ from validate_observability import (
     selector_matches,
     validate_alertmanager_config,
     validate_grafana_dashboard_startup,
+    validate_loki_query_budget,
     validate_cluster_resource,
     validate_monitor_selection,
     validate_monitoring_rbac,
@@ -157,6 +158,24 @@ class GrafanaStartupTest(unittest.TestCase):
                 "env": [{"name": "METHOD", "value": "WATCH"}]}]}}}}]
         with self.assertRaisesRegex(SystemExit, "not a blocking init container"):
             validate_grafana_dashboard_startup(resources)
+
+
+class LokiQueryBudgetTest(unittest.TestCase):
+    def test_단일_바이너리의_쿼리_실행과_분할_병렬도를_제한한다(self) -> None:
+        bounded = {"querier": {"max_concurrent": 2}, "limits_config": {
+            "max_query_parallelism": 2, "tsdb_max_query_parallelism": 2}}
+        validate_loki_query_budget(bounded)
+        for section, key in (("querier", "max_concurrent"),
+                             ("limits_config", "max_query_parallelism"),
+                             ("limits_config", "tsdb_max_query_parallelism")):
+            for value in (None, 0, 128):
+                broken = copy.deepcopy(bounded)
+                if value is None:
+                    del broken[section][key]
+                else:
+                    broken[section][key] = value
+                with self.subTest(key=key, value=value), self.assertRaisesRegex(SystemExit, "Loki"):
+                    validate_loki_query_budget(broken)
 
 
 if __name__ == "__main__":

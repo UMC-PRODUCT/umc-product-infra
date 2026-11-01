@@ -7,8 +7,8 @@ deployment:
 
 # develop 배포 CI가 tag와 digest를 함께 갱신하며 운영 values와 독립적으로 승격한다.
 image:
-  tag: "b73f6b4e3aee"
-  digest: "sha256:0249125be4cf269d0e948d8e88d6f244a9c825c9f4a2204d7d82e24b461cf4e6"
+  tag: "a0ab9709f748"
+  digest: "sha256:84aa0ed99ebe271546c7a50068bd79bee1c92678cdf8820d887b9835facb8495"
 
 priorityClassName: dev-low
 
@@ -40,12 +40,24 @@ env:
   SPRING_PROFILES_ACTIVE: dev
   SPRING_APPLICATION_NAME: dev-umc-product
   APP_ENVIRONMENT: dev
+  CORS_ALLOWED_ORIGIN_PATTERNS: "http://localhost:3000,http://localhost:3001,http://localhost:5173,http://localhost:5174,https://dev.admin.university.neordinary.com,https://www.dev.admin.university.neordinary.com,https://dev.auth.university.neordinary.com,https://www.dev.auth.university.neordinary.com"
   APP_TEST_API_ENABLED: "true"
   # 외부 문서 경로는 별도 Traefik Basic Auth Ingress가 보호한다.
   OPENAPI_ENABLE: "true"
+  FCM_ENABLED: "true"
   # dev 프론트 주소를 확정하기 전까지 공용 프론트를 사용한다. dev QR 플로우 검증 전 교체한다.
   DEMODAY_QR_BASE_URL: https://university.neordinary.com
   SSO_ISSUER: https://api-dev.university.neordinary.com
+  # macOS Google 소셜 SSO. Client Secret은 app-oauth Secret에서 공급한다.
+  SSO_SOCIAL_GOOGLE_ENABLED: "true"
+  SSO_SOCIAL_GOOGLE_CLIENT_ID: "882297658822-ag179p23eqhc5lti8ue5cgbf5phekbfh.apps.googleusercontent.com"
+  SSO_SOCIAL_GOOGLE_CALLBACK_URI: https://api-dev.university.neordinary.com/api/v1/auth/sso/social/google/callback
+  SSO_SOCIAL_APPLE_ENABLED: "true"
+  SSO_SOCIAL_APPLE_CALLBACK_URI: https://api-dev.university.neordinary.com/api/v1/auth/sso/social/apple/callback
+  SSO_SOCIAL_KAKAO_ENABLED: "true"
+  SSO_SOCIAL_KAKAO_CALLBACK_URI: https://api-dev.university.neordinary.com/api/v1/auth/sso/social/kakao/callback
+  SSO_SOCIAL_KAKAO_OIDC: "true"
+  KAKAO_ALLOWED_REDIRECT_URIS: https://api-dev.university.neordinary.com/api/v1/auth/sso/social/kakao/callback
   CERTIFICATE_VERIFICATION_URL_TEMPLATE: https://api-dev.university.neordinary.com/api/v1/certificates/verify/{serialNumber}
   S3_BUCKET_NAME: umc-product-dev-app-storage-351284652562-ap-northeast-2
   S3_REGION: ap-northeast-2
@@ -75,8 +87,18 @@ probes:
   startup:
     failureThreshold: 60
 
+# Firebase 자격증명은 dev 전용 AWS source에서 공급한다.
+requiredSecrets:
+  - app-db
+  - app-jwt
+  - app-oauth
+  - app-storage
+  - app-email
+  - app-fcm
+
 reloader:
   secretNames:
     - app-oauth
     - app-storage
     - app-email
+    - app-fcm
