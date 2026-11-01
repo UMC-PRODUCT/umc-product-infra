@@ -7,7 +7,7 @@
     "k6",
     "use-method"
   ],
-  "timezone": "browser",
+  "timezone": "Asia/Seoul",
   "schemaVersion": 39,
   "refresh": "5s",
   "graphTooltip": 1,

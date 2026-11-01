@@ -339,6 +339,16 @@ def validate_grafana_access_contract(application: dict) -> bool:
     return ingress.get("enabled") is True
 
 
+def validate_loki_query_budget(config: dict) -> None:
+    # 기본값으로 돌아가면 작은 단일 바이너리에서 장기간 대시보드 조회가 OOM을 유발할 수 있다.
+    for section, key in (("querier", "max_concurrent"),
+                         ("limits_config", "max_query_parallelism"),
+                         ("limits_config", "tsdb_max_query_parallelism")):
+        value = config.get(section, {}).get(key)
+        require(isinstance(value, int) and 1 <= value <= 2,
+                f"Loki: {section}.{key} must be explicitly bounded to 1..2 for 768Mi")
+
+
 # 종료되지 않는 dashboard watcher를 일반 initContainer로 두어 Grafana 시작이 막히는 것을 방지한다.
 def validate_grafana_dashboard_startup(resources: list[dict]) -> None:
     workload = pod_spec(named_resource(resources, "Deployment", "grafana"))
@@ -508,6 +518,7 @@ def validate_runtime_configs(rendered: dict[str, list[dict]]) -> dict[str, str]:
 
     loki_raw = configmap_value(rendered["loki"], "loki", "config.yaml")
     loki = yaml.safe_load(loki_raw)
+    validate_loki_query_budget(loki)
     require(
         str(loki.get("limits_config", {}).get("retention_period")) == "2160h",
         "Loki: retention must remain 90 days",
