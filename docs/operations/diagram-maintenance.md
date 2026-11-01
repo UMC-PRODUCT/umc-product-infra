@@ -51,7 +51,7 @@ Graphviz 속성을 가진다.
 
 Preview 그림의 `preview` label은 trusted same-repository PR 검토가 끝났다는 승인이다. Preview는
 shared Secret과 shared DB role을 사용하므로 fork와 외부 코드를 실행하지 않는다. 최종 목표 API는
-`api-pr-<PR>.university.neordinary.com`이고 동시 상한은 3개다. 모바일 native token login은
+`api-pr-<PR>.university.neordinary.com`이고 동시 상한은 2개다. 모바일 native token login은
 지원하지만 browser OAuth callback broker는 운영하지 않는다.
 
 ### 변경 확인
