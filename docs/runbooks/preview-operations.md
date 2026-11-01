@@ -80,6 +80,18 @@ Git에 복구할 이미지를 반영하는 작업과 DB 복원은 따로 판단�
      `preview/dev-db-dump` ExternalSecret의 `Ready=True`를 확인한다.
   3. dev postgres Application의 `postgres-preview-dump-role` Job 성공과 dev-db·preview NetworkPolicy 동기화를 확인한다.
 
+### 남은 DB와 파일 정리
+
+- `preview-orphan-database-check` CronJob이 매일 03:00 KST에 앱 연결이 하나도 없는 `umc_product_pr*` DB를 찾는다.
+  찾으면 Job이 실패하고 `PreviewOrphanDatabaseCheckFailed` 알림이 Discord로 온다. **자동으로 지우지 않는다.**
+- 알림을 받으면 실패한 Job 로그의 DB 이름으로 다음을 확인한다.
+  1. 같은 번호의 PR Application이 있고 앱이 기동하지 못한 상태인지 → 앱 원인을 해결한다.
+  2. Application이 없거나 삭제 실패(`DeletionError`) 상태인지 → PostDelete `dropdb` Job 로그를 보고 원인을 해결한 뒤 삭제를 재시도한다.
+  3. 둘 다 아니면 PR이 닫혔는지 확인하고, 필요한 데이터가 없음을 확인한 뒤에만 이름을 다시 검증해 해당 DB 하나만 지운다.
+- Preview 버킷(`umc-product-preview-app-storage-*`)은 객체를 30일 뒤 Lifecycle로 지운다. dev 파일은 복사하지 않으므로
+  여기 있는 것은 PR 테스트 중 올린 파일뿐이다. prod·dev 버킷에는 만료 규칙이 없다.
+  CloudFormation 변경은 preview 스택(`umc-product-preview-app-storage-s3`)에만 적용되도록 스택별로 확인한다.
+
 ### 메일 수집 (Mailpit)
 
 - PR 앱 Pod에 Mailpit sidecar가 붙는다. 앱은 `smtp-capture.university.neordinary.com:1025`로 보내고,

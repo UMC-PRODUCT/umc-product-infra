@@ -354,6 +354,27 @@ def validate_app_storage_contract() -> None:
         template["Conditions"]["IsProduction"] == ["Environment", "prod"],
         "app storage production CORS condition",
     )
+    # preview만 테스트 업로드를 30일 뒤 만료한다. prod·dev 파일은 만료하지 않는다.
+    abort_multipart = {
+        "Id": "abort-incomplete-multipart-uploads",
+        "Status": "Enabled",
+        "AbortIncompleteMultipartUpload": {"DaysAfterInitiation": 1},
+    }
+    require(
+        template["Conditions"]["IsPreview"] == ["Environment", "preview"]
+        and template["Resources"]["AppStorageBucket"]["Properties"]["LifecycleConfiguration"]
+        == {
+            "Rules": [
+                "IsPreview",
+                [
+                    abort_multipart,
+                    {"Id": "expire-preview-test-uploads", "Status": "Enabled", "ExpirationInDays": 30},
+                ],
+                [abort_multipart],
+            ]
+        },
+        "app storage lifecycle: only preview uploads expire after 30 days",
+    )
     require(
         template["Resources"]["AppStorageBucket"]["Properties"][
             "CorsConfiguration"
@@ -1683,9 +1704,9 @@ def validate_preview_budget() -> None:
             "count/certificates.cert-manager.io": "1",
             "count/services": "4",
             "count/deployments.apps": "2",
-            "requests.cpu": "1040m",
-            "requests.memory": "6592Mi",
-            "limits.memory": "9600Mi",
+            "requests.cpu": "1060m",
+            "requests.memory": "6624Mi",
+            "limits.memory": "9664Mi",
         },
         "preview: two-slot resource budget",
     )
