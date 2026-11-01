@@ -14,7 +14,8 @@ spec:
     count/certificates.cert-manager.io: "1"
     count/services: "4"
     count/deployments.apps: "2"
-    # 앱 2개(250m/2Gi, limit 3Gi) + 공용 PostgreSQL(250m/2Gi, limit 2Gi) + 생성·삭제 Job 여유(250m/320Mi, limit 640Mi)
+    # 앱 2개(250m/2Gi, limit 3Gi) + 공용 PostgreSQL(250m/2Gi, limit 2Gi)
+    # + 동시에 도는 dev 복원 Job 2개(100m/128Mi, limit 512Mi)와 삭제 Job 1개(50m/64Mi, limit 128Mi)
     requests.cpu: 1000m
     requests.memory: 6464Mi
-    limits.memory: 8832Mi
+    limits.memory: 9344Mi

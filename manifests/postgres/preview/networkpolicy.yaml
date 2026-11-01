@@ -167,3 +167,31 @@ spec:
               app.kubernetes.io/component: database
       ports:
         - { protocol: TCP, port: 5432 }
+---
+# PR database 생성 Job 중 dev 복원을 맡은 Pod만 dev PostgreSQL로 나간다. dev-db 쪽 ingress도 같은 label만 허용한다.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: preview-dev-db-reader-allow-egress
+  namespace: preview
+  labels:
+    environment: preview
+  annotations:
+    argocd.argoproj.io/sync-wave: "-2"
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/component: database-bootstrap
+      infra.university.neordinary.com/dev-db-reader: "true"
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: dev-db
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: postgres
+              app.kubernetes.io/component: database
+      ports:
+        - { protocol: TCP, port: 5432 }

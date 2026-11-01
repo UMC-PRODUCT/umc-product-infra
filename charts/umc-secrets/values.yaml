@@ -262,6 +262,21 @@ externalSecrets:
     data:
       POSTGRES_PASSWORD: POSTGRES_PASSWORD
       POSTGRES_USER: POSTGRES_USER
+  # dev 덤프 전용 role 비밀번호. dev-db는 role을 만들고, preview의 생성 Job은 이 값으로 dev에 접속한다.
+  - name: postgres-preview-dump
+    namespace: dev-db
+    store: aws-secretsmanager
+    targetName: postgres-preview-dump
+    remoteKey: postgres-preview-dump
+    data:
+      DEV_DB_PREVIEW_DUMP_PASSWORD: DEV_DB_PREVIEW_DUMP_PASSWORD
+  - name: dev-db-dump
+    namespace: preview
+    store: aws-secretsmanager
+    targetName: dev-db-dump
+    remoteKey: dev-db-dump
+    data:
+      DEV_DB_PREVIEW_DUMP_PASSWORD: DEV_DB_PREVIEW_DUMP_PASSWORD
   - name: postgres-preview-secrets
     namespace: preview
     store: aws-secretsmanager

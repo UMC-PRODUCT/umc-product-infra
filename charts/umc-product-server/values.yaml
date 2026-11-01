@@ -129,6 +129,16 @@ createDatabase:
   backoffLimit: 5
   connectTimeoutSeconds: "5"
   statementTimeout: 30s
+  resources:
+    requests: { cpu: 50m, memory: 64Mi }
+    limits: { memory: 128Mi }
+  # preview 전용. dev DB를 읽기 전용 role로 덤프해 PR database를 채운다.
+  copyFromDev:
+    enabled: false
+    host: postgres.dev-db.svc.cluster.local
+    database: umc_product_dev
+    user: umc_product_dev_preview_dump
+    existingSecret: dev-db-dump
 
 # PR Application 삭제 후 해당 DB를 정리한다. FORCE 삭제는 그 DB의 기존 연결도 종료한다.
 # 실패한 삭제 hook은 원인 확인을 위해 남으며, DB 백업·보존을 대신하지 않는다.

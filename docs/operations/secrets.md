@@ -46,6 +46,9 @@ property 목록은 문서에 복사하지 않고 위 코드에서 확인한다.
   prod/dev/preview마다 다른 비밀번호를 사용하며, bootstrap은 환경 간 동일 htpasswd 복사를 거부한다.
 - `POSTGRES_EXPORTER_PASSWORD`는 prod 모니터링 role 전용 값이다. DB 관리자,
   앱, readonly password와 모두 다른 난수를 쓴다.
+- `DEV_DB_PREVIEW_DUMP_PASSWORD`는 `.env.dev`와 `.env.preview`에 **같은 값**으로 적는다.
+  `/umc-product/dev/postgres-preview-dump`는 dev 덤프 전용 role을 만들고, `/umc-product/preview/dev-db-dump`는
+  Preview 생성 Job이 dev에 접속할 때 쓴다. bootstrap은 두 값이 다르면 거부하며, 다른 DB 비밀번호와는 다른 난수를 쓴다.
 - prod SES 자격증명은 dev/preview와 공유하지 않는다. dev/preview만 nonprod sender를 공유한다.
 - DB URL·username, bucket 이름, region, Spring profile, issuer URL과 발신 주소는 비밀이 아니므로 Helm values에 둔다.
 
