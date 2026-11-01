@@ -51,10 +51,15 @@ Git에 복구할 이미지를 반영하는 작업과 DB 복원은 따로 판단�
   API 요청은 IDC의 Traefik `443/TCP`로 직접 들어온다.
 - API 자체 인증과 문서용 접근 보호는 별개다. 문서 보호 Ingress·인증 Secret·외부 요청 결과를 확인한다.
   문서 보호 설정이 꺼져 있다고 문서 경로까지 차단된 것으로 판단하지 않는다.
-- 동시 Preview 상한은 3개다. [ResourceQuota](../../manifests/cluster/preview-resourcequota.yaml)는
-  PostgreSQL Service 2개와 PR별 앱 Service 3개, namespace의 CPU·메모리를 제한한다.
+- 동시 Preview 상한은 2개다. 1차로 backend `publish-preview.yml`의 admit job이 라벨을 붙인 시점에
+  다른 `preview` PR 수를 세어 초과하면 라벨을 뗀다. 동시에 두 PR에 라벨을 붙이면 둘 다 거절될 수 있다.
+- [ResourceQuota](../../manifests/cluster/preview-resourcequota.yaml)는 마지막 차단이다.
+  PostgreSQL Service 2개와 PR별 앱 Service 2개, namespace의 CPU·메모리를 제한한다.
   앱 Service가 wave `-2`, createdb Job이 `-1` 순으로 처리되어야 한다.
-- 3개가 실행 중일 때 네 번째 Service가 quota에서 거부되고 DB가 먼저 생성되지 않는지 검증한다.
+- 2개가 실행 중일 때 세 번째 PR의 라벨이 떼어지는지, quota에서도 세 번째 Service가 거부되고
+  DB가 먼저 생성되지 않는지 검증한다.
+- 라벨 제거·PR 종료 때 backend `preview-release-cleanup.yml`이 `argocd/preview-releases/pr-<번호>.json`을
+  지우는지 확인한다. 남아 있으면 라벨을 다시 붙일 때 검사 없이 이전 이미지로 생성된다.
   fork PR은 라벨이 붙더라도 trusted CI가 이미지 발행을 거부하는지 확인한다.
 
 ## 공유 범위와 보안 경계

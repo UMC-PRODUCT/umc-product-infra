@@ -1586,13 +1586,13 @@ def validate_preview_budget() -> None:
         quota["spec"]["hard"]
         == {
             "count/certificates.cert-manager.io": "1",
-            "count/services": "5",
-            "count/deployments.apps": "3",
+            "count/services": "4",
+            "count/deployments.apps": "2",
             "requests.cpu": "1050m",
             "requests.memory": "4416Mi",
             "limits.memory": "7808Mi",
         },
-        "preview: three-slot resource budget",
+        "preview: two-slot resource budget",
     )
     applicationset = resource(
         yaml_documents(ROOT / "argocd" / "applications" / "preview" / "applicationset.yaml"),
