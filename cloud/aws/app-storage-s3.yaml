@@ -34,6 +34,7 @@ Rules:
 
 Conditions:
   IsProduction: !Equals [!Ref Environment, prod]
+  IsPreview: !Equals [!Ref Environment, preview]
 
 Resources:
   AppStorageBucket:
@@ -74,12 +75,21 @@ Resources:
               - x-amz-id-2
             MaxAge: 3600
       LifecycleConfiguration:
-        # 완료된 파일은 만료시키지 않고 중단된 multipart 업로드만 정리한다.
-        Rules:
-          - Id: abort-incomplete-multipart-uploads
-            Status: Enabled
-            AbortIncompleteMultipartUpload:
-              DaysAfterInitiation: 1
+        # prod·dev는 완료된 파일을 만료시키지 않고 중단된 multipart 업로드만 정리한다.
+        # preview는 dev 파일을 복사하지 않고 PR 테스트 중 올린 파일만 담으므로 30일 뒤 지운다.
+        Rules: !If
+          - IsPreview
+          - - Id: abort-incomplete-multipart-uploads
+              Status: Enabled
+              AbortIncompleteMultipartUpload:
+                DaysAfterInitiation: 1
+            - Id: expire-preview-test-uploads
+              Status: Enabled
+              ExpirationInDays: 30
+          - - Id: abort-incomplete-multipart-uploads
+              Status: Enabled
+              AbortIncompleteMultipartUpload:
+                DaysAfterInitiation: 1
       OwnershipControls:
         # 개별 객체 ACL 대신 버킷 소유권과 IAM 정책으로 접근을 관리한다.
         Rules:

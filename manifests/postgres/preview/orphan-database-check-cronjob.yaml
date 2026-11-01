@@ -1,0 +1,103 @@
+# 하루 한 번 앱 연결이 없는 PR database를 찾는다. 지우지는 않고 실패로 끝나 알림만 낸다.
+#
+# 왜 연결 수인가: PR 앱은 Hikari 풀로 연결을 계속 유지한다. 연결이 하나도 없으면 PR Application이 사라졌는데
+# PostDelete 삭제가 실패했거나, 앱이 기동하지 못한 상태다. 둘 다 사람이 확인해야 한다.
+# 왜 지우지 않는가: 삭제 대상을 추측하지 않는다는 dropdb Job의 원칙을 따른다. 정리는 runbook 절차로 한다.
+# 실패한 실행은 PreviewOrphanDatabaseCheckFailed 알림으로 Discord에 전달된다.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: preview-orphan-database-check
+  namespace: preview
+  labels:
+    app.kubernetes.io/name: preview-orphan-database-check
+    app.kubernetes.io/component: database-audit
+    environment: preview
+spec:
+  schedule: "0 18 * * *" # 매일 03:00 KST
+  timeZone: Etc/UTC
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 1
+  jobTemplate:
+    spec:
+      activeDeadlineSeconds: 300
+      backoffLimit: 0
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: preview-orphan-database-check
+            app.kubernetes.io/component: database-audit
+        spec:
+          restartPolicy: Never
+          priorityClassName: preview-lowest
+          automountServiceAccountToken: false
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 999
+            runAsGroup: 999
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: psql
+              image: postgis/postgis:18-3.6@sha256:60f6ad1d21ea86a67d47780b9a0d1e1d200500f62b19293fa834d0dea80b8677 # StatefulSet과 같은 이미지
+              command: ["sh", "-c"]
+              args:
+                - |
+                  set -eu
+                  database_ready=false
+                  for i in $(seq 1 40); do
+                    if pg_isready -q; then
+                      database_ready=true
+                      break
+                    fi
+                    sleep 3
+                  done
+                  test "$database_ready" = true
+                  orphans="$(psql -X -tA -v ON_ERROR_STOP=1 <<'SQL'
+                  SELECT d.datname
+                    FROM pg_database AS d
+                   WHERE d.datname ~ '^umc_product_pr[0-9]+$'
+                     AND NOT EXISTS (
+                       SELECT 1 FROM pg_stat_activity AS a
+                        WHERE a.datname = d.datname AND a.pid <> pg_backend_pid()
+                     )
+                   ORDER BY d.datname;
+                  SQL
+                  )"
+                  if [ -n "$orphans" ]; then
+                    echo "앱 연결이 없는 PR database가 있다. PR Application 상태와 PostDelete 삭제 Job을 확인한다:" >&2
+                    echo "$orphans" >&2
+                    exit 1
+                  fi
+                  echo "앱 연결이 없는 PR database가 없다."
+              env:
+                - name: PGHOST
+                  value: postgres-preview.preview.svc.cluster.local
+                - name: PGUSER
+                  valueFrom:
+                    secretKeyRef: { name: postgres-preview-secrets, key: POSTGRES_USER }
+                - name: PGPASSWORD
+                  valueFrom:
+                    secretKeyRef: { name: postgres-preview-secrets, key: POSTGRES_PASSWORD }
+                - name: PGDATABASE
+                  value: preview_bootstrap
+                - name: PGCONNECT_TIMEOUT
+                  value: "5"
+                - name: PGOPTIONS
+                  value: "-c statement_timeout=30s"
+              resources:
+                requests: { cpu: 20m, memory: 32Mi }
+                limits: { memory: 64Mi }
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop: ["ALL"]
+              volumeMounts:
+                - name: tmp
+                  mountPath: /tmp
+          volumes:
+            - name: tmp
+              emptyDir:
+                sizeLimit: 16Mi

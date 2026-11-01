@@ -141,6 +141,10 @@ spec:
         - podSelector:
             matchLabels:
               app.kubernetes.io/component: database-cleanup
+        # 연결 없는 PR database를 찾는 점검 CronJob. 조회만 한다.
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: database-audit
       ports:
         - { protocol: TCP, port: 5432 }
 ---
@@ -159,7 +163,7 @@ spec:
     matchExpressions:
       - key: app.kubernetes.io/component
         operator: In
-        values: [database-bootstrap, database-cleanup]
+        values: [database-bootstrap, database-cleanup, database-audit]
   policyTypes: [Egress]
   egress:
     - to:

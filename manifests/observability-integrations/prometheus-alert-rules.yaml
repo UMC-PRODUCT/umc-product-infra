@@ -51,6 +51,19 @@ spec:
             summary: "PostgreSQL 연결을 확인해주세요"
             description: "PostgreSQL exporter가 database unavailable 상태를 보냈어요. job={{ $labels.job }}, instance={{ $labels.instance }} 의 DB와 exporter를 확인해주세요."
 
+        - alert: PreviewOrphanDatabaseCheckFailed
+          # 마지막 예약 실행 뒤 성공 기록이 없으면 앱 연결이 없는 PR database가 남아 있거나 점검 자체가 실패한 상태다.
+          expr: |
+            kube_cronjob_status_last_schedule_time{namespace="preview", cronjob="preview-orphan-database-check"}
+              > on (namespace, cronjob)
+            (kube_cronjob_status_last_successful_time{namespace="preview", cronjob="preview-orphan-database-check"} or on (namespace, cronjob) (kube_cronjob_status_last_schedule_time{namespace="preview", cronjob="preview-orphan-database-check"} * 0))
+          for: 30m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Preview에 앱 연결이 없는 PR DB가 있어요"
+            description: "preview-orphan-database-check의 마지막 실행이 실패했어요. 실패한 Job 로그의 DB 이름으로 PR Application과 PostDelete 삭제 Job을 확인하고, Preview 운영 runbook 절차로 정리해주세요. 자동으로 지우지 않아요."
+
         - alert: OTelCollectorDown
           expr: up{job=~".*otel.*|.*collector.*"} == 0
           for: 1m
