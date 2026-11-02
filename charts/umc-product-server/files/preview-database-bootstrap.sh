@@ -106,6 +106,18 @@ SELECT format('CREATE EXTENSION IF NOT EXISTS %I', :'extension') \gexec
 SQL
   done
 
+# 확장이 만든 스키마(postgis_tiger_geocoder의 tiger 등)는 위 설치 때 이미 생겼다.
+# --exclude-extension은 확장 객체만 빼고 이 스키마의 CREATE SCHEMA는 남기므로 덤프에서 뺀다.
+# 새 database라 public 밖의 스키마는 확장이 만든 것뿐이다.
+extension_schemas="$(admin_psql --dbname "$TARGET_DB" -tA -c \
+  "SELECT nspname FROM pg_namespace WHERE nspname NOT IN ('public', 'information_schema') AND nspname !~ '^pg_' ORDER BY nspname")"
+exclude_schema_args=()
+while read -r schema; do
+  if [ -n "$schema" ]; then
+    exclude_schema_args+=("--exclude-schema=\"$schema\"")
+  fi
+done <<< "$extension_schemas"
+
 # pg_dump는 한 snapshot에서 일관되게 읽는다. 원본 owner·권한·주석은 재생하지 않고
 # app role로 객체를 만든다. Flyway 이력과 checksum은 테이블 데이터로 그대로 복사된다.
 # 덤프 파일을 남기지 않도록 바로 흘려 넣는다. 중간 실패는 완료 표시가 없어 다음 실행이 다시 만든다.
@@ -116,7 +128,7 @@ echo "dev 덤프를 복원한다: $SOURCE_DB -> $TARGET_DB"
     --host "$SOURCE_HOST" --username "$SOURCE_USER" --dbname "$SOURCE_DB" \
     --format=plain --no-owner --no-privileges --no-comments \
     --no-publications --no-subscriptions --no-security-labels \
-    --exclude-extension='*'
+    --exclude-extension='*' "${exclude_schema_args[@]}"
 } | PGOPTIONS="-c statement_timeout=0" admin_psql --dbname "$TARGET_DB" --single-transaction --quiet --output=/dev/null
 
 # 로그인 세션·인증 코드·대기 중인 발송 같은 외부 실행 상태만 지운다. 회원·업무 데이터는 유지한다.
