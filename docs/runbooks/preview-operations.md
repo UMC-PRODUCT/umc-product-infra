@@ -66,6 +66,7 @@ Git에 복구할 이미지를 반영하는 작업과 DB 복원은 따로 판단�
 
 - PR DB는 createdb Job이 `charts/umc-product-server/files/preview-database-bootstrap.sh`로 만든다.
   dev는 읽기 전용 role `umc_product_dev_preview_dump`(연결 2개 제한)로만 덤프하고, preview 앱에는 dev 자격증명을 주지 않는다.
+- dev 확장은 PR DB에 먼저 설치하고, 확장이 만든 스키마(`tiger`, `topology` 등)는 덤프에서 뺀다. 앱 데이터는 `public`에서 복원된다.
 - 복원이 끝나면 database 주석에 `umc-preview-restore-complete <시각> source=umc_product_dev`를 남긴다.
   주석이 있는 DB는 Job이 다시 돌아도 건드리지 않고, 주석이 없는 DB는 중간 실패로 보고 지운 뒤 다시 복원한다.
 - 복원 대상 이름은 `umc_product_pr<숫자>`만 허용한다. 이름·owner 검사가 실패하면 SQL을 보내지 않는다.
