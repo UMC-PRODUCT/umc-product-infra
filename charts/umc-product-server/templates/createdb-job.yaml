@@ -64,8 +64,10 @@ spec:
           image: {{ $postgresClientImage | quote }}
           imagePullPolicy: IfNotPresent
           command: ["bash", "-c"]
+          # Kubernetes는 args·env 값의 `$$`를 `$`로 줄이고 `$(VAR)`를 치환한다.
+          # 파일 원문이 그대로 전달되도록 `$`를 모두 두 배로 넣는다(SQL의 `AS $$` 등).
           args:
-            - {{ .Files.Get "files/preview-database-bootstrap.sh" | quote }}
+            - {{ .Files.Get "files/preview-database-bootstrap.sh" | replace "$" "$$" | quote }}
           env:
             - name: PGHOST
               value: {{ .Values.createDatabase.host | quote }}
@@ -105,7 +107,7 @@ spec:
                   name: {{ required "createDatabase.copyFromDev.existingSecret이 필요하다" $source.existingSecret | quote }}
                   key: DEV_DB_PREVIEW_DUMP_PASSWORD
             - name: CLEANUP_SQL
-              value: {{ .Files.Get "files/preview-external-state-cleanup.sql" | quote }}
+              value: {{ .Files.Get "files/preview-external-state-cleanup.sql" | replace "$" "$$" | quote }}
             {{- end }}
           resources:
             {{- toYaml .Values.createDatabase.resources | nindent 12 }}
