@@ -8,7 +8,7 @@
 1. 지원 OS를 검증한다. 공인 포트는 변수가 아니라 아래 UFW 규칙에 `22`·`443`으로 고정돼 있다.
 2. 보안 pocket만 받는 자동 업데이트를 설정하고(재부팅·메일·needrestart 자동 재시작 없음)
    필수 package와 시간대를 설정하고 swap을 끈다.
-3. Kubernetes kernel module과 sysctl을 적용한다.
+3. systemd journal 전체 크기를 `SystemMaxUse=1G`로 제한하고 Kubernetes kernel module과 sysctl을 적용한다.
 4. UFW 인바운드를 다음 상태로 수렴시킨다.
    - 인터넷에서 오는 `22/tcp`는 `limit`, `443/tcp`는 `allow`
    - K3s Pod·Service CIDR 허용
@@ -41,7 +41,7 @@ DDoS 방어를 대신하지 않으며, 같은 NAT를 쓰는 팀원이 동시에 
 | `files/` | apt·needrestart 설정 파일 |
 | `tasks/firewall.yml` | access-only playbook과 bootstrap이 공유하는 UFW 설정 |
 | `tasks/network_preflight.yml` | 관리자 PC에서 실행하는 Pod·Service CIDR 검사 |
-| `handlers/main.yml` | sysctl 적용 |
+| `handlers/main.yml` | sysctl 적용, journald 재시작 |
 | `templates/k3s-modules.conf.j2` | 부팅 시 로드할 kernel module |
 | `templates/k3s-sysctl.conf.j2` | Kubernetes network sysctl |
 

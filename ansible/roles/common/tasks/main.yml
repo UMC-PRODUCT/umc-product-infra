@@ -43,6 +43,25 @@
     group: root
     mode: '0644'
 
+# journald drop-in 디렉터리를 준비한다. 기본 journald.conf는 수정하지 않는다.
+- name: Ensure the journald drop-in directory exists
+  ansible.builtin.file:
+    path: /etc/systemd/journald.conf.d
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+
+# 호스트 journal 전체를 1G로 제한한다. 컨테이너 로그 회전은 K3s kubelet 설정이 따로 맡는다.
+- name: Limit the persistent systemd journal size
+  ansible.builtin.copy:
+    src: journald-size.conf
+    dest: /etc/systemd/journald.conf.d/50-umc-size.conf
+    owner: root
+    group: root
+    mode: '0644'
+  notify: Restart systemd-journald
+
 # 현재 켜진 스왑을 조회한다. 이 구성은 스왑 없이 K3s를 운영하므로 켜져 있을 때만 해제한다.
 - name: Inspect active swap devices
   ansible.builtin.command: swapon --show --noheadings

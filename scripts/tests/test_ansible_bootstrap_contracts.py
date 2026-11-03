@@ -744,6 +744,24 @@ class AutomaticUpdateContractTests(unittest.TestCase):
             self.assertFalse(any("ansible.builtin.apt" in task for task in tasks), path)
 
 
+# 호스트 journal이 단일 노드 디스크를 잠식하지 않게 크기를 제한하고 바로 반영한다.
+class JournaldContractTests(unittest.TestCase):
+    def test_journal_size_drop_in_restarts_journald(self) -> None:
+        drop_in = configparser.ConfigParser()
+        drop_in.optionxform = str
+        drop_in.read(ROOT / "ansible/roles/common/files/journald-size.conf", encoding="utf-8")
+        self.assertEqual(dict(drop_in["Journal"]), {"SystemMaxUse": "1G"})
+        tasks = load_tasks("ansible/roles/common/tasks/main.yml")
+        copy = next(task for task in tasks
+                    if task.get("ansible.builtin.copy", {}).get("src") == "journald-size.conf")
+        self.assertTrue(copy["ansible.builtin.copy"]["dest"].startswith("/etc/systemd/journald.conf.d/"))
+        self.assertTrue(copy["ansible.builtin.copy"]["dest"].endswith(".conf"))
+        handlers = load_tasks("ansible/roles/common/handlers/main.yml")
+        handler = next(task for task in handlers if task["name"] == copy["notify"])
+        self.assertEqual(handler["ansible.builtin.systemd_service"],
+                         {"name": "systemd-journald", "state": "restarted"})
+
+
 # 서버 상태를 바꾸는 kubectl 명령이 재실행 결과에서 변경 없음으로 숨지 않게 한다.
 class ChangeReportingContractTests(unittest.TestCase):
     def test_mutating_kubectl_commands_never_report_unchanged(self) -> None:
