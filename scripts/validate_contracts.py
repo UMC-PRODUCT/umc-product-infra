@@ -1576,7 +1576,7 @@ def validate_secrets(path: Path) -> None:
     stores = [item for item in resources if item.get("kind") == "SecretStore"]
     external_secrets = [item for item in resources if item.get("kind") == "ExternalSecret"]
     require(len(stores) == 9, f"SecretStore count is {len(stores)}, expected 9")
-    require(len(external_secrets) == 35, f"ExternalSecret count is {len(external_secrets)}, expected 35")
+    require(len(external_secrets) == 36, f"ExternalSecret count is {len(external_secrets)}, expected 36")
 
     expected_names = {
         "app": set(FCM_REQUIRED_SECRETS + ["docs-basic-auth"]),
@@ -1585,6 +1585,7 @@ def validate_secrets(path: Path) -> None:
             "postgres-secrets",
             "postgres-readonly",
             "postgres-exporter",
+            "postgres-backup",
             "backup-s3",
         },
         "dev-app": set(FCM_REQUIRED_SECRETS + ["docs-basic-auth"]),
@@ -1633,6 +1634,7 @@ def validate_secrets(path: Path) -> None:
         "app-fcm": {"FIREBASE_CONFIGURATION"},
         "docs-basic-auth": {"users"},
         "postgres-exporter": {"POSTGRES_EXPORTER_PASSWORD"},
+        "postgres-backup": {"POSTGRES_BACKUP_PASSWORD"},
     }
     for item in external_secrets:
         name = item["metadata"]["name"]
@@ -1673,7 +1675,7 @@ def validate_secrets(path: Path) -> None:
     )
     iam_sources = set(re.findall(r"secret:(/umc-product/[^\"\n]+)-\?{6}", iam_text))
     require(sources == iam_sources, f"Secrets Manager/IAM paths differ: {sources ^ iam_sources}")
-    require(len(sources) == 33, f"Secrets Manager source count is {len(sources)}, expected 33")
+    require(len(sources) == 34, f"Secrets Manager source count is {len(sources)}, expected 34")
     iam_template = yaml.load(iam_text, Loader=CloudFormationLoader)
     dev_resources = iam_template["Resources"]["DevRole"]["Properties"]["Policies"][0][
         "PolicyDocument"
@@ -1699,8 +1701,8 @@ def validate_secrets(path: Path) -> None:
         "secret uploader paths/properties must match rendered ExternalSecrets",
     )
     require(
-        len(SECRET_SPECS) == len(uploader_properties) == 33,
-        "secret uploader must contain 33 unique sources",
+        len(SECRET_SPECS) == len(uploader_properties) == 34,
+        "secret uploader must contain 34 unique sources",
     )
     renamed_properties = {
         "/umc-product/prod/backup-s3": {
