@@ -16,6 +16,7 @@ sys.path.insert(0, str(SCRIPTS_DIR))
 
 from validate_contracts import (
     git_visible_files,
+    pod_resource_totals,
     validate_preview_budget_arithmetic,
     validate_repository_identity,
 )
@@ -91,14 +92,48 @@ class GitVisibleFilesTest(unittest.TestCase):
             )
 
 
-def pod(kind: str, *containers: tuple[str, str, str]) -> dict:
-    spec = {
-        "containers": [
-            {"resources": {"requests": {"cpu": cpu, "memory": memory}, "limits": {"memory": limit}}}
-            for cpu, memory, limit in containers
-        ]
+def container(cpu: str, memory: str, limit: str, **fields: str) -> dict:
+    return {
+        "resources": {"requests": {"cpu": cpu, "memory": memory}, "limits": {"memory": limit}},
+        **fields,
     }
+
+
+def pod(kind: str, *containers: tuple[str, str, str], init: tuple = ()) -> dict:
+    spec = {"containers": [container(*item) for item in containers]}
+    if init:
+        spec["initContainers"] = [container(*item) for item in init]
     return {"kind": kind, "spec": {"template": {"spec": spec}}}
+
+
+# quota는 init container를 일반 container에 더하지 않고 자원별 최댓값으로 센다.
+class PodResourceTotalsTest(unittest.TestCase):
+    def totals(self, item: dict) -> tuple[int, int, int]:
+        return pod_resource_totals(item["spec"]["template"]["spec"])
+
+    def test_small_init_container_does_not_add_to_running_containers(self) -> None:
+        deployment = pod(
+            "Deployment",
+            ("250m", "2Gi", "3Gi"),
+            ("20m", "64Mi", "128Mi"),
+            init=[("20m", "64Mi", "128Mi")],
+        )
+        self.assertEqual(self.totals(deployment), (270, 2112, 3200))
+
+    def test_each_resource_takes_the_larger_of_init_and_running_sum(self) -> None:
+        deployment = pod(
+            "Deployment",
+            ("250m", "2Gi", "3Gi"),
+            ("20m", "64Mi", "128Mi"),
+            init=[("300m", "64Mi", "128Mi"), ("10m", "4Gi", "128Mi")],
+        )
+        self.assertEqual(self.totals(deployment), (300, 4096, 3200))
+
+    def test_rejects_sidecar_init_container(self) -> None:
+        spec = pod("Deployment", ("250m", "2Gi", "3Gi"))["spec"]["template"]["spec"]
+        spec["initContainers"] = [container("20m", "64Mi", "128Mi", restartPolicy="Always")]
+        with self.assertRaisesRegex(SystemExit, "sidecar init containers"):
+            pod_resource_totals(spec)
 
 
 # PR 하나의 render(앱+Mailpit, createdb, dropdb)를 두 슬롯만큼 더한 값이 quota와 맞아야 한다.
@@ -127,6 +162,18 @@ class PreviewBudgetArithmeticTest(unittest.TestCase):
 
     def test_accepts_two_slots_with_two_dropdb_jobs(self) -> None:
         self.validate(self.PR_RESOURCES)
+
+    def test_init_container_smaller_than_app_keeps_the_same_budget(self) -> None:
+        with_init = [
+            pod(
+                "Deployment",
+                ("250m", "2Gi", "3Gi"),
+                ("20m", "64Mi", "128Mi"),
+                init=[("20m", "64Mi", "128Mi")],
+            ),
+            *self.PR_RESOURCES[1:],
+        ]
+        self.validate(with_init)
 
     def test_rejects_budget_that_fits_only_one_dropdb_job(self) -> None:
         quota = self.root / "manifests/cluster/preview-resourcequota.yaml"

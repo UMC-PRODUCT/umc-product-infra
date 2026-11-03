@@ -1775,15 +1775,28 @@ def pod_template_spec(item: dict) -> dict:
     return spec["template"]["spec"]
 
 
-def pod_resource_totals(pod: dict) -> tuple[int, int, int]:
-    resources = [
-        container["resources"]
-        for container in pod.get("initContainers", []) + pod["containers"]
-    ]
+def container_resource_amounts(container: dict) -> tuple[int, int, int]:
+    resources = container["resources"]
     return (
-        sum(quantity_millicores(item["requests"]["cpu"]) for item in resources),
-        sum(quantity_mebibytes(item["requests"]["memory"]) for item in resources),
-        sum(quantity_mebibytes(item["limits"]["memory"]) for item in resources),
+        quantity_millicores(resources["requests"]["cpu"]),
+        quantity_mebibytes(resources["requests"]["memory"]),
+        quantity_mebibytes(resources["limits"]["memory"]),
+    )
+
+
+# quota는 Pod마다 자원별로 max(일반 container 합, 가장 큰 init container)를 센다.
+# init container는 하나씩 끝난 뒤 앱 container가 뜨므로 합하면 quota를 실제보다 크게 잡는다.
+def pod_resource_totals(pod: dict) -> tuple[int, int, int]:
+    init_containers = pod.get("initContainers", [])
+    require(
+        all(container.get("restartPolicy") != "Always" for container in init_containers),
+        "preview: budget arithmetic does not model sidecar init containers",
+    )
+    regular = [container_resource_amounts(item) for item in pod["containers"]]
+    init = [container_resource_amounts(item) for item in init_containers]
+    return tuple(
+        max([sum(amounts[index] for amounts in regular)] + [amounts[index] for amounts in init])
+        for index in range(3)
     )
 
 
@@ -1837,15 +1850,16 @@ def validate_preview_budget() -> None:
         yaml_documents(ROOT / "manifests" / "cluster" / "preview-resourcequota.yaml"),
         "ResourceQuota",
     )
+    # CPU·memory 합계는 validate_preview_budget_arithmetic이 render에서 다시 계산해 비교한다.
+    computed = {"requests.cpu", "requests.memory", "limits.memory"}
+    hard = quota["spec"]["hard"]
     require(
-        quota["spec"]["hard"]
+        computed <= hard.keys()
+        and {key: value for key, value in hard.items() if key not in computed}
         == {
             "count/certificates.cert-manager.io": "1",
             "count/services": "4",
             "count/deployments.apps": "2",
-            "requests.cpu": "1110m",
-            "requests.memory": "6688Mi",
-            "limits.memory": "9792Mi",
             "count/persistentvolumeclaims": "1",
             "requests.storage": "5Gi",
         },
