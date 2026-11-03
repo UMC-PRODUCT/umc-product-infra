@@ -369,6 +369,9 @@ python3 scripts/validate_argocd.py "$validation_dir"
 python3 scripts/validate_edge_platform.py "$validation_dir"
 python3 scripts/validate_observability.py "$validation_dir"
 
+# 위 platform·observability 렌더까지 모아 AppProject whitelist를 모든 Application 렌더와 대조한다.
+python3 scripts/argocd_project_kinds.py "$validation_dir"
+
 # 개별 YAML 문법만으로 알 수 없는 환경 간 Secret·DB·DNS 연결 계약을 확인한다.
 python3 scripts/validate_contracts.py \
   "$validation_dir/prod.yaml" \
