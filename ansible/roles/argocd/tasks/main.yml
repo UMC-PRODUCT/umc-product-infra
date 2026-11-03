@@ -210,7 +210,7 @@
     release_state: present
     reset_values: true
     server_side: "true"
-    # argocd-cm health 설정을 예전에 적용한 field manager가 남아 있어도 values를 기준으로 덮어쓴다.
+    # 이 release의 객체는 Helm values만 소유한다. 다른 field manager가 같은 필드를 가져도 항상 values로 덮어쓴다.
     force_conflicts: true
     atomic: true
     wait: true

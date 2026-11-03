@@ -132,24 +132,27 @@ class AccessReleaseTest(unittest.TestCase):
 class ConfigOwnerTest(unittest.TestCase):
     def setUp(self) -> None:
         values = yaml.safe_load(VALUES_PATH.read_text(encoding="utf-8"))
-        data = {key: str(value) for key, value in values["configs"]["cm"].items()}
-        self.documents = [{"kind": "ConfigMap", "metadata": {"name": "argocd-cm"}, "data": data}]
+        self.config_maps = {"argocd-cm": {key: str(value) for key, value in values["configs"]["cm"].items()}}
 
     def test_reviewed_values_are_valid(self) -> None:
-        validate_config_owner(self.documents, [])
+        validate_config_owner(self.config_maps, [])
+
+    def test_missing_argocd_cm_is_rejected(self) -> None:
+        with self.assertRaisesRegex(SystemExit, "must include the argocd-cm ConfigMap"):
+            validate_config_owner({}, [])
 
     def test_missing_health_gate_is_rejected(self) -> None:
         for key in sorted(EXPECTED_HEALTH_KEYS):
             with self.subTest(key=key):
-                original = self.documents[0]["data"].pop(key)
+                original = self.config_maps["argocd-cm"].pop(key)
                 with self.assertRaisesRegex(SystemExit, "reviewed health gates"):
-                    validate_config_owner(self.documents, [])
-                self.documents[0]["data"][key] = original
+                    validate_config_owner(self.config_maps, [])
+                self.config_maps["argocd-cm"][key] = original
 
     def test_gitops_argocd_cm_is_rejected(self) -> None:
         gitops = [{"kind": "ConfigMap", "metadata": {"name": "argocd-cm", "namespace": "argocd"}}]
         with self.assertRaisesRegex(SystemExit, "owned only by the Ansible Helm release"):
-            validate_config_owner(self.documents, gitops)
+            validate_config_owner(self.config_maps, gitops)
 
 
 if __name__ == "__main__":
