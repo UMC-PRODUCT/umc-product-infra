@@ -106,5 +106,36 @@ class ApiLifecycleDashboardTest(unittest.TestCase):
             self.assertNotIn(sensitive, query["expr"])
 
 
+class ServiceVariableTest(unittest.TestCase):
+    def test_살아있는_preview_앱을_고르되_기본값_밖_서비스는_숨긴다(self) -> None:
+        for name in ("api-lifecycle.json", "server-default.json"):
+            dashboard = json.loads((ROOT / "observability/dashboards" / name).read_text(encoding="utf-8"))
+            service = next(v["spec"] for v in dashboard["spec"]["variables"]
+                           if v["spec"]["name"] == "service")
+            with self.subTest(dashboard=name):
+                # fallback은 앱 signal이 비어도 prod/dev/local을 유지하고, uptime은 지금 떠 있는 PR 앱을 더한다.
+                self.assertEqual(service["query"]["spec"]["query"], service["definition"])
+                self.assertIn("umc_product_service_fallback_info", service["definition"])
+                self.assertIn("process_uptime_milliseconds", service["definition"])
+                pattern = re.compile(service["regex"].strip("/"))
+                for value in ("prod-umc-product", "dev-umc-product", "local-umc-product",
+                              "preview-umc-product-pr1494"):
+                    self.assertRegex(value, pattern)
+                for value in ("x-umc-product", "preview-umc-product-bootstrap-required",
+                              "prod-umc-product-old"):
+                    self.assertNotRegex(value, pattern)
+
+    # 첫 화면의 All에 PR seed·테스트 트래픽이 섞이지 않게 공유 환경만 묶는다.
+    def test_application_detail의_all은_preview를_섞지_않는다(self) -> None:
+        dashboard = json.loads((ROOT / "observability/dashboards/server-default.json").read_text(encoding="utf-8"))
+        service = next(v["spec"] for v in dashboard["spec"]["variables"] if v["spec"]["name"] == "service")
+        self.assertEqual(service["current"]["value"], "$__all")
+        all_value = re.compile(service["allValue"])
+        for value in ("prod-umc-product", "dev-umc-product", "local-umc-product"):
+            self.assertTrue(all_value.fullmatch(value), value)
+        for value in ("preview-umc-product-pr1494", "x-umc-product"):
+            self.assertFalse(all_value.fullmatch(value), value)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -15,6 +15,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from validate_observability import (
     PROMETHEUS_NAME,
     ALERTMANAGER_NAME,
+    ROOT,
     ManifestLoader,
     pod_spec,
     selector_matches,
@@ -27,6 +28,7 @@ from validate_observability import (
     validate_cluster_resource,
     validate_monitor_selection,
     validate_monitoring_rbac,
+    validate_preview_application_name,
     workload_labels,
 )
 
@@ -124,9 +126,19 @@ class AlertmanagerNativeConfigTest(unittest.TestCase):
              "spec": {"alertmanagerConfiguration": {"name": "prometheus-discord"}}},
             {"apiVersion": "monitoring.coreos.com/v1alpha1", "kind": "AlertmanagerConfig",
              "metadata": {"name": "prometheus-discord", "namespace": "monitoring"},
-             "spec": {"route": {"receiver": "discord"}, "receivers": [
+             "spec": {"route": {"receiver": "discord", "routes": [{"receiver": "null", "matchers": [
+                 {"name": "application", "matchType": "=~", "value": "preview-umc-product-pr[0-9]+"}]}]},
+                 "receivers": [
                  {"name": "discord", "discordConfigs": [{"apiURL": {
-                     "name": "alertmanager-discord", "key": "discord-webhook"}}]}]}},
+                     "name": "alertmanager-discord", "key": "discord-webhook"}}]}],
+                 "inhibitRules": [{
+                     "sourceMatch": [{"name": "severity", "matchType": "=", "value": "critical"}],
+                     "targetMatch": [{"name": "severity", "matchType": "=", "value": "warning"}],
+                     "equal": ["alertname", "application", "namespace", "job", "instance"]}, {
+                     "sourceMatch": [{"name": "alertname", "matchType": "=", "value": "ApiHigh5xxErrorRatio"}],
+                     "targetMatch": [{"name": "alertname", "matchType": "=~",
+                                      "value": "ApiHigh5xxErrorCount|ApiRouteHigh5xxErrorCount"}],
+                     "equal": ["application"]}]}},
         ]
 
     def test_global_config_uses_secret_reference_without_legacy_base_yaml(self) -> None:
@@ -145,12 +157,61 @@ class AlertmanagerNativeConfigTest(unittest.TestCase):
             with self.subTest(value=value), self.assertRaisesRegex(SystemExit, "SecretKeySelector"):
                 validate_alertmanager_config(self.resources)
 
+    def test_preview_app_alerts_cannot_reach_discord(self) -> None:
+        routes = self.resources[1]["spec"]["route"]["routes"]
+        for broken in ([], [{"receiver": "discord", "matchers": routes[0]["matchers"]}],
+                       [{"receiver": "null", "matchers": [
+                           {"name": "environment", "matchType": "=~", "value": "preview-pr-.*"}]}]):
+            self.resources[1]["spec"]["route"]["routes"] = broken
+            with self.subTest(routes=broken), self.assertRaisesRegex(SystemExit, "Preview PR app"):
+                validate_alertmanager_config(self.resources)
+
+    def test_preview_drop_route_tolerates_fields_that_keep_it_terminal(self) -> None:
+        self.resources[1]["spec"]["route"]["routes"][0].update({"groupWait": "10s", "continue": False})
+        validate_alertmanager_config(self.resources)
+        for extra in ({"continue": True}, {"routes": [{"receiver": "discord"}]}):
+            route = {**self.resources[1]["spec"]["route"]["routes"][0], **extra}
+            self.resources[1]["spec"]["route"]["routes"] = [route]
+            with self.subTest(extra=extra), self.assertRaisesRegex(SystemExit, "Preview PR app"):
+                validate_alertmanager_config(self.resources)
+
+    # KSM 알림은 job·instance가 같아서 namespace가 빠지면 app OOM critical이 preview OOM warning을 덮는다.
+    def test_critical_cannot_inhibit_warnings_in_another_namespace(self) -> None:
+        self.resources[1]["spec"]["inhibitRules"][0]["equal"] = [
+            "alertname", "service_name", "application", "job", "instance"]
+        with self.assertRaisesRegex(SystemExit, "same alertname and namespace"):
+            validate_alertmanager_config(self.resources)
+
+    def test_5xx_count_warnings_stay_grouped_under_ratio_critical(self) -> None:
+        self.resources[1]["spec"]["inhibitRules"] = self.resources[1]["spec"]["inhibitRules"][:1]
+        with self.assertRaisesRegex(SystemExit, "count-based 5xx"):
+            validate_alertmanager_config(self.resources)
+
     def test_legacy_base_yaml_cannot_return_alongside_native_config(self) -> None:
         self.resources.append({"kind": "Secret", "metadata": {
             "name": f"alertmanager-{ALERTMANAGER_NAME}"}, "stringData": {
                 "alertmanager.yaml": "receivers: [{name: discord, discord_configs: [{webhook_url_file: /old-path}]}]"}})
         with self.assertRaisesRegex(SystemExit, "replace the legacy base Secret"):
             validate_alertmanager_config(self.resources)
+
+
+# Discord drop route의 이름 pattern은 ApplicationSet이 PR 앱에 붙이는 이름에서 나온다.
+class PreviewApplicationNameTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self.appset = yaml.safe_load(
+            (ROOT / "argocd/applications/preview/applicationset.yaml").read_text(encoding="utf-8"))
+        self.parameter = next(item for item in self.appset["spec"]["template"]["spec"]["source"]["helm"]["parameters"]
+                              if item["name"] == "env.SPRING_APPLICATION_NAME")
+
+    def test_applicationset_name_matches_preview_pattern(self) -> None:
+        validate_preview_application_name(self.appset)
+
+    def test_renamed_preview_app_is_rejected(self) -> None:
+        for value in ("umc-product-preview-pr{{ .number }}", "preview-umc-product-{{ .number }}",
+                      "preview-umc-product-pr42"):
+            self.parameter["value"] = value
+            with self.subTest(value=value), self.assertRaisesRegex(SystemExit, "PREVIEW_APPLICATION_PATTERN"):
+                validate_preview_application_name(self.appset)
 
 
 # 끝나지 않는 WATCH를 일반 initContainer에 두면 Grafana가 시작하지 못하는 회귀를 재현한다.

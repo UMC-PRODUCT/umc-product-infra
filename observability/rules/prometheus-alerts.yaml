@@ -21,6 +21,16 @@ groups:
 
   - name: umc-product.availability
     rules:
+      # 기존 Tempo 전용 경보를 유지한다. node-exporter/KSM은 KPS TargetDown이 담당한다.
+      - alert: TempoDown
+        expr: up{job="tempo"} == 0
+        for: 3m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Tempo metrics endpoint를 확인해주세요"
+          description: "instance={{ $labels.instance }} 의 Tempo metrics endpoint를 3분 이상 scrape하지 못했어요. Tempo pod, Service와 storage 상태를 확인해주세요."
+
       - alert: ApiServerDown
         expr: up{job=~".*umc.*|.*api.*|.*server.*"} == 0
         for: 2m
@@ -29,15 +39,6 @@ groups:
         annotations:
           summary: "API server target 연결을 확인해주세요"
           description: "Prometheus가 job={{ $labels.job }}, instance={{ $labels.instance }} 를 scrape하지 못하고 있어요. target 상태와 네트워크를 확인해주세요."
-
-      # - alert: NodeExporterDown
-      #   expr: up{job="node-exporter"} == 0
-      #   for: 3m
-      #   labels:
-      #     severity: warning
-      #   annotations:
-      #     summary: "Node exporter is down"
-      #     description: "Host metrics are not being scraped from {{ $labels.instance }}."
 
       - alert: PrometheusTargetDown
         expr: up{job!="node-exporter"} == 0
@@ -123,6 +124,26 @@ groups:
         annotations:
           summary: "Grafana 연결을 확인해주세요"
           description: "Prometheus가 Grafana를 scrape하지 못하고 있어요. instance={{ $labels.instance }} 의 Grafana 상태를 확인해주세요."
+
+      # 앱 지표 유입이 끊기면(OTEL_URL 오설정, Collector 단절) 5xx·지연 규칙은 빈 결과라 조용해진다.
+      # 앱이 살아 있는 동안 항상 보내는 uptime 지표로 유입 자체를 감시한다.
+      - alert: AppMetricsMissing
+        expr: absent_over_time(process_uptime_milliseconds{application="prod-umc-product"}[10m])
+        for: 0m
+        labels:
+          severity: critical
+        annotations:
+          summary: "운영 앱 metric이 10분째 들어오지 않아요"
+          description: "application={{ $labels.application }} 의 process_uptime_milliseconds가 10분 동안 없어요. 앱 Pod 상태, OTEL_URL과 OTel Collector의 metric export를 확인해주세요."
+
+      - alert: AppMetricsMissing
+        expr: absent_over_time(process_uptime_milliseconds{application="dev-umc-product"}[10m])
+        for: 0m
+        labels:
+          severity: warning
+        annotations:
+          summary: "dev 앱 metric이 10분째 들어오지 않아요"
+          description: "application={{ $labels.application }} 의 process_uptime_milliseconds가 10분 동안 없어요. 앱 Pod 상태, OTEL_URL과 OTel Collector의 metric export를 확인해주세요."
 
   - name: umc-product.host
     rules:
@@ -226,167 +247,146 @@ groups:
       - alert: ApiHigh5xxErrorRatio
         expr: |
           (
-            sum by (application, service_name) (rate(http_server_requests_milliseconds_count{status=~"5.."}[5m]))
+            sum by (application) (rate(http_server_requests_milliseconds_count{status=~"5.."}[5m]))
             /
-            sum by (application, service_name) (rate(http_server_requests_milliseconds_count[5m]))
+            sum by (application) (rate(http_server_requests_milliseconds_count[5m]))
           ) > 0.05
           and
-          sum by (application, service_name) (rate(http_server_requests_milliseconds_count[5m])) > 0.1
+          sum by (application) (rate(http_server_requests_milliseconds_count[5m])) > 0.1
         for: 5m
         labels:
           severity: critical
         annotations:
           summary: "API 5xx ratio가 5%를 넘었어요"
-          description: "service={{ $labels.service_name }}, application={{ $labels.application }} 에서 5분 이상 API request 중 5xx 비율이 5%를 넘었어요. 최근 배포와 error log를 확인해주세요."
+          description: "application={{ $labels.application }} 에서 5분 이상 API request 중 5xx 비율이 5%를 넘었어요. 최근 배포와 error log를 확인해주세요."
 
       - alert: ApiHigh5xxErrorCount
-        expr: sum by (application, service_name) (increase(http_server_requests_milliseconds_count{status=~"5.."}[5m])) > 10
+        expr: sum by (application) (increase(http_server_requests_milliseconds_count{status=~"5.."}[5m])) > 10
         for: 3m
         labels:
-          severity: critical
+          severity: warning
         annotations:
           summary: "API 5xx count가 높아요"
-          description: "service={{ $labels.service_name }}, application={{ $labels.application }} 에서 최근 5분 동안 server error가 10건을 넘었어요. 주요 route와 error log를 확인해주세요."
+          description: "application={{ $labels.application }} 에서 최근 5분 동안 server error가 10건을 넘었어요. 주요 route와 error log를 확인해주세요."
 
       - alert: ApiRouteHigh5xxErrorCount
-        expr: sum by (application, service_name, method, uri) (increase(http_server_requests_milliseconds_count{status=~"5.."}[5m])) > 5
+        expr: sum by (application, method, uri) (increase(http_server_requests_milliseconds_count{status=~"5.."}[5m])) > 5
         for: 0m
         labels:
-          severity: critical
+          severity: warning
         annotations:
           summary: "API route 5xx count를 확인해주세요"
-          description: "service={{ $labels.service_name }}, application={{ $labels.application }}, route={{ $labels.method }} {{ $labels.uri }} 에서 최근 5분 동안 server error가 5건을 넘었어요. 해당 route의 error log를 확인해주세요."
+          description: "application={{ $labels.application }}, route={{ $labels.method }} {{ $labels.uri }} 에서 최근 5분 동안 server error가 5건을 넘었어요. 해당 route의 error log를 확인해주세요."
 
       - alert: ApiHigh4xxErrorRatio
         expr: |
           (
-            sum by (application, service_name) (rate(http_server_requests_milliseconds_count{status=~"4.."}[5m]))
+            sum by (application) (rate(http_server_requests_milliseconds_count{status=~"4.."}[5m]))
             /
-            sum by (application, service_name) (rate(http_server_requests_milliseconds_count[5m]))
+            sum by (application) (rate(http_server_requests_milliseconds_count[5m]))
           ) > 0.3
           and
-          sum by (application, service_name) (rate(http_server_requests_milliseconds_count[5m])) > 0.1
+          sum by (application) (rate(http_server_requests_milliseconds_count[5m])) > 0.1
         for: 10m
         labels:
           severity: warning
         annotations:
           summary: "API 4xx ratio가 30%를 넘었어요"
-          description: "service={{ $labels.service_name }}, application={{ $labels.application }} 에서 10분 이상 API request 중 4xx 비율이 30%를 넘었어요. client request 변화와 인증/입력 오류를 확인해주세요."
+          description: "application={{ $labels.application }} 에서 10분 이상 API request 중 4xx 비율이 30%를 넘었어요. client request 변화와 인증/입력 오류를 확인해주세요."
 
       - alert: ApiHighP95LatencyMilliseconds
-        expr: histogram_quantile(0.95, sum by (application, service_name, le) (rate(http_server_requests_milliseconds_bucket[5m]))) > 2000
+        expr: histogram_quantile(0.95, sum by (application, le) (rate(http_server_requests_milliseconds_bucket[5m]))) > 2000
         for: 5m
         labels:
           severity: warning
         annotations:
           summary: "API p95 latency가 2초를 넘었어요"
-          description: "service={{ $labels.service_name }}, application={{ $labels.application }} 의 millisecond metric 기준 p95 API latency가 5분 이상 2초를 넘었어요. 느린 route와 DB/API 외부 호출을 확인해주세요."
-
-      - alert: ApiHighP95LatencySeconds
-        expr: histogram_quantile(0.95, sum by (application, service_name, le) (rate(http_server_requests_seconds_bucket[5m]))) > 2
-        for: 5m
-        labels:
-          severity: warning
-        annotations:
-          summary: "API p95 latency가 2초를 넘었어요"
-          description: "service={{ $labels.service_name }}, application={{ $labels.application }} 의 second metric 기준 p95 API latency가 5분 이상 2초를 넘었어요. 느린 route와 DB/API 외부 호출을 확인해주세요."
+          description: "application={{ $labels.application }} 의 millisecond metric 기준 p95 API latency가 5분 이상 2초를 넘었어요. 느린 route와 DB/API 외부 호출을 확인해주세요."
 
       - alert: ApiHighP99LatencyMilliseconds
-        expr: histogram_quantile(0.99, sum by (application, service_name, le) (rate(http_server_requests_milliseconds_bucket[5m]))) > 5000
+        expr: histogram_quantile(0.99, sum by (application, le) (rate(http_server_requests_milliseconds_bucket[5m]))) > 5000
         for: 5m
         labels:
           severity: warning
         annotations:
           summary: "API p99 latency가 5초를 넘었어요"
-          description: "service={{ $labels.service_name }}, application={{ $labels.application }} 의 millisecond metric 기준 p99 API latency가 5분 이상 5초를 넘었어요. 느린 route와 DB/API 외부 호출을 확인해주세요."
-
-      - alert: ApiHighP99LatencySeconds
-        expr: histogram_quantile(0.99, sum by (application, service_name, le) (rate(http_server_requests_seconds_bucket[5m]))) > 5
-        for: 5m
-        labels:
-          severity: warning
-        annotations:
-          summary: "API p99 latency가 5초를 넘었어요"
-          description: "service={{ $labels.service_name }}, application={{ $labels.application }} 의 second metric 기준 p99 API latency가 5분 이상 5초를 넘었어요. 느린 route와 DB/API 외부 호출을 확인해주세요."
+          description: "application={{ $labels.application }} 의 millisecond metric 기준 p99 API latency가 5분 이상 5초를 넘었어요. 느린 route와 DB/API 외부 호출을 확인해주세요."
 
       - alert: ApiTrafficDropped
         expr: |
-          sum by (application, service_name) (rate(http_server_requests_milliseconds_count[5m]))
+          sum by (application) (rate(http_server_requests_milliseconds_count[5m]))
           <
-          sum by (application, service_name) (rate(http_server_requests_milliseconds_count[5m] offset 1h)) * 0.2
+          sum by (application) (rate(http_server_requests_milliseconds_count[5m] offset 1h)) * 0.2
           and
-          sum by (application, service_name) (rate(http_server_requests_milliseconds_count[5m] offset 1h)) > 0.5
+          sum by (application) (rate(http_server_requests_milliseconds_count[5m] offset 1h)) > 0.5
         for: 10m
         labels:
           severity: warning
         annotations:
           summary: "API traffic이 급감했어요"
-          description: "service={{ $labels.service_name }}, application={{ $labels.application }} 의 현재 request rate가 1시간 전의 20% 미만이에요. 배포, gateway, upstream routing을 확인해주세요."
+          description: "application={{ $labels.application }} 의 현재 request rate가 1시간 전의 20% 미만이에요. 배포, gateway, upstream routing을 확인해주세요."
 
       - alert: LoginTrafficSpike
-        expr: sum by (application, service_name) (rate(http_server_requests_milliseconds_count{uri=~".*login.*"}[5m])) > 5
+        expr: sum by (application) (rate(http_server_requests_milliseconds_count{uri=~".*login.*"}[5m])) > 5
         for: 5m
         labels:
           severity: warning
         annotations:
           summary: "Login API traffic이 높아요"
-          description: "service={{ $labels.service_name }}, application={{ $labels.application }} 의 login 관련 API traffic이 5분 이상 초당 5 request를 넘었어요. 비정상 재시도와 OAuth 상태를 확인해주세요."
+          description: "application={{ $labels.application }} 의 login 관련 API traffic이 5분 이상 초당 5 request를 넘었어요. 비정상 재시도와 OAuth 상태를 확인해주세요."
 
       - alert: ApiRouteTrafficSpike
-        expr: sum by (application, service_name, method, uri) (rate(http_server_requests_milliseconds_count[5m])) > 10
+        expr: sum by (application, method, uri) (rate(http_server_requests_milliseconds_count[5m])) > 10
         for: 5m
         labels:
           severity: warning
         annotations:
           summary: "API route traffic이 높아요"
-          description: "service={{ $labels.service_name }}, application={{ $labels.application }}, route={{ $labels.method }} {{ $labels.uri }} traffic이 5분 이상 초당 10 request를 넘었어요. 호출 주체와 최근 변경을 확인해주세요."
+          description: "application={{ $labels.application }}, route={{ $labels.method }} {{ $labels.uri }} traffic이 5분 이상 초당 10 request를 넘었어요. 호출 주체와 최근 변경을 확인해주세요."
 
       - record: umc_product:http_requests:top10_10m
-        expr: topk(10, sum by (application, service_name, method, uri) (increase(http_server_requests_milliseconds_count[10m])))
+        expr: topk(10, sum by (application, method, uri) (increase(http_server_requests_milliseconds_count[10m])))
 
       - record: umc_product:http_request_p95:top10_5m
-        expr: topk(10, histogram_quantile(0.95, sum by (application, service_name, le, method, uri) (rate(http_server_requests_milliseconds_bucket[5m]))))
-
-      - record: umc_product:http_request_p95_seconds:top10_5m
-        expr: topk(10, histogram_quantile(0.95, sum by (application, service_name, le, method, uri) (rate(http_server_requests_seconds_bucket[5m]))))
+        expr: topk(10, histogram_quantile(0.95, sum by (application, le, method, uri) (rate(http_server_requests_milliseconds_bucket[5m]))))
 
   - name: umc-product.database-cache
     rules:
       - alert: DbConnectionPoolHighUsage
-        expr: sum by (application, service_name, instance, pool) (hikaricp_connections_active) / sum by (application, service_name, instance, pool) (hikaricp_connections_max) > 0.8
+        expr: sum by (application, instance, pool) (hikaricp_connections_active) / sum by (application, instance, pool) (hikaricp_connections_max) > 0.8
         for: 5m
         labels:
           severity: warning
         annotations:
           summary: "DB connection pool usage가 80%를 넘었어요"
-          description: "service={{ $labels.service_name }}, application={{ $labels.application }}, instance={{ $labels.instance }}, pool={{ $labels.pool }} 의 HikariCP active connection 비율이 5분 이상 80%를 넘었어요. 느린 query와 connection 누수를 확인해주세요."
+          description: "application={{ $labels.application }}, instance={{ $labels.instance }}, pool={{ $labels.pool }} 의 HikariCP active connection 비율이 5분 이상 80%를 넘었어요. 느린 query와 connection 누수를 확인해주세요."
 
       - alert: DbConnectionPoolHighUsage
-        expr: sum by (application, service_name, instance, pool) (hikaricp_connections_active) / sum by (application, service_name, instance, pool) (hikaricp_connections_max) > 0.95
+        expr: sum by (application, instance, pool) (hikaricp_connections_active) / sum by (application, instance, pool) (hikaricp_connections_max) > 0.95
         for: 5m
         labels:
           severity: critical
         annotations:
           summary: "DB connection pool usage가 95%를 넘었어요"
-          description: "service={{ $labels.service_name }}, application={{ $labels.application }}, instance={{ $labels.instance }}, pool={{ $labels.pool }} 의 HikariCP active connection 비율이 5분 이상 95%를 넘었어요. 느린 query와 connection 누수를 먼저 확인해주세요."
+          description: "application={{ $labels.application }}, instance={{ $labels.instance }}, pool={{ $labels.pool }} 의 HikariCP active connection 비율이 5분 이상 95%를 넘었어요. 느린 query와 connection 누수를 먼저 확인해주세요."
 
       - alert: DbConnectionPending
-        expr: sum by (application, service_name, instance, pool) (hikaricp_connections_pending) > 0
+        expr: sum by (application, instance, pool) (hikaricp_connections_pending) > 0
         for: 3m
         labels:
           severity: warning
         annotations:
           summary: "DB connection 대기를 확인해주세요"
-          description: "service={{ $labels.service_name }}, application={{ $labels.application }}, instance={{ $labels.instance }}, pool={{ $labels.pool }} 에서 HikariCP connection을 기다리는 request가 3분 이상 남아 있어요. pool size, active query, DB 응답 시간을 확인해주세요."
+          description: "application={{ $labels.application }}, instance={{ $labels.instance }}, pool={{ $labels.pool }} 에서 HikariCP connection을 기다리는 request가 3분 이상 남아 있어요. pool size, active query, DB 응답 시간을 확인해주세요."
 
       - alert: DbConnectionTimeout
-        expr: sum by (application, service_name, instance, pool) (increase(hikaricp_connections_timeout_total[5m])) > 0
+        expr: sum by (application, instance, pool) (increase(hikaricp_connections_timeout_total[5m])) > 0
         for: 0m
         labels:
           severity: critical
         annotations:
           summary: "DB connection timeout을 확인해주세요"
-          description: "service={{ $labels.service_name }}, application={{ $labels.application }}, instance={{ $labels.instance }}, pool={{ $labels.pool }} 에서 최근 5분 안에 HikariCP connection acquisition timeout이 있었어요. DB 상태와 connection pool 포화 여부를 확인해주세요."
+          description: "application={{ $labels.application }}, instance={{ $labels.instance }}, pool={{ $labels.pool }} 에서 최근 5분 안에 HikariCP connection acquisition timeout이 있었어요. DB 상태와 connection pool 포화 여부를 확인해주세요."
 
       - alert: RedisMemoryHighUsage
         expr: redis_memory_used_bytes / redis_memory_max_bytes > 0.8
@@ -406,10 +406,94 @@ groups:
           summary: "Redis rejected connection을 확인해주세요"
           description: "instance={{ $labels.instance }} 의 Redis/Valkey에서 최근 5분 안에 rejected connection이 있었어요. maxclients와 client 재시도를 확인해주세요."
 
+      # HikariCP는 앱 한 개의 pool만 본다. 서버 전체 연결 수는 운영 DB exporter로 따로 본다.
+      - alert: PostgresConnectionsHigh
+        expr: sum by (job, environment) (pg_stat_activity_count{job="postgres-exporter"}) / on (job, environment) max by (job, environment) (pg_settings_max_connections{job="postgres-exporter"}) > 0.8
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "PostgreSQL 연결 수가 max_connections의 80%를 넘었어요"
+          description: "environment={{ $labels.environment }} 의 PostgreSQL 연결이 5분 이상 max_connections의 {{ $value | humanizePercentage }}예요. idle 연결, 앱 pool 크기와 사람용 접속을 확인해주세요."
+
+      - alert: PostgresConnectionsHigh
+        expr: sum by (job, environment) (pg_stat_activity_count{job="postgres-exporter"}) / on (job, environment) max by (job, environment) (pg_settings_max_connections{job="postgres-exporter"}) > 0.95
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "PostgreSQL 연결 수가 max_connections의 95%를 넘었어요"
+          description: "environment={{ $labels.environment }} 의 PostgreSQL 연결이 5분 이상 max_connections의 {{ $value | humanizePercentage }}예요. 새 연결이 곧 거부되니 idle 연결과 앱 pool을 먼저 확인해주세요."
+
+      - alert: PostgresDeadlocks
+        expr: sum by (job, environment, datname) (increase(pg_stat_database_deadlocks{job="postgres-exporter"}[10m])) > 0
+        for: 0m
+        labels:
+          severity: warning
+        annotations:
+          summary: "PostgreSQL deadlock이 발생했어요"
+          description: "environment={{ $labels.environment }}, datname={{ $labels.datname }} 에서 최근 10분 동안 deadlock이 있었어요. PostgreSQL log의 deadlock detail과 같은 시각 API error log를 확인해주세요."
+
   - name: umc-product.observability
     rules:
+      # 100% sampling 정책과 실제 전달 성공은 다르다. Collector가 span을 거부하거나
+      # exporter queue가 포화되면 유실될 수 있으므로 별도 경보로 드러낸다.
+      - alert: OTelCollectorTraceReceiveRefusals
+        expr: sum by (receiver, transport, instance) (rate(otelcol_receiver_refused_spans[5m]) or rate(otelcol_receiver_refused_spans_total[5m])) > 0
+        for: 3m
+        labels:
+          severity: critical
+        annotations:
+          summary: "OTel Collector가 trace 수신을 거부하고 있어요"
+          description: "receiver={{ $labels.receiver }}, instance={{ $labels.instance }} 에서 span이 3분 이상 거부되고 있어요. memory limiter, Collector RSS와 client retry를 확인해주세요."
+
+      - alert: OTelCollectorTraceEnqueueFailures
+        expr: sum by (exporter, instance) (rate(otelcol_exporter_enqueue_failed_spans[5m]) or rate(otelcol_exporter_enqueue_failed_spans_total[5m])) > 0
+        for: 3m
+        labels:
+          severity: critical
+        annotations:
+          summary: "OTel Collector trace queue 유실을 확인해주세요"
+          description: "exporter={{ $labels.exporter }}, instance={{ $labels.instance }} 의 queue에 span을 넣지 못하고 있어요. Tempo 처리량과 exporter queue를 확인해주세요."
+
+      - alert: OTelCollectorExporterQueueHigh
+        expr: max by (exporter, data_type, instance) (otelcol_exporter_queue_size{data_type="traces"} / clamp_min(otelcol_exporter_queue_capacity{data_type="traces"}, 1)) > 0.7
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "OTel Collector exporter queue가 70%를 넘었어요"
+          description: "exporter={{ $labels.exporter }}, data_type={{ $labels.data_type }}, instance={{ $labels.instance }} 의 queue가 5분 이상 70%를 넘었어요. downstream 지연과 trace 유입량을 확인해주세요."
+
+      - alert: PostgresBackupFailed
+        expr: max by (namespace, job_name) (kube_job_failed{namespace="db",job_name=~"pg-backup-.+",condition="true"}) > 0
+        for: 0m
+        labels:
+          severity: critical
+        annotations:
+          summary: "PostgreSQL S3 backup Job이 실패했어요"
+          description: "job={{ $labels.job_name }} 의 dump, checksum, S3 권한과 bucket 상태를 확인해주세요."
+
+      - alert: PostgresBackupNeverSucceeded
+        expr: kube_cronjob_spec_suspend{namespace="db",cronjob="pg-backup"} == 0 unless on (namespace, cronjob) kube_cronjob_status_last_successful_time{namespace="db",cronjob="pg-backup"}
+        for: 27h
+        labels:
+          severity: critical
+        annotations:
+          summary: "활성화된 PostgreSQL S3 backup의 정규 성공 기록이 없어요"
+          description: "pg-backup을 활성화한 뒤 27시간 동안 CronJob status에 성공 기록이 없어요. 첫 schedule, controller, Job과 S3 writer 권한을 확인해주세요. 수동 create job은 이 status를 채우지 않아요."
+
+      - alert: PostgresBackupStale
+        expr: kube_cronjob_spec_suspend{namespace="db",cronjob="pg-backup"} == 0 and on (namespace, cronjob) time() - kube_cronjob_status_last_successful_time{namespace="db",cronjob="pg-backup"} > 108000
+        for: 10m
+        labels:
+          severity: critical
+        annotations:
+          summary: "최근 PostgreSQL S3 backup 성공 기록이 없어요"
+          description: "활성화된 pg-backup의 마지막 정규 성공이 30시간을 넘었어요. CronJob, ExternalSecret과 S3 writer 권한을 확인해주세요."
+
       - alert: OTelCollectorLogExportFailures
-        expr: rate(otelcol_exporter_send_failed_log_records[5m]) > 0
+        expr: (rate(otelcol_exporter_send_failed_log_records[5m]) or rate(otelcol_exporter_send_failed_log_records_total[5m])) > 0
         for: 3m
         labels:
           severity: warning
@@ -418,7 +502,7 @@ groups:
           description: "OTel Collector가 log record export에 실패하고 있어요. exporter={{ $labels.exporter }}, instance={{ $labels.instance }} 의 downstream endpoint와 인증 정보를 확인해주세요."
 
       - alert: OTelCollectorMetricExportFailures
-        expr: rate(otelcol_exporter_send_failed_metric_points[5m]) > 0
+        expr: (rate(otelcol_exporter_send_failed_metric_points[5m]) or rate(otelcol_exporter_send_failed_metric_points_total[5m])) > 0
         for: 3m
         labels:
           severity: warning
@@ -427,7 +511,7 @@ groups:
           description: "OTel Collector가 metric point export에 실패하고 있어요. exporter={{ $labels.exporter }}, instance={{ $labels.instance }} 의 downstream endpoint와 인증 정보를 확인해주세요."
 
       - alert: OTelCollectorTraceExportFailures
-        expr: rate(otelcol_exporter_send_failed_spans[5m]) > 0
+        expr: (rate(otelcol_exporter_send_failed_spans[5m]) or rate(otelcol_exporter_send_failed_spans_total[5m])) > 0
         for: 3m
         labels:
           severity: warning
@@ -479,3 +563,52 @@ groups:
         annotations:
           summary: "API health check를 확인해주세요"
           description: "instance={{ $labels.instance }} 의 actuator health check가 2분 이상 실패했어요. app 상태와 dependency health를 확인해주세요."
+
+  - name: umc-product.platform
+    rules:
+      # cert-manager는 Let's Encrypt 90일 인증서를 만료 30일 전부터 갱신한다.
+      # 14일 미만이 남았다면 2주 넘게 갱신이 실패한 상태다. ServiceMonitor target namespace와
+      # 겹친 Certificate namespace label은 Prometheus가 exported_namespace로 바꾼다.
+      - alert: CertManagerCertificateExpiresSoon
+        expr: (certmanager_certificate_expiration_timestamp_seconds - time()) / 86400 < 14
+        for: 1h
+        labels:
+          severity: warning
+        annotations:
+          summary: "TLS 인증서가 14일 안에 만료돼요"
+          description: "Certificate {{ $labels.exported_namespace }}/{{ $labels.name }} 이 약 {{ printf \"%.0f\" $value }}일 뒤 만료돼요. CertificateRequest·Order 상태와 Route 53 DNS-01 권한을 확인해주세요."
+
+      - alert: CertManagerCertificateNotReady
+        expr: certmanager_certificate_ready_status{condition="False"} == 1
+        for: 1h
+        labels:
+          severity: critical
+        annotations:
+          summary: "TLS 인증서가 1시간 넘게 Ready가 아니에요"
+          description: "Certificate {{ $labels.exported_namespace }}/{{ $labels.name }} 이 1시간 이상 Ready=False예요. cert-manager log와 CertificateRequest·Order 이벤트를 확인해주세요."
+
+      # OOMKilled는 일반 재시작과 달리 memory limit이나 사용량을 바로 조정해야 한다.
+      # Preview PR 앱은 작은 상한에서 PR 코드 탓에 죽을 수 있어 warning으로만 알린다.
+      - alert: ContainerOOMKilled
+        expr: |
+          (increase(kube_pod_container_status_restarts_total{namespace!="preview"}[10m]) > 0)
+          and on (namespace, pod, container)
+          (kube_pod_container_status_last_terminated_reason{namespace!="preview", reason="OOMKilled"} == 1)
+        for: 0m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Container가 메모리 부족으로 재시작됐어요"
+          description: "{{ $labels.namespace }}/{{ $labels.pod }} 의 container={{ $labels.container }} 가 최근 10분 안에 OOMKilled로 재시작됐어요. memory limit과 사용량 증가 원인을 확인해주세요."
+
+      - alert: ContainerOOMKilled
+        expr: |
+          (increase(kube_pod_container_status_restarts_total{namespace="preview"}[10m]) > 0)
+          and on (namespace, pod, container)
+          (kube_pod_container_status_last_terminated_reason{namespace="preview", reason="OOMKilled"} == 1)
+        for: 0m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Preview container가 메모리 부족으로 재시작됐어요"
+          description: "{{ $labels.namespace }}/{{ $labels.pod }} 의 container={{ $labels.container }} 가 최근 10분 안에 OOMKilled로 재시작됐어요. PR 변경의 memory 사용량과 Preview 자원 상한을 확인해주세요."

@@ -17,6 +17,8 @@ APPLICATION_DIR = ROOT / "argocd" / "applications" / "platform" / "observability
 EXPECTED_APPLICATIONS = {"grafana", "loki", "otel-collector", "prometheus", "tempo"}
 PROMETHEUS_NAME = "prometheus-kube-prometheus-prometheus"
 ALERTMANAGER_NAME = "prometheus-kube-prometheus-alertmanager"
+# Preview는 dev profile로 떠서 environment label로는 dev와 구분되지 않는다.
+PREVIEW_APPLICATION_PATTERN = "preview-umc-product-pr[0-9]+"
 MONITORING_CLUSTER_KINDS = {
     "ClusterRole", "ClusterRoleBinding", "CustomResourceDefinition"
 }
@@ -485,6 +487,16 @@ def validate_prometheus(resources: list[dict]) -> None:
     validate_alertmanager_config(resources)
 
 
+# Discord drop route와 대시보드가 쓰는 Preview 이름 pattern이 실제 PR 앱 이름을 덮어야 한다.
+def validate_preview_application_name(appset: dict) -> None:
+    parameters = appset["spec"]["template"]["spec"]["source"]["helm"]["parameters"]
+    template = next((item.get("value", "") for item in parameters
+                     if item.get("name") == "env.SPRING_APPLICATION_NAME"), "")
+    require("{{ .number }}" in template
+            and re.fullmatch(PREVIEW_APPLICATION_PATTERN, template.replace("{{ .number }}", "1494")),
+            "preview: ApplicationSet SPRING_APPLICATION_NAME must match PREVIEW_APPLICATION_PATTERN")
+
+
 # 전역 알림 경로와 Secret 참조를 검사하고 기존 평문 기반 설정이 함께 되살아나는 것을 막는다.
 def validate_alertmanager_config(resources: list[dict]) -> None:
     alertmanager = named_resource(resources, "Alertmanager", ALERTMANAGER_NAME)
@@ -505,6 +517,23 @@ def validate_alertmanager_config(resources: list[dict]) -> None:
     require(discord[0]["discordConfigs"][0].get("apiURL") == {
                 "name": "alertmanager-discord", "key": "discord-webhook"},
             "alertmanager: Discord webhook must use the ESO SecretKeySelector")
+    routes = config["route"].get("routes", [])
+    first = routes[0] if routes else {}
+    require(first.get("receiver") == "null" and not first.get("continue") and not first.get("routes")
+            and first.get("matchers") == [
+                {"name": "application", "matchType": "=~", "value": PREVIEW_APPLICATION_PATTERN}],
+            "alertmanager: Preview PR app alerts must be dropped before any other route")
+    severity_rules = [rule for rule in config.get("inhibitRules", [])
+                      if rule.get("sourceMatch") == [{"name": "severity", "matchType": "=", "value": "critical"}]
+                      and rule.get("targetMatch") == [{"name": "severity", "matchType": "=", "value": "warning"}]]
+    require(len(severity_rules) == 1
+            and {"alertname", "namespace"} <= set(severity_rules[0].get("equal", [])),
+            "alertmanager: critical must inhibit warnings only for the same alertname and namespace")
+    require({"sourceMatch": [{"name": "alertname", "matchType": "=", "value": "ApiHigh5xxErrorRatio"}],
+             "targetMatch": [{"name": "alertname", "matchType": "=~",
+                              "value": "ApiHigh5xxErrorCount|ApiRouteHigh5xxErrorCount"}],
+             "equal": ["application"]} in config.get("inhibitRules", []),
+            "alertmanager: 5xx ratio critical must inhibit count-based 5xx warnings per application")
 
     # Operator 0.92.1's base YAML parser predates webhook_url_file support.
     # The operator alone generates the runtime config from the native resource.
@@ -630,6 +659,8 @@ def main() -> int:
     )
     grafana_ingress_enabled = validate_grafana_access_contract(grafana_application)
     validate_alertmanager_health_gate()
+    validate_preview_application_name(yaml.safe_load(
+        (ROOT / "argocd/applications/preview/applicationset.yaml").read_text(encoding="utf-8")))
 
     prometheus_application = yaml.safe_load(
         (APPLICATION_DIR / "prometheus.yaml").read_text(encoding="utf-8")

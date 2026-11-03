@@ -1,0 +1,163 @@
+# promtool test rules 입력이다. scripts/tests/test_prometheus_rule_units.py가 CI에서 실행한다.
+rule_files:
+  - ../prometheus-alerts.yaml
+
+evaluation_interval: 30s
+
+tests:
+  - interval: 1m
+    input_series:
+      # 10일 뒤 만료(갱신 실패)와 60일 뒤 만료(정상)
+      - series: 'certmanager_certificate_expiration_timestamp_seconds{job="cert-manager", namespace="cert-manager", exported_namespace="app", name="prod-api-tls"}'
+        values: '864000x90'
+      - series: 'certmanager_certificate_expiration_timestamp_seconds{job="cert-manager", namespace="cert-manager", exported_namespace="dev-app", name="dev-api-tls"}'
+        values: '5184000x90'
+      - series: 'certmanager_certificate_ready_status{job="cert-manager", namespace="cert-manager", exported_namespace="preview", name="preview-wildcard", condition="False"}'
+        values: '1x90'
+      - series: 'certmanager_certificate_ready_status{job="cert-manager", namespace="cert-manager", exported_namespace="app", name="prod-api-tls", condition="False"}'
+        values: '0x90'
+    alert_rule_test:
+      - eval_time: 59m
+        alertname: CertManagerCertificateExpiresSoon
+        exp_alerts: []
+      - eval_time: 61m
+        alertname: CertManagerCertificateExpiresSoon
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              job: cert-manager
+              namespace: cert-manager
+              exported_namespace: app
+              name: prod-api-tls
+            exp_annotations:
+              summary: "TLS 인증서가 14일 안에 만료돼요"
+              description: "Certificate app/prod-api-tls 이 약 10일 뒤 만료돼요. CertificateRequest·Order 상태와 Route 53 DNS-01 권한을 확인해주세요."
+      - eval_time: 59m
+        alertname: CertManagerCertificateNotReady
+        exp_alerts: []
+      - eval_time: 61m
+        alertname: CertManagerCertificateNotReady
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              job: cert-manager
+              namespace: cert-manager
+              exported_namespace: preview
+              name: preview-wildcard
+              condition: "False"
+            exp_annotations:
+              summary: "TLS 인증서가 1시간 넘게 Ready가 아니에요"
+              description: "Certificate preview/preview-wildcard 이 1시간 이상 Ready=False예요. cert-manager log와 CertificateRequest·Order 이벤트를 확인해주세요."
+
+  - interval: 1m
+    input_series:
+      # prod는 20분에 끊기고 dev는 계속 들어온다. preview는 감시하지 않는다.
+      - series: 'process_uptime_milliseconds{application="prod-umc-product", instance="prod-pod"}'
+        values: '0+60000x20'
+      - series: 'process_uptime_milliseconds{application="dev-umc-product", instance="dev-pod"}'
+        values: '0+60000x60'
+    alert_rule_test:
+      - eval_time: 29m
+        alertname: AppMetricsMissing
+        exp_alerts: []
+      - eval_time: 31m
+        alertname: AppMetricsMissing
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              application: prod-umc-product
+            exp_annotations:
+              summary: "운영 앱 metric이 10분째 들어오지 않아요"
+              description: "application=prod-umc-product 의 process_uptime_milliseconds가 10분 동안 없어요. 앱 Pod 상태, OTEL_URL과 OTel Collector의 metric export를 확인해주세요."
+
+  - interval: 1m
+    input_series:
+      # 운영 앱은 5분에 OOM 재시작, Preview 앱도 5분에 OOM 재시작,
+      # Loki는 같은 시각 일반 오류로 재시작, Grafana는 예전 OOM 기록만 남아 있다.
+      - series: 'kube_pod_container_status_restarts_total{job="kube-state-metrics", namespace="app", pod="umc-product-server-0", container="app"}'
+        values: '0x4 1x25'
+      - series: 'kube_pod_container_status_last_terminated_reason{job="kube-state-metrics", namespace="app", pod="umc-product-server-0", container="app", reason="OOMKilled"}'
+        values: '0x4 1x25'
+      - series: 'kube_pod_container_status_restarts_total{job="kube-state-metrics", namespace="preview", pod="umc-product-server-pr-7-0", container="app"}'
+        values: '0x4 1x25'
+      - series: 'kube_pod_container_status_last_terminated_reason{job="kube-state-metrics", namespace="preview", pod="umc-product-server-pr-7-0", container="app", reason="OOMKilled"}'
+        values: '0x4 1x25'
+      - series: 'kube_pod_container_status_restarts_total{job="kube-state-metrics", namespace="monitoring", pod="loki-0", container="loki"}'
+        values: '0x4 1x25'
+      - series: 'kube_pod_container_status_last_terminated_reason{job="kube-state-metrics", namespace="monitoring", pod="loki-0", container="loki", reason="Error"}'
+        values: '0x4 1x25'
+      - series: 'kube_pod_container_status_restarts_total{job="kube-state-metrics", namespace="monitoring", pod="grafana-0", container="grafana"}'
+        values: '3x29'
+      - series: 'kube_pod_container_status_last_terminated_reason{job="kube-state-metrics", namespace="monitoring", pod="grafana-0", container="grafana", reason="OOMKilled"}'
+        values: '1x29'
+    alert_rule_test:
+      - eval_time: 4m
+        alertname: ContainerOOMKilled
+        exp_alerts: []
+      - eval_time: 7m
+        alertname: ContainerOOMKilled
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              job: kube-state-metrics
+              namespace: app
+              pod: umc-product-server-0
+              container: app
+            exp_annotations:
+              summary: "Container가 메모리 부족으로 재시작됐어요"
+              description: "app/umc-product-server-0 의 container=app 가 최근 10분 안에 OOMKilled로 재시작됐어요. memory limit과 사용량 증가 원인을 확인해주세요."
+          - exp_labels:
+              severity: warning
+              job: kube-state-metrics
+              namespace: preview
+              pod: umc-product-server-pr-7-0
+              container: app
+            exp_annotations:
+              summary: "Preview container가 메모리 부족으로 재시작됐어요"
+              description: "preview/umc-product-server-pr-7-0 의 container=app 가 최근 10분 안에 OOMKilled로 재시작됐어요. PR 변경의 memory 사용량과 Preview 자원 상한을 확인해주세요."
+      - eval_time: 25m
+        alertname: ContainerOOMKilled
+        exp_alerts: []
+
+  - interval: 1m
+    input_series:
+      # max_connections 100에서 연결이 70 → 85로 늘고, 15분에 deadlock 1건이 생긴다.
+      - series: 'pg_settings_max_connections{job="postgres-exporter", environment="prod", instance="10.0.0.1:9187"}'
+        values: '100x40'
+      - series: 'pg_stat_activity_count{job="postgres-exporter", environment="prod", instance="10.0.0.1:9187", datname="umc_product", state="active"}'
+        values: '10x40'
+      - series: 'pg_stat_activity_count{job="postgres-exporter", environment="prod", instance="10.0.0.1:9187", datname="umc_product", state="idle"}'
+        values: '60x9 75x30'
+      - series: 'pg_stat_database_deadlocks{job="postgres-exporter", environment="prod", instance="10.0.0.1:9187", datname="umc_product"}'
+        values: '2x14 3x25'
+    alert_rule_test:
+      - eval_time: 9m
+        alertname: PostgresConnectionsHigh
+        exp_alerts: []
+      - eval_time: 16m
+        alertname: PostgresConnectionsHigh
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              job: postgres-exporter
+              environment: prod
+            exp_annotations:
+              summary: "PostgreSQL 연결 수가 max_connections의 80%를 넘었어요"
+              description: "environment=prod 의 PostgreSQL 연결이 5분 이상 max_connections의 85%예요. idle 연결, 앱 pool 크기와 사람용 접속을 확인해주세요."
+      - eval_time: 14m
+        alertname: PostgresDeadlocks
+        exp_alerts: []
+      - eval_time: 16m
+        alertname: PostgresDeadlocks
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              job: postgres-exporter
+              environment: prod
+              datname: umc_product
+            exp_annotations:
+              summary: "PostgreSQL deadlock이 발생했어요"
+              description: "environment=prod, datname=umc_product 에서 최근 10분 동안 deadlock이 있었어요. PostgreSQL log의 deadlock detail과 같은 시각 API error log를 확인해주세요."
+      - eval_time: 30m
+        alertname: PostgresDeadlocks
+        exp_alerts: []
