@@ -17,7 +17,7 @@
   ansible.builtin.assert:
     that:
       - item.name is match('^[a-z][a-z0-9_]{1,30}$')
-      - item.name not in ['root', 'nobody', 'daemon', 'www_data']
+      - item.name not in ['root', 'nobody', 'daemon']
       - item.state in ['present', 'absent']
       - item.role in ['admin', 'db_tunnel']
       - item.state != 'absent' or item.name != ansible_user
@@ -187,7 +187,6 @@
     mode: '0644'
     backup: true
     validate: /usr/sbin/sshd -t -f %s
-  register: ssh_access_config
   notify: Reload personal SSH policy
 
 # 다른 설정 파일까지 합친 SSH 문법을 검사해 잘못된 구성을 서비스가 다시 읽지 않도록 한다.

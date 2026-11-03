@@ -31,6 +31,22 @@ def command_argv(task: dict[str, object]) -> list[str]:
     return argv if isinstance(argv, list) else []
 
 
+def all_tasks() -> list[tuple[str, dict[str, object]]]:
+    """Every task and handler in the roles and playbooks, with its source path."""
+    found: list[tuple[str, dict[str, object]]] = []
+    paths = sorted((ROOT / "ansible" / "roles").glob("*/tasks/*.yml"))
+    paths += sorted((ROOT / "ansible" / "roles").glob("*/handlers/*.yml"))
+    for path in paths:
+        relative = str(path.relative_to(ROOT))
+        found += [(relative, task) for task in load_tasks(relative)]
+    for path in sorted((ROOT / "ansible" / "playbooks").glob("*.yml")):
+        relative = str(path.relative_to(ROOT))
+        for play in yaml.safe_load(path.read_text(encoding="utf-8")):
+            for section in ("pre_tasks", "tasks", "post_tasks", "handlers"):
+                found += [(relative, task) for task in play.get(section, [])]
+    return found
+
+
 # 기본 운영 경로와 CI의 공개 예제 경로를 구분해 검증이 실제 inventory에 의존하지 않게 한다.
 class AnsibleInventoryContractTests(unittest.TestCase):
     def test_default_inventory_is_the_current_cafe24_inventory(self) -> None:
@@ -491,6 +507,21 @@ class PublicSshBootstrapContractTests(unittest.TestCase):
         self.assertEqual(probe["ansible.builtin.wait_for"]["port"], 6443)
         self.assertEqual(probe["ansible.builtin.wait_for"]["state"], "stopped")
         self.assertEqual(probe["delegate_to"], "localhost")
+
+
+# 서버 상태를 바꾸는 kubectl 명령이 재실행 결과에서 변경 없음으로 숨지 않게 한다.
+class ChangeReportingContractTests(unittest.TestCase):
+    def test_mutating_kubectl_commands_never_report_unchanged(self) -> None:
+        mutations = [
+            (path, task) for path, task in all_tasks()
+            if command_argv(task)[1:2] == ["kubectl"]
+            and (command_argv(task)[2:3] in (["apply"], ["annotate"])
+                 or command_argv(task)[2:4] == ["rollout", "restart"])
+        ]
+        self.assertTrue(any("annotate" in command_argv(task) for _, task in mutations))
+        for path, task in mutations:
+            with self.subTest(path=path, task=task["name"]):
+                self.assertIsNot(task.get("changed_when"), False)
 
 
 # 저장소 정체성 검사가 Git ignore 규칙을 존중해 로컬 비공개 파일을 훑지 않게 한다.
