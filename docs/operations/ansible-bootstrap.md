@@ -43,6 +43,9 @@ pip install -r requirements.txt
 ansible-galaxy collection install -r collections/requirements.yml
 ```
 
+`ansible.cfg`의 `collections_path`가 `ansible/collections`를 먼저 찾으므로 collection은 Git에서 제외된
+`ansible/collections/ansible_collections/`에 설치된다. 이 경로에 없으면 `~/.ansible/collections`도 찾는다.
+
 현재 운영 기본 inventory는 Git에서 제외된 `ansible/inventories/idc-new/hosts.yml`이다.
 **이 파일을 새 서버 준비용으로 덮어쓰거나 운영 서버의 `ssh_access_finalize`를 `false`로 되돌리지 않는다.**
 새 서버는 저장소 밖의 별도 파일을 사용한다. 아래 경로는 승인된 실제 저장 위치로 바꾼다.
@@ -54,7 +57,10 @@ cp -n inventories/idc-new/hosts.example.yml "$NEW_SERVER_INVENTORY"
 ```
 
 이후 명령은 관리자 PC의 `ansible/`에서 실행하며 대상 inventory를 항상 `-i`로 지정한다.
-예제에 든 서버 주소는 새 서버 공인 IP로 교체하고 현재 운영 서버와 IP·host key가 다른지 대조한다.
+예제의 `ansible_host`와 `ssh_access_public_host`는 `CHANGE_ME_SERVER_PUBLIC_IPV4` 자리표시자다.
+새 서버 공인 IP로 교체하고 현재 운영 서버와 IP·host key가 다른지 대조한다. 자리표시자가 남아 있으면
+bootstrap은 원격 접속 전에 중단한다. 운영 서버의 실제 공인 IP는 Git에서 제외된
+`inventories/idc-new/hosts.yml`에 있고, 공개 DNS 대상 값은 [도메인·TLS 운영](domains-tls.md)에 있다.
 `ssh_access_users`에는 승인된 개인 관리자와 실제 공개키를 넣는다. 개인키 경로는
 `ansible_ssh_private_key_file`로 지정하거나 `--private-key /absolute/path/to/private-key`를 붙인다.
 private key 본문·DB 비밀번호·AWS key를 inventory에 넣지 않는다.
@@ -66,7 +72,6 @@ private key 본문·DB 비밀번호·AWS key를 inventory에 넣지 않는다.
 | `ssh_access_users` | 실제 개인 계정·역할·상태·공개키 전체 목록 | 기존 목록 보존 |
 | `ssh_access_confirm` | 대상·계정·복구 경로 확인 후 `true` | `true` |
 | `ssh_access_finalize` | `false` | 독립 SSH·sudo 검증 뒤 `true` |
-| `common_public_tcp_ports` | `[22, 443]` | 동일 |
 | `bootstrap_confirm` | `false` | 전체 설치 직전에 `true` |
 | `bootstrap_root_app_enabled` | 예제 기본값 `false` | root 생성 선행 조건 확인 뒤 `true` |
 
@@ -117,7 +122,9 @@ ansible-playbook -i "${NEW_SERVER_INVENTORY:?}" playbooks/ssh-access.yml
 ```
 
 이제 root 직접 SSH 로그인이 차단된다. 별도 개인 관리자 SSH 연결과 `sudo -n true`를 다시
-확인한 뒤 이전 관리자 세션을 종료한다. 실패하면 유지 중인 세션 또는 Cafe24 console에서
+확인한 뒤 이전 관리자 세션을 종료한다. 실행 결과의 `Report legacy root keys left after finalization`은
+`/root/.ssh/authorized_keys`에 남은 이전 키를 기본 출력에서 fingerprint로만 알린다(`-v` 이상은 키 주석도 보인다). sshd는 전환 뒤 이 파일을 읽지 않으며
+Ansible도 지우지 않는다. 제공업체 console 복구에 필요한지 확인한 뒤 직접 정리한다. 실패하면 유지 중인 세션 또는 Cafe24 console에서
 SSH 설정·UFW를 복구한다. DB/PVC·K3s 초기화나 host key 검증 해제로 우회하지 않는다.
 
 ## 3. K3s·Argo CD 설치와 ESO 자격증명 준비
@@ -202,12 +209,41 @@ SSH 개인키와 PostgreSQL 계정·비밀번호는 서로 다른 자격증명�
 
 Grafana·Argo CD 계정 발급·회수, 공개 접속 검증과 장애 시 SSH 복구는
 [도구 접근 운영](tool-access.md)을 따른다.
+Argo CD core values(계정·RBAC·health·controller metrics)만 바꿨다면 전체 bootstrap 대신
+[`argocd.yml` 반영 절차](tool-access.md#argo-cd-core-values-반영)를 따른다.
 
 ### 재실행과 오류 확인
 
 공인 IP·개인 관리자 inventory와 `ssh_access_finalize: true`를 유지한다.
 SSH 사용자 변경은 `ssh-access.yml`, OS/K3s bootstrap 변경은 `bootstrap.yml`을 사용한다.
 앱 image, Helm values와 Kubernetes manifest 변경은 Git과 Argo CD로 처리한다.
+
+SSH·OS 설정을 바꾼 Git revision을 운영 서버에 반영할 때는 기존 관리자 세션과 Cafe24 console을
+유지하고 `--check --diff`부터 실행한다. bootstrap은 재실행에도 ESO key 입력을 요구한다.
+
+```bash
+cd ansible
+source .venv/bin/activate
+ansible-galaxy collection install -r collections/requirements.yml
+ansible -i inventories/idc-new/hosts.yml k3s_servers --list-hosts
+ansible-playbook -i inventories/idc-new/hosts.yml --check --diff playbooks/ssh-access.yml
+ansible-playbook -i inventories/idc-new/hosts.yml playbooks/ssh-access.yml
+ansible-playbook -i inventories/idc-new/hosts.yml --check --diff playbooks/bootstrap.yml
+ansible-playbook -i inventories/idc-new/hosts.yml playbooks/bootstrap.yml
+```
+
+`ssh-access.yml` 뒤에는 별도 terminal에서 개인 관리자 SSH·`sudo -n true`와 DB 터널 연결을 다시 확인한
+다음 bootstrap으로 넘어간다. diff에서 특히 다음을 확인한다.
+
+- sshd: `00-umc-hardening.conf`의 `ClientAliveInterval 60`·`ClientAliveCountMax 3`, `db_tunnel` 계정
+  shell의 `/usr/sbin/nologin` 변경. reload는 이미 열린 세션을 끊지 않는다.
+- 자동 업데이트: `/etc/apt/apt.conf.d/52umc-unattended-upgrades`, needrestart가 있으면
+  `/etc/needrestart/conf.d/99-umc-list-only.conf`, apt timer 활성화. 자동 업데이트가 dpkg lock을 잡고
+  있으면 apt 작업은 최대 10분 기다린다. timer를 처음 켜면 밀린 자동 업데이트가 바로 실행되어 lock을
+  10분 넘게 잡을 수 있다. apt 작업이 lock 대기로 실패하면 `/var/log/unattended-upgrades`에서 진행 상황을
+  확인하고 업데이트가 끝난 뒤 같은 playbook을 다시 실행한다.
+- journald: `SystemMaxUse=1G` 적용 뒤 journald가 재시작되면서 1G를 넘는 오래된 journal을 지운다.
+  적용 전에 `sudo -n journalctl --disk-usage`로 현재 크기를 확인하고, 1G를 넘으면 보존할 로그를 먼저 내보낸다.
 
 | 증상 | 먼저 확인할 것 |
 |---|---|
@@ -234,10 +270,26 @@ UFW 기본 정책은 inbound deny, outbound allow다. `common`은 필요한 규�
 선언 밖 인바운드 `allow`·`limit` 규칙을 제거한다. 자동 해석하기 위험한 inbound deny/reject,
 route allow/limit, quoted application profile은 변경 전에 중단한다.
 
-공개키 인증은 개인 키 유출·OpenSSH 취약점·접속 폭주를 모두 해결하지 않는다. 보안 업데이트와
-SSH 인증 로그를 점검하고 계정 회수를 검증한다. 연결 제한이나 서버 UFW는 회선에 도달한 공격
+공개키 인증은 개인 키 유출·OpenSSH 취약점·접속 폭주를 모두 해결하지 않는다. SSH 인증 로그를
+점검하고 계정 회수를 검증한다. 연결 제한이나 서버 UFW는 회선에 도달한 공격
 트래픽을 없애지 않으므로 대규모 DDoS·초과 과금 대응은 제공업체 정책과 별도로 검토한다.
 
 Route 53은 DNS만 제공하며 proxy나 방화벽이 아니다. public `80/tcp`는 DNS-01 인증에 필요하지
 않아 열지 않는다. K3s는 Secret 저장 암호화와 `root:root`, mode `0600` kubeconfig를 유지한다.
 클러스터 조회는 개인 관리자 SSH의 `sudo -n k3s kubectl`로 수행하고 kubeconfig를 배포하지 않는다.
+
+### 자동 보안 업데이트
+
+`common`은 `unattended-upgrades`가 Ubuntu 보안 pocket만 자동 설치하도록 설정한다. 자동 재부팅과
+메일은 끈다. K3s와 Helm은 apt 패키지가 아닌 고정 binary라 자동 업데이트 대상이 아니다.
+needrestart가 있으면 list-only로 두어 업데이트 뒤 서비스를 자동 재시작하지 않는다.
+OpenSSH 패키지 자체의 보안 업데이트는 패키지 스크립트가 sshd를 재시작하지만 기존 SSH 세션은 유지된다.
+
+커널·라이브러리 업데이트는 재부팅이나 서비스 재시작 전까지 반영되지 않는다. 정기 점검 때
+개인 관리자 SSH에서 다음을 확인하고, 필요하면 점검 시간에 직접 재부팅한다.
+
+```bash
+cat /var/run/reboot-required 2>/dev/null || echo "재부팅 필요 없음"
+sudo -n needrestart -r l -b
+sudo -n tail -n 20 /var/log/unattended-upgrades/unattended-upgrades.log
+```

@@ -21,7 +21,7 @@ Hosted Zone 자체는 생성하거나 삭제하지 않는다. NS·SOA authoritat
 수렴하기 전에 ExternalDNS, cert-manager, Ingress를 활성화하지 않는다.
 
 apex frontend와 `admin`, `tech`처럼 Kubernetes가 소유하지 않는 record는 별도로 관리한다.
-ExternalDNS는 API, Grafana와 Argo CD record만 소유한다.
+ExternalDNS는 API, Preview 메일 수집함, Grafana와 Argo CD record만 소유한다.
 
 ## Host와 접근 경계
 
@@ -30,6 +30,7 @@ ExternalDNS는 API, Grafana와 Argo CD record만 소유한다.
 | prod API | `api.university.neordinary.com` | Route 53 A record → public direct HTTPS, API 인증 |
 | dev API | `api-dev.university.neordinary.com` | Route 53 A record → public direct HTTPS, API 인증 |
 | PR preview API | `api-pr-<PR>.university.neordinary.com` | Route 53 exact A record → public direct HTTPS, API 인증 |
+| PR preview 메일 수집함 | `mail-pr-<PR>.university.neordinary.com` | Route 53 exact A record → public direct HTTPS, Preview 공용 Basic Auth |
 | Grafana | 관리자가 전달하는 Grafana host | Route 53 A record → public direct HTTPS, Grafana 로그인 필수 |
 | Argo CD | 관리자가 전달하는 Argo CD host | Route 53 A record → public direct HTTPS, Argo CD 로그인 필수 |
 
@@ -48,8 +49,9 @@ Argo CD는 비공유 `admin`과 공용 조회 계정 `umc-viewer`를 사용한�
 - Argo CD: controller, ClusterIssuer, Certificate, Ingress desired state
 - 제공업체 방화벽과 UFW: 공인 SSH `22/tcp`와 HTTPS `443/tcp`를 허용하고 DB `5432/tcp`와 Kubernetes API `6443/tcp`는 비공개로 유지
 
-wildcard DNS record는 만들지 않는다. ExternalDNS는 `api-pr-27.university.neordinary.com` 같은
-exact record를 PR마다 만들고 PR 삭제 시 TXT ownership 범위에서 정리한다.
+wildcard DNS record는 만들지 않는다. ExternalDNS는 `api-pr-27.university.neordinary.com`,
+`mail-pr-27.university.neordinary.com` 같은 exact record를 PR마다 만들고 PR 삭제 시 TXT ownership
+범위에서 정리한다.
 cert-manager는 `preview` namespace에 `Certificate/preview-wildcard` 하나를 두고
 `*.university.neordinary.com`을 `preview-wildcard-tls` Secret으로 발급한다.
 
@@ -90,6 +92,23 @@ AWS Secrets Manager에 저장한 뒤 ESO로 namespace별 Kubernetes Secret에 �
 두 source의 JSON property는 `access-key-id`, `secret-access-key`다. cert-manager에는 DNS-01
 challenge TXT 작성과 변경 상태 조회, ExternalDNS에는 exact A/TXT record 조회·변경에
 필요한 최소 권한만 준다.
+
+ExternalDNS IAM은 아래 이름의 A record와 ownership TXT만 변경할 수 있다. TXT 이름은
+`txtPrefix: _external-dns.`와 record type `a-`를 host 앞에 붙인 형태다. `*`는 Preview PR 번호
+자리에만 쓴다. Ingress host를 추가하면 `cloud/aws/route53-dns.yaml`의 허용 목록과 이 표를 함께
+바꾸고 stack을 갱신한다. `scripts/validate_contracts.py`는 렌더된 Ingress host가 허용 목록에
+없거나 허용 목록이 렌더된 host보다 넓으면 실패한다. Preview host는 ApplicationSet parameter로
+렌더한 PR 42 결과, Grafana host는 Argo CD values로 렌더한 chart 결과에서 읽는다. 대상 Ingress는
+ExternalDNS `annotationFilter`와 같은 annotation을 가진 것만이다.
+
+| Host | A record | Ownership TXT |
+|---|---|---|
+| prod API | `api.<zone>` | `_external-dns.a-api.<zone>` |
+| dev API | `api-dev.<zone>` | `_external-dns.a-api-dev.<zone>` |
+| PR preview API | `api-pr-*.<zone>` | `_external-dns.a-api-pr-*.<zone>` |
+| PR preview 메일 수집함 | `mail-pr-*.<zone>` | `_external-dns.a-mail-pr-*.<zone>` |
+| Grafana | `grafana.<zone>` | `_external-dns.a-grafana.<zone>` |
+| Argo CD | `argo.<zone>` | `_external-dns.a-argo.<zone>` |
 
 ## 최초 활성화 순서
 

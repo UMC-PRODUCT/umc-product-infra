@@ -1191,7 +1191,7 @@
               <tbody>
                 <tr><td class="num">-100</td><td>전용 AppProject</td><td>source·namespace·cluster 권한 경계 먼저 생성</td></tr>
                 <tr><td class="num">-99</td><td>built-in default 잠금</td><td>source와 destination을 비워 우회 경로 차단</td></tr>
-                <tr><td class="num">-3</td><td>Namespace · PriorityClass · Argo health</td><td>후속 리소스의 대상과 health 규칙 준비</td></tr>
+                <tr><td class="num">-3</td><td>Namespace · PriorityClass</td><td>후속 리소스의 대상 준비 (health 규칙은 Helm 설치 때 적용)</td></tr>
                 <tr><td class="num">-2</td><td>ESO · cert-manager controller</td><td>CRD와 controller 선행</td></tr>
                 <tr><td class="num">-1</td><td>SecretStore · ExternalSecret</td><td>workload보다 Secret 먼저</td></tr>
                 <tr><td class="num">0</td><td>Postgres · ExternalDNS · Reloader · Certificate</td><td>runtime 기반 생성</td></tr>
@@ -1210,8 +1210,8 @@
               <thead><tr><th>영역</th><th>내용</th></tr></thead>
               <tbody>
                 <tr><td>argocd-access</td><td>Argo CD 공개 HTTPS Ingress, Certificate, NetworkPolicy</td></tr>
-                <tr><td>cert-manager</td><td>staging/prod ClusterIssuer, Preview wildcard Certificate</td></tr>
-                <tr><td>cluster</td><td>Namespace, PriorityClass, Preview quota, Argo health</td></tr>
+                <tr><td>cert-manager</td><td>staging/prod ClusterIssuer, Preview wildcard·Mailpit loopback Certificate</td></tr>
+                <tr><td>cluster</td><td>Namespace (default PSA 포함), PriorityClass, Preview quota</td></tr>
                 <tr><td>observability</td><td>생성된 dashboard/Loki rule ConfigMap, NetworkPolicy</td></tr>
                 <tr><td>observability-integrations</td><td>ServiceMonitor, 생성된 PrometheusRule</td></tr>
                 <tr><td>Postgres prod</td><td>StatefulSet, Service, role Job, policy, backup, postgres-exporter</td></tr>

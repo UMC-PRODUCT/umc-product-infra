@@ -9,6 +9,7 @@ import re
 import subprocess
 import sys
 from pathlib import Path
+from typing import NamedTuple
 
 import yaml
 
@@ -32,6 +33,8 @@ APP_IMAGE = (
 )
 PREVIEW_APP_IMAGE = APP_IMAGE
 TEST_NET_EDGE_TARGET = "203.0.113.10"
+# validate.sh가 Preview 렌더 견본으로 쓰는 PR 번호다.
+PREVIEW_SAMPLE_PR_NUMBER = "42"
 CERTIFICATE_ISSUERS = {"letsencrypt-staging", "letsencrypt-production"}
 KAKAO_JAVASCRIPT_KEY = "4e79ba06223b60e13ad76bb6aec8f2b9"
 GOOGLE_CLIENT_ID_LIST = (
@@ -46,6 +49,12 @@ FCM_REQUIRED_SECRETS = [*BASE_REQUIRED_SECRETS, "app-fcm"]
 BASE_RELOADER_SECRETS = ["app-oauth", "app-storage", "app-email"]
 FCM_RELOADER_SECRETS = [*BASE_RELOADER_SECRETS, "app-fcm"]
 RELOADER_TRIGGER_ANNOTATION = "secret.reloader.stakater.com/reload"
+MAIL_CAPTURE_SMTP_HOST = "smtp-capture.university.neordinary.com"
+MAIL_CAPTURE_TLS_SECRET = "preview-mail-capture-loopback-tls"
+MAIL_CAPTURE_JAVA_TOOL_OPTIONS = (
+    "-Djavax.net.ssl.trustStore=/truststore/cacerts "
+    "-Djavax.net.ssl.trustStorePassword=changeit"
+)
 RELOADER_RUNTIME_POINTER = (
     "/spec/template/metadata/annotations/"
     "reloader.stakater.com~1last-reloaded-from"
@@ -106,8 +115,89 @@ def git_visible_files(root: Path) -> list[Path]:
     )
 
 
+def external_dns_registry_config() -> dict:
+    application = yaml.safe_load(
+        (ROOT / "argocd" / "applications" / "platform" / "external-dns.yaml").read_text(
+            encoding="utf-8"
+        )
+    )
+    return application["spec"]["source"]["helm"]["valuesObject"]
+
+
+# ExternalDNS ingress source는 rules·tls host와 hostname annotation을 모두 record로 만든다.
+# annotationFilter는 key=value 한 쌍만 지원한다. 다른 selector 문법이면 수집 범위를 판단하지 않고 실패한다.
+def external_dns_hosts(documents: list[dict], annotation_filter: str) -> set[str]:
+    require(
+        re.fullmatch(r"[^=!,()\s]+=[^=!,()\s]+", annotation_filter) is not None,
+        f"ExternalDNS annotationFilter must be a single key=value: {annotation_filter}",
+    )
+    opt_in_key, opt_in_value = annotation_filter.split("=")
+    hosts: set[str] = set()
+    for document in documents:
+        if not isinstance(document, dict) or document.get("kind") != "Ingress":
+            continue
+        annotations = document.get("metadata", {}).get("annotations") or {}
+        if annotations.get(opt_in_key) != opt_in_value:
+            continue
+        spec = document.get("spec", {})
+        hosts.update(rule["host"] for rule in spec.get("rules", []) if rule.get("host"))
+        hosts.update(host for tls in spec.get("tls", []) for host in tls.get("hosts", []))
+        hostname = annotations.get("external-dns.kubernetes.io/hostname", "")
+        hosts.update(name.strip() for name in hostname.split(",") if name.strip())
+    return hosts
+
+
+def iam_string_like(pattern: str, value: str) -> bool:
+    expression = "".join(
+        ".*" if char == "*" else "." if char == "?" else re.escape(char)
+        for char in pattern
+    )
+    return re.fullmatch(expression, value) is not None
+
+
+# 렌더된 host에서 ExternalDNS가 쓸 A·TXT 이름을 계산해 IAM 허용 패턴과 양방향으로 대조한다.
+# *는 Preview PR 번호 자리에만 허용한다. 견본 PR 번호로 바꾼 패턴은 실제 렌더 이름이어야 한다.
+def validate_external_dns_record_names(
+    allowed_patterns: list[str],
+    hosts: set[str],
+    *,
+    txt_prefix: str,
+    record_types: list[str],
+) -> None:
+    require(hosts, "ExternalDNS: no opted-in Ingress host was collected")
+    record_names = set(hosts) | {
+        f"{txt_prefix}{record_type.lower()}-{host}"
+        for host in hosts
+        for record_type in record_types
+        if record_type != "TXT"
+    }
+    for name in sorted(record_names):
+        require(
+            any(iam_string_like(pattern, name) for pattern in allowed_patterns),
+            f"ExternalDNS Route53 IAM does not allow record name: {name}",
+        )
+    for pattern in allowed_patterns:
+        require(
+            pattern.count("*") <= 1
+            and pattern.replace("*", PREVIEW_SAMPLE_PR_NUMBER) in record_names,
+            "ExternalDNS Route53 IAM pattern is broader than a rendered record "
+            f"or no longer used: {pattern}",
+        )
+
+
+# 앱·ApplicationSet·Grafana 렌더와 정적 manifest에서 ExternalDNS가 관리할 host를 모은다.
+def external_dns_desired_hosts(render_paths: list[Path], annotation_filter: str) -> set[str]:
+    documents = [document for path in render_paths for document in yaml_documents(path)]
+    documents += [
+        document
+        for path in sorted((ROOT / "manifests").rglob("*.yaml"))
+        for document in yaml_documents(path)
+    ]
+    return external_dns_hosts(documents, annotation_filter)
+
+
 # 기존 위임 zone을 재생성하지 않고 인증서용 TXT와 앱용 DNS 변경 권한을 분리하는지 확인한다.
-def validate_route53_contract() -> None:
+def validate_route53_contract(render_paths: list[Path]) -> None:
     template_path = ROOT / "cloud" / "aws" / "route53-dns.yaml"
     with template_path.open(encoding="utf-8") as stream:
         template = yaml.load(stream, Loader=CloudFormationLoader)
@@ -229,6 +319,17 @@ def validate_route53_contract() -> None:
             "Statement"
         ]
     }
+    external_dns_config = external_dns_registry_config()
+    external_dns_name_patterns = (
+        external_dns_statements.get("ManageOnlyUmcIngressAndOwnershipRecords", {})
+        .get("Condition", {})
+        .get("ForAllValues:StringLike", {})
+        .get("route53:ChangeResourceRecordSetsNormalizedRecordNames")
+    )
+    require(
+        isinstance(external_dns_name_patterns, list),
+        "ExternalDNS Route53 record name allowlist",
+    )
     require(
         external_dns_statements
         == {
@@ -256,26 +357,26 @@ def validate_route53_contract() -> None:
                             "UPSERT",
                             "DELETE",
                         ],
-                        "route53:ChangeResourceRecordSetsRecordTypes": ["A", "TXT"],
+                        "route53:ChangeResourceRecordSetsRecordTypes": (
+                            external_dns_config["managedRecordTypes"]
+                        ),
                     },
                     "ForAllValues:StringLike": {
-                        "route53:ChangeResourceRecordSetsNormalizedRecordNames": [
-                            "api.${DnsZoneName}",
-                            "api-dev.${DnsZoneName}",
-                            "api-pr-*.${DnsZoneName}",
-                            "grafana.${DnsZoneName}",
-                            "argo.${DnsZoneName}",
-                            "_external-dns.a-api.${DnsZoneName}",
-                            "_external-dns.a-api-dev.${DnsZoneName}",
-                            "_external-dns.a-api-pr-*.${DnsZoneName}",
-                            "_external-dns.a-grafana.${DnsZoneName}",
-                            "_external-dns.a-argo.${DnsZoneName}",
-                        ]
+                        "route53:ChangeResourceRecordSetsNormalizedRecordNames": (
+                            external_dns_name_patterns
+                        )
                     },
                 },
             },
         },
         "ExternalDNS Route53 least-privilege policy",
+    )
+    zone = template["Parameters"]["DnsZoneName"]["Default"]
+    validate_external_dns_record_names(
+        [pattern.replace("${DnsZoneName}", zone) for pattern in external_dns_name_patterns],
+        external_dns_desired_hosts(render_paths, external_dns_config["annotationFilter"]),
+        txt_prefix=external_dns_config["txtPrefix"],
+        record_types=external_dns_config["managedRecordTypes"],
     )
     require(
         all(resource.get("Type") != "AWS::IAM::AccessKey" for resource in resources.values()),
@@ -361,6 +462,7 @@ def validate_app_storage_contract() -> None:
         "app storage production CORS condition",
     )
     # preview만 테스트 업로드를 30일 뒤 만료한다. prod·dev 파일은 만료하지 않는다.
+    bucket_properties = template["Resources"]["AppStorageBucket"]["Properties"]
     abort_multipart = {
         "Id": "abort-incomplete-multipart-uploads",
         "Status": "Enabled",
@@ -368,7 +470,7 @@ def validate_app_storage_contract() -> None:
     }
     require(
         template["Conditions"]["IsPreview"] == ["Environment", "preview"]
-        and template["Resources"]["AppStorageBucket"]["Properties"]["LifecycleConfiguration"]
+        and bucket_properties["LifecycleConfiguration"]
         == {
             "Rules": [
                 "IsPreview",
@@ -376,10 +478,69 @@ def validate_app_storage_contract() -> None:
                     abort_multipart,
                     {"Id": "expire-preview-test-uploads", "Status": "Enabled", "ExpirationInDays": 30},
                 ],
-                [abort_multipart],
+                [
+                    abort_multipart,
+                    {
+                        "Id": "expire-noncurrent-versions",
+                        "Status": "Enabled",
+                        "NoncurrentVersionExpiration": {"NoncurrentDays": 30},
+                        "ExpiredObjectDeleteMarker": True,
+                    },
+                ],
             ]
         },
-        "app storage lifecycle: only preview uploads expire after 30 days",
+        "app storage lifecycle: only preview uploads expire after 30 days; "
+        "prod/dev keep noncurrent versions for 30 days",
+    )
+    # prod·dev에서 지우거나 덮어쓴 업로드를 이전 버전으로 복구할 수 있어야 한다.
+    require(
+        bucket_properties.get("VersioningConfiguration")
+        == ["IsPreview", "AWS::NoValue", {"Status": "Enabled"}],
+        "app storage versioning must be enabled for prod and dev",
+    )
+    app_policies = template["Resources"]["AppStorageUser"]["Properties"]["Policies"]
+    # 앱 자격증명이 유출되거나 오작동해도 이전 버전까지 지우지 못하게 한다.
+    for policy in app_policies:
+        for statement in policy["PolicyDocument"]["Statement"]:
+            actions = statement.get("Action", [])
+            actions = [actions] if isinstance(actions, str) else actions
+            require(
+                "NotAction" not in statement
+                and all(
+                    "*" not in action and action.lower() != "s3:deleteobjectversion"
+                    for action in actions
+                ),
+                "app storage IAM must not delete object versions "
+                "(no s3:DeleteObjectVersion, wildcard actions, or NotAction)",
+            )
+    # 앱 권한을 바꾸면 이 사본도 함께 고쳐 리뷰에서 변경이 드러나게 한다.
+    require(
+        app_policies
+        == [{
+            "PolicyName": ["EnvironmentConfig", "Environment", "PolicyName"],
+            "PolicyDocument": {
+                "Version": "2012-10-17",
+                "Statement": [
+                    {
+                        "Sid": "ListApplicationStorage",
+                        "Effect": "Allow",
+                        "Action": "s3:ListBucket",
+                        "Resource": "AppStorageBucket.Arn",
+                    },
+                    {
+                        "Sid": "ReadWriteApplicationObjects",
+                        "Effect": "Allow",
+                        "Action": ["s3:GetObject", "s3:PutObject", "s3:DeleteObject"],
+                        "Resource": [
+                            "${AppStorageBucket.Arn}/public/*",
+                            "${AppStorageBucket.Arn}/private/*",
+                        ],
+                    },
+                ],
+            },
+        }],
+        "app storage IAM policy differs from the reviewed copy in validate_contracts.py; "
+        "update the copy together with the template change",
     )
     require(
         template["Resources"]["AppStorageBucket"]["Properties"][
@@ -440,9 +601,9 @@ def validate_ses_contract() -> None:
     require("Default" not in route53_parameter, "SES Route53 Hosted Zone ID must be explicit")
     require(
         route53_parameter.get("Type") == "String"
-        and route53_parameter.get("MinLength") == 1
+        and route53_parameter.get("MinLength") == 3
         and route53_parameter.get("MaxLength") == 32
-        and route53_parameter.get("AllowedPattern") == "^[A-Z0-9]{1,32}$",
+        and route53_parameter.get("AllowedPattern") == "^Z[A-Z0-9]+$",
         "SES Route53 Hosted Zone ID parameter",
     )
 
@@ -556,8 +717,47 @@ def validate_ses_contract() -> None:
             "DkimDnsRecord3",
             "MailFromMxDnsRecord",
             "MailFromSpfDnsRecord",
+            "DmarcDnsRecord",
         },
         "SES Route53 record set",
+    )
+    # rua는 공개 DNS에 노출되므로 SNS 알림 주소가 아닌 별도 선택 파라미터만 쓴다.
+    dmarc_parameter = parameters["DmarcReportEmailAddress"]
+    require(
+        dmarc_parameter.get("Type") == "String"
+        and dmarc_parameter.get("Default") == ""
+        and dmarc_parameter.get("MaxLength") == 254
+        and dmarc_parameter.get("AllowedPattern")
+        == "^$|^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}$",
+        "SES DMARC report address parameter must be optional and empty by default",
+    )
+    require(
+        template["Conditions"].get("HasDmarcReportAddress")
+        == [["DmarcReportEmailAddress", ""]],
+        "SES DMARC report address condition",
+    )
+    # 보고로 정렬 실패가 없음을 확인한 뒤 p를 올릴 수 있게 정책 값만 열어 둔다.
+    dmarc_record = route53_records["DmarcDnsRecord"]
+    require(
+        dmarc_record.get("DeletionPolicy") == "Retain"
+        and dmarc_record.get("UpdateReplacePolicy") == "Retain"
+        and dmarc_record.get("Properties")
+        in [
+            {
+                "HostedZoneId": "Route53HostedZoneId",
+                "Name": "_dmarc.${SesDomainIdentity}",
+                "Type": "TXT",
+                "TTL": "300",
+                "ResourceRecords": [[
+                    "HasDmarcReportAddress",
+                    f'"v=DMARC1; p={policy}; rua=mailto:${{DmarcReportEmailAddress}}"',
+                    f'"v=DMARC1; p={policy}"',
+                ]],
+            }
+            for policy in ("none", "quarantine", "reject")
+        ],
+        "SES DMARC TXT record must publish p=none|quarantine|reject, "
+        "with rua only from DmarcReportEmailAddress",
     )
     for index in range(1, 4):
         record = route53_records[f"DkimDnsRecord{index}"]
@@ -621,10 +821,173 @@ def validate_ses_contract() -> None:
     )
 
 
+# 계정에서 스택 밖 수동 자원과 구분하고 용도를 찾을 수 있도록 IAM·S3 자원에 같은 태그를 붙인다.
+def validate_cloudformation_tags() -> None:
+    tagged_types = {"AWS::IAM::User", "AWS::IAM::Role", "AWS::S3::Bucket"}
+    for template_path in sorted((ROOT / "cloud" / "aws").glob("*.yaml")):
+        with template_path.open(encoding="utf-8") as stream:
+            template = yaml.load(stream, Loader=CloudFormationLoader)
+        for name, item in template.get("Resources", {}).items():
+            if item.get("Type") not in tagged_types:
+                continue
+            tags = {
+                tag.get("Key"): tag.get("Value")
+                for tag in item.get("Properties", {}).get("Tags", [])
+            }
+            require(
+                tags.get("managed-by") == "cloudformation"
+                and bool(tags.get("environment"))
+                and bool(tags.get("purpose")),
+                f"{template_path.name}:{name} must carry managed-by=cloudformation, "
+                "environment, and purpose tags",
+            )
+
+
 def resource(resources: list[dict], kind: str) -> dict:
     matches = [item for item in resources if item.get("kind") == kind]
     require(len(matches) == 1, f"expected one {kind}, found {len(matches)}")
     return matches[0]
+
+
+class SecretReference(NamedTuple):
+    # None이면 어떤 container도 마운트하지 않은 Pod volume이다.
+    container: str | None
+    secret: str
+    # None이면 Secret의 모든 key를 받는다.
+    keys: frozenset[str] | None
+
+
+def secret_items(source: dict) -> frozenset[str] | None:
+    items = source.get("items")
+    return frozenset(item["key"] for item in items) if items else None
+
+
+def volume_secrets(volume: dict) -> list[tuple[str, frozenset[str] | None]]:
+    if "secret" in volume:
+        return [(volume["secret"]["secretName"], secret_items(volume["secret"]))]
+    return [
+        (source["secret"]["name"], secret_items(source["secret"]))
+        for source in volume.get("projected", {}).get("sources", [])
+        if "secret" in source
+    ]
+
+
+def pod_secret_references(pod: dict) -> list[SecretReference]:
+    containers = [*pod.get("initContainers", []), *pod["containers"]]
+    references = []
+    for volume in pod.get("volumes", []):
+        readers = [
+            container["name"]
+            for container in containers
+            if any(mount["name"] == volume["name"] for mount in container.get("volumeMounts", []))
+        ] or [None]
+        references += [
+            SecretReference(reader, secret, keys)
+            for reader in readers
+            for secret, keys in volume_secrets(volume)
+        ]
+    for container in containers:
+        for source in container.get("envFrom", []):
+            if "secretRef" in source:
+                references.append(
+                    SecretReference(container["name"], source["secretRef"]["name"], None)
+                )
+        for item in container.get("env", []):
+            reference = item.get("valueFrom", {}).get("secretKeyRef")
+            if reference:
+                references.append(SecretReference(
+                    container["name"], reference["name"], frozenset({reference["key"]})
+                ))
+    return references
+
+
+def preview_cert_manager_resources() -> list[dict]:
+    return [
+        item
+        for path in sorted((ROOT / "manifests" / "cert-manager").glob("*.yaml"))
+        for item in yaml_documents(path)
+        if item.get("metadata", {}).get("namespace") == "preview"
+    ]
+
+
+# 공개 wildcard 키는 Traefik만 읽는다. PR Pod에는 loopback 이름만 담은 자체 서명 키를 Mailpit에만 준다.
+def validate_preview_mail_capture_tls(
+    resources: list[dict], cert_manager_resources: list[dict]
+) -> None:
+    pod = resource(resources, "Deployment")["spec"]["template"]["spec"]
+    certificates = [item for item in cert_manager_resources if item["kind"] == "Certificate"]
+    wildcard_secrets = {
+        item["spec"]["secretName"]
+        for item in certificates
+        if any(name.startswith("*.") for name in item["spec"]["dnsNames"])
+    }
+    require(bool(wildcard_secrets), "preview: shared wildcard Certificate must exist")
+    references = pod_secret_references(pod)
+    leaked = {item.secret for item in references} & wildcard_secrets
+    require(
+        not leaked,
+        f"preview: Deployment must not reference wildcard TLS Secret {sorted(leaked)}",
+    )
+
+    loopback = [
+        item for item in certificates if item["spec"]["dnsNames"] == [MAIL_CAPTURE_SMTP_HOST]
+    ]
+    require(len(loopback) == 1, "preview: exactly one Mailpit loopback Certificate")
+    spec = loopback[0]["spec"]
+    issuer_ref = spec["issuerRef"]
+    issuers = {
+        item["metadata"]["name"]: item
+        for item in cert_manager_resources
+        if item["kind"] == "Issuer"
+    }
+    require(
+        issuer_ref.get("group") == "cert-manager.io"
+        and issuer_ref.get("kind") == "Issuer"
+        and issuers.get(issuer_ref.get("name"), {}).get("spec") == {"selfSigned": {}},
+        "preview: Mailpit Certificate must use the namespaced self-signed Issuer",
+    )
+    # 자체 서명 인증서의 issuer DN은 subject와 같고, Java는 빈 issuer DN을 거부한다.
+    require(
+        spec.get("commonName") == MAIL_CAPTURE_SMTP_HOST
+        and spec.get("isCA") is False
+        and spec["secretName"] == MAIL_CAPTURE_TLS_SECRET,
+        "preview: Mailpit Certificate subject, CA flag and Secret",
+    )
+
+    loopback_references = [
+        item for item in references if item.secret == MAIL_CAPTURE_TLS_SECRET
+    ]
+    require(
+        [item.keys for item in loopback_references if item.container == "mail-capture-truststore"]
+        == [frozenset({"tls.crt"})],
+        "preview: truststore builder must receive only the public certificate",
+    )
+    key_readers = {
+        item.container
+        for item in loopback_references
+        if item.keys is None or "tls.key" in item.keys
+    }
+    require(
+        key_readers == {"mailpit"},
+        "preview: only Mailpit may read the loopback private key",
+    )
+    builder = next(
+        (item for item in pod.get("initContainers", []) if item["name"] == "mail-capture-truststore"),
+        {},
+    )
+    app = pod["containers"][0]
+    require(
+        builder.get("image") == app["image"]
+        and builder.get("securityContext", {}).get("readOnlyRootFilesystem") is True
+        and builder["securityContext"].get("allowPrivilegeEscalation") is False
+        and builder["securityContext"].get("capabilities") == {"drop": ["ALL"]},
+        "preview: truststore builder must use the app image under the restricted profile",
+    )
+    app_env = {item["name"]: item.get("value") for item in app["env"]}
+    require(
+        app_env.get("JAVA_TOOL_OPTIONS") == MAIL_CAPTURE_JAVA_TOOL_OPTIONS,
+        "preview: app must trust the Mailpit certificate through the built truststore",
+    )
 
 
 def edge_expectation(environment: str) -> tuple[str, str, str]:
@@ -916,7 +1279,7 @@ def validate_render(
     expected_reloader_secrets = (
         FCM_RELOADER_SECRETS
         if environment in {"prod", "dev"}
-        else BASE_RELOADER_SECRETS
+        else [*BASE_RELOADER_SECRETS, MAIL_CAPTURE_TLS_SECRET]
     )
     actual_reloader_secrets = deployment["metadata"].get("annotations", {}).get(
         RELOADER_TRIGGER_ANNOTATION
@@ -1058,6 +1421,7 @@ def validate_render(
     certificate_issuer: str | None = None
     if environment == "preview":
         require(not certificates, "preview: per-PR Certificate must be disabled")
+        validate_preview_mail_capture_tls(resources, preview_cert_manager_resources())
         require(
             service["metadata"].get("annotations", {}).get(
                 "argocd.argoproj.io/sync-wave"
@@ -1177,6 +1541,7 @@ def validate_render(
     policies = [item for item in resources if item.get("kind") == "NetworkPolicy"]
     require(len(policies) == (0 if environment == "preview" else 2), f"{environment}: policies")
     if environment == "preview":
+        validate_preview_budget_arithmetic(resources)
         jobs = [item for item in resources if item.get("kind") == "Job"]
         require(len(jobs) == 2, "preview: createdb and dropdb Jobs")
         dropdb = next(
@@ -1226,6 +1591,15 @@ def validate_render(
         require(
             "WITH (FORCE)" in script and "umc-preview-restore-complete" in script,
             "preview: createdb must rebuild only databases without the restore marker",
+        )
+        # 공용 DB 대기 상한(600초)이 Job deadline 안에 들어가야 대기 중 Job이 죽지 않는다.
+        # 시도 횟수로 세면 pg_isready timeout만큼 상한이 늘어나므로 경과 시간으로 끊는지도 본다.
+        require(
+            'wait_for "$$PGHOST" 600' in script
+            and "pg_isready -q -t 1" in script
+            and "while [ \"$$SECONDS\" -lt \"$$deadline\" ]" in script
+            and createdb["spec"]["activeDeadlineSeconds"] >= 900,
+            "preview: createdb must wait 10 minutes for the shared DB within its deadline",
         )
 
 
@@ -1315,10 +1689,39 @@ def validate_postgres() -> None:
             environment_values["POSTGRES_DB"] == expected_database,
             f"{environment}: database name",
         )
+        # 새 데이터 디렉터리는 한글 정렬을 위해 ICU ko-KR로 만든다. libc locale도 image LANG에 기대지 않는다.
+        require(
+            environment_values.get("POSTGRES_INITDB_ARGS")
+            == "--encoding=UTF8 --locale=C.UTF-8 --locale-provider=icu --icu-locale=ko-KR",
+            f"{environment}: initdb must use the ICU ko-KR default collation",
+        )
+        require(
+            statefulset["spec"].get("persistentVolumeClaimRetentionPolicy")
+            == {"whenDeleted": "Retain", "whenScaled": "Retain"}
+            and statefulset["spec"].get("updateStrategy") == {"type": "RollingUpdate"},
+            f"{environment}: StatefulSet must retain data PVCs and roll Pods one at a time",
+        )
+        if environment == "prod":
+            # CPU limit은 checkpoint·vacuum을 throttle한다. memory는 request와 limit을 같게 둔다.
+            resources = container["resources"]
+            require(
+                "cpu" not in resources.get("limits", {})
+                and resources["requests"].get("cpu")
+                and resources["requests"]["memory"] == resources["limits"]["memory"],
+                "prod: PostgreSQL keeps a CPU request without a CPU limit and fixed memory",
+            )
         if environment == "preview":
             require(
                 "max_connections=40" in container.get("args", []),
                 "preview: connection budget must match two slots",
+            )
+            orphan_check = resource(
+                yaml_documents(directory / "orphan-database-check-cronjob.yaml"), "CronJob"
+            )["spec"]
+            require(
+                orphan_check["schedule"] == "0 3 * * *"
+                and orphan_check["timeZone"] == "Asia/Seoul",
+                "preview: orphan DB check runs daily at 03:00 Asia/Seoul",
             )
 
         role_job = resource(yaml_documents(directory / "app-role-job.yaml"), "Job")
@@ -1334,8 +1737,35 @@ def validate_postgres() -> None:
             script = role_container["args"][0]
             require("CREATE EXTENSION IF NOT EXISTS postgis;" in script, f"{environment}: postgis")
             require("CREATE EXTENSION IF NOT EXISTS btree_gist;" in script, f"{environment}: btree_gist")
+            # 앱 role이 DB owner이면 DROP DATABASE가 가능하다. owner는 관리자에게 두고 필요한 권한만 준다.
+            app_role = "umc_product_app" if environment == "prod" else "umc_product_dev_app"
+            require(
+                'ALTER DATABASE :"DBNAME" OWNER TO CURRENT_USER;' in script
+                and f'ALTER DATABASE :"DBNAME" OWNER TO {app_role}' not in script,
+                f"{environment}: database owner must stay the admin role",
+            )
+            require(
+                f'GRANT CONNECT, TEMPORARY, CREATE ON DATABASE :"DBNAME" TO {app_role};' in script,
+                f"{environment}: app role needs CREATE for the Flyway public schema bootstrap",
+            )
 
     prod_directory = ROOT / "manifests" / "postgres" / "prod"
+    readonly_script = resource(
+        yaml_documents(prod_directory / "readonly-role-job.yaml"), "Job"
+    )["spec"]["template"]["spec"]["containers"][0]["args"][0]
+    for statement in (
+        "CONNECTION LIMIT 10;",
+        "ALTER ROLE umc_product_ro SET statement_timeout = '60s';",
+        "ALTER ROLE umc_product_ro SET idle_in_transaction_session_timeout = '5min';",
+    ):
+        require(statement in readonly_script, f"prod: readonly role limit {statement}")
+    backup_dump = resource(
+        yaml_documents(prod_directory / "backup-cronjob.yaml"), "CronJob"
+    )["spec"]["jobTemplate"]["spec"]["template"]["spec"]["initContainers"][0]
+    require(
+        "pg_dump -Fc --lock-wait-timeout=5min " in backup_dump["args"][0],
+        "prod: backup pg_dump must fail instead of waiting forever for table locks",
+    )
     exporter_role_job = resource(
         yaml_documents(prod_directory / "postgres-exporter-role-job.yaml"), "Job"
     )
@@ -1694,21 +2124,111 @@ def validate_secrets(path: Path) -> None:
     require("umc-secrets-shared" not in iam_text, "obsolete shared IAM role remains")
 
 
+def quantity_millicores(value: str) -> int:
+    return int(value[:-1]) if value.endswith("m") else int(float(value) * 1000)
+
+
+def quantity_mebibytes(value: str) -> int:
+    for suffix, factor in (("Gi", 1024), ("Mi", 1)):
+        if value.endswith(suffix):
+            return int(value[: -len(suffix)]) * factor
+    raise SystemExit(f"contract validation failed: unsupported memory quantity {value}")
+
+
+def pod_template_spec(item: dict) -> dict:
+    spec = item["spec"]
+    if item["kind"] == "CronJob":
+        spec = spec["jobTemplate"]["spec"]
+    return spec["template"]["spec"]
+
+
+def container_resource_amounts(container: dict) -> tuple[int, int, int]:
+    resources = container["resources"]
+    return (
+        quantity_millicores(resources["requests"]["cpu"]),
+        quantity_mebibytes(resources["requests"]["memory"]),
+        quantity_mebibytes(resources["limits"]["memory"]),
+    )
+
+
+# quota는 Pod마다 자원별로 max(일반 container 합, 가장 큰 init container)를 센다.
+# init container는 하나씩 끝난 뒤 앱 container가 뜨므로 합하면 quota를 실제보다 크게 잡는다.
+def pod_resource_totals(pod: dict) -> tuple[int, int, int]:
+    init_containers = pod.get("initContainers", [])
+    require(
+        all(container.get("restartPolicy") != "Always" for container in init_containers),
+        "preview: budget arithmetic does not model sidecar init containers",
+    )
+    regular = [container_resource_amounts(item) for item in pod["containers"]]
+    init = [container_resource_amounts(item) for item in init_containers]
+    return tuple(
+        max([sum(amounts[index] for amounts in regular)] + [amounts[index] for amounts in init])
+        for index in range(3)
+    )
+
+
+# quota 합계를 손으로 맞추지 않도록 실제 PR render와 공용 manifest에서 다시 계산한다.
+# PR 한 개의 앱·생성 Job·삭제 Job이 슬롯 2개만큼 동시에 돌고, 공용 DB와 고아 DB 점검이 하나씩 더해진다.
+def validate_preview_budget_arithmetic(pr_resources: list[dict]) -> None:
+    quota = resource(
+        yaml_documents(ROOT / "manifests" / "cluster" / "preview-resourcequota.yaml"),
+        "ResourceQuota",
+    )["spec"]["hard"]
+    preview_directory = ROOT / "manifests" / "postgres" / "preview"
+    shared = [
+        resource(yaml_documents(preview_directory / "statefulset.yaml"), "StatefulSet"),
+        resource(
+            yaml_documents(preview_directory / "orphan-database-check-cronjob.yaml"),
+            "CronJob",
+        ),
+    ]
+    per_slot = [
+        item for item in pr_resources if item.get("kind") in {"Deployment", "Job"}
+    ]
+    require(
+        sorted(item["kind"] for item in per_slot) == ["Deployment", "Job", "Job"],
+        "preview: budget expects one Deployment, createdb and dropdb per PR",
+    )
+    expected = [0, 0, 0]
+    for count, items in ((2, per_slot), (1, shared)):
+        for item in items:
+            for index, value in enumerate(pod_resource_totals(pod_template_spec(item))):
+                expected[index] += count * value
+    actual = [
+        quantity_millicores(quota["requests.cpu"]),
+        quantity_mebibytes(quota["requests.memory"]),
+        quantity_mebibytes(quota["limits.memory"]),
+    ]
+    require(
+        actual == expected,
+        f"preview: quota {actual} must equal two PR slots plus shared workloads {expected}",
+    )
+    storage = shared[0]["spec"]["volumeClaimTemplates"][0]["spec"]["resources"]["requests"]["storage"]
+    require(
+        quota["requests.storage"] == storage
+        and not any(item.get("kind") == "PersistentVolumeClaim" for item in pr_resources),
+        "preview: only the shared PostgreSQL PVC fits the storage quota",
+    )
+
+
 # PR별 앱 수와 공용 DB·wildcard 인증서 구조가 Preview 자원 예산을 넘지 않게 한다.
 def validate_preview_budget() -> None:
     quota = resource(
         yaml_documents(ROOT / "manifests" / "cluster" / "preview-resourcequota.yaml"),
         "ResourceQuota",
     )
+    # CPU·memory 합계는 validate_preview_budget_arithmetic이 render에서 다시 계산해 비교한다.
+    computed = {"requests.cpu", "requests.memory", "limits.memory"}
+    hard = quota["spec"]["hard"]
     require(
-        quota["spec"]["hard"]
+        computed <= hard.keys()
+        and {key: value for key, value in hard.items() if key not in computed}
         == {
-            "count/certificates.cert-manager.io": "1",
+            "count/certificates.cert-manager.io": "2",
             "count/services": "4",
             "count/deployments.apps": "2",
-            "requests.cpu": "1060m",
-            "requests.memory": "6624Mi",
-            "limits.memory": "9664Mi",
+            "count/persistentvolumeclaims": "1",
+            "requests.storage": "5Gi",
         },
         "preview: two-slot resource budget",
     )
@@ -1783,6 +2303,13 @@ def validate_preview_budget() -> None:
     )
 
 
+# 일시적인 sync 실패는 platform 앱과 같은 간격으로 재시도한다. createdb는 완료 표시로 재실행에 안전하다.
+SERVER_SYNC_RETRY = {
+    "limit": 5,
+    "backoff": {"duration": "10s", "factor": 2, "maxDuration": "3m"},
+}
+
+
 # Reloader가 바꾸는 annotation만 Git 비교에서 제외해 다른 Deployment 차이는 계속 탐지한다.
 def validate_reloader_argocd_contract() -> None:
     expected_applications = {
@@ -1811,6 +2338,10 @@ def validate_reloader_argocd_contract() -> None:
             in spec["syncPolicy"].get("syncOptions", []),
             f"{namespace}: Argo sync must respect Reloader ignore rule",
         )
+        require(
+            spec["syncPolicy"].get("retry") == SERVER_SYNC_RETRY,
+            f"{namespace}: server Application must retry transient sync failures",
+        )
 
     applicationset = resource(
         yaml_documents(
@@ -1833,6 +2364,10 @@ def validate_reloader_argocd_contract() -> None:
     require(
         "RespectIgnoreDifferences=true" in spec["syncPolicy"].get("syncOptions", []),
         "preview: Argo sync must respect Reloader ignore rule",
+    )
+    require(
+        spec["syncPolicy"].get("retry") == SERVER_SYNC_RETRY,
+        "preview: ApplicationSet must retry transient sync failures",
     )
 
 
@@ -1891,15 +2426,17 @@ def validate_repository_identity() -> None:
 
 # 정적 원본 계약을 먼저 검사한 뒤 환경별 렌더와 합성 공개 경로의 교차 검증을 수행한다.
 def main() -> int:
-    if len(sys.argv) != 7:
+    if len(sys.argv) != 9:
         raise SystemExit(
             "usage: validate_contracts.py PROD_RENDER DEV_RENDER PREVIEW_RENDER "
-            "SECRETS_RENDER ACTIVE_EDGE_FIXTURE ACTIVE_PREVIEW_EDGE_FIXTURE"
+            "SECRETS_RENDER ACTIVE_EDGE_FIXTURE ACTIVE_PREVIEW_EDGE_FIXTURE "
+            "PREVIEW_APPLICATIONSET_RENDER GRAFANA_RENDER"
         )
     validate_repository_identity()
-    validate_route53_contract()
+    validate_route53_contract([Path(filename) for filename in sys.argv[1:]])
     validate_app_storage_contract()
     validate_ses_contract()
+    validate_cloudformation_tags()
     validate_postgres()
     validate_preview_budget()
     validate_reloader_argocd_contract()

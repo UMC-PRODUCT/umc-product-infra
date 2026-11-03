@@ -5,6 +5,8 @@ set -euo pipefail
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 repo_root="$(cd "$script_dir/.." && pwd)"
 cd "$repo_root"
+# shellcheck source=scripts/validate-skips.sh
+source "$script_dir/validate-skips.sh"
 
 command -v helm >/dev/null || {
   echo "helm is required" >&2
@@ -38,9 +40,19 @@ common_args=(
 # 원본/생성물 불일치와 Python 회귀를 먼저 잡아 뒤의 chart 렌더 실패와 구분한다.
 python3 scripts/gen-configmaps.py --check
 python3 scripts/validate_preview_releases.py
+# 비교할 base가 없는 clone에서는 chart version guard를 건너뛴 검사로 남긴다.
+chart_base_ref="${VALIDATE_BASE_REF:-origin/main}"
+if optional_check "chart version bump guard" git rev-parse --verify --quiet "$chart_base_ref^{commit}"; then
+  python3 scripts/validate_gitops_sources.py --base-ref "$chart_base_ref"
+else
+  python3 scripts/validate_gitops_sources.py
+fi
 PYTHONPYCACHEPREFIX="$validation_dir/pycache" python3 -m py_compile scripts/*.py
 PYTHONPYCACHEPREFIX="$validation_dir/pycache" \
   python3 -m unittest discover -s scripts/tests -p 'test_*.py'
+
+# 버전이 다른 로컬 Helm이 렌더를 다 돈 뒤에야 실패하지 않게 첫 chart 렌더 전에 확인한다.
+python3 scripts/validate_argocd.py --helm-version-only
 
 # Base는 안전하게 빈 workload를 렌더하고, 각 환경은 gate를 연 상태까지 검증한다.
 helm lint charts/umc-product-server --strict
@@ -369,6 +381,9 @@ python3 scripts/validate_argocd.py "$validation_dir"
 python3 scripts/validate_edge_platform.py "$validation_dir"
 python3 scripts/validate_observability.py "$validation_dir"
 
+# 위 platform·observability 렌더까지 모아 AppProject whitelist를 모든 Application 렌더와 대조한다.
+python3 scripts/argocd_project_kinds.py "$validation_dir"
+
 # 개별 YAML 문법만으로 알 수 없는 환경 간 Secret·DB·DNS 연결 계약을 확인한다.
 python3 scripts/validate_contracts.py \
   "$validation_dir/prod.yaml" \
@@ -376,7 +391,9 @@ python3 scripts/validate_contracts.py \
   "$validation_dir/preview.yaml" \
   "$validation_dir/secrets.yaml" \
   "$validation_dir/active-edge-test-net.yaml" \
-  "$validation_dir/active-preview-edge-test-net.yaml"
+  "$validation_dir/active-preview-edge-test-net.yaml" \
+  "$validation_dir/preview-pr-42-desired-state.yaml" \
+  "$validation_dir/observability-grafana.yaml"
 
 python3 - <<'PY'
 from pathlib import Path
@@ -393,26 +410,25 @@ for script in scripts/*.sh; do
   bash -n "$script"
 done
 
-if command -v cfn-lint >/dev/null; then
+if optional_check "CloudFormation lint" command -v cfn-lint; then
   cfn-lint cloud/aws/*.yaml
-else
-  echo "cfn-lint not installed; CloudFormation lint skipped"
 fi
 
 # 실제 inventory 대신 공개 예제로 구문만 검사하며 서버 접속이나 적용은 수행하지 않는다.
-if command -v ansible-playbook >/dev/null; then
+if optional_check "Ansible syntax check" command -v ansible-playbook; then
   (
     cd ansible
-    for playbook in playbooks/ssh-access.yml playbooks/bootstrap.yml; do
+    for playbook in playbooks/*.yml; do
       ansible-playbook --syntax-check \
         -i inventories/idc-new/hosts.example.yml "$playbook"
     done
   )
-else
-  echo "ansible-playbook not installed; Ansible syntax check skipped"
+fi
+if optional_check "Ansible lint" command -v ansible-lint; then
+  (cd ansible && ansible-lint playbooks/ssh-access.yml playbooks/bootstrap.yml)
 fi
 
-if command -v kubeconform >/dev/null; then
+if optional_check "Kubernetes schema validation" command -v kubeconform; then
   find manifests bootstrap argocd -type f -name '*.yaml' -print0 \
     | xargs -0 kubeconform \
       -strict -summary -ignore-missing-schemas -kubernetes-version 1.36.0
@@ -429,11 +445,9 @@ if command -v kubeconform >/dev/null; then
   kubeconform -strict -summary \
     -schema-location "$validation_dir/monitoring-schemas/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json" \
     "$validation_dir/monitoring-resources.yaml"
-else
-  echo "kubeconform not installed; Kubernetes schema validation skipped"
 fi
 
-if command -v promtool >/dev/null; then
+if optional_check "Prometheus rule validation" command -v promtool; then
   promtool check rules --lint-fatal observability/rules/prometheus-alerts.yaml
   # Operator가 런타임에 조립할 설정 대신 chart 기본값을 포함한 모든 렌더 규칙을 검사한다.
   for rule_file in "$validation_dir"/prometheus-rules-*.yaml; do
@@ -445,13 +459,11 @@ if command -v promtool >/dev/null; then
       promtool check rules "$rule_file"
     fi
   done
-else
-  echo "promtool not installed; Prometheus rule validation skipped"
 fi
 
 # 실제 배포 image로 backend config를 검증한다. Alertmanager config는 Operator가
 # 생성하므로 native CRD schema와 live reconcile/readiness로 별도 확인한다.
-if command -v docker >/dev/null; then
+if optional_check "observability runtime config validation" docker info; then
   docker run --rm --network none \
     -v "$validation_dir:/validation:ro" \
     --entrypoint /usr/bin/loki \
@@ -466,8 +478,6 @@ if command -v docker >/dev/null; then
     -v "$validation_dir:/validation:ro" \
     otel/opentelemetry-collector-contrib@sha256:f41d7995565df3733b7568702073a9c490792f9c6ac60684fe6a4da21a313f8d \
     validate --config=/validation/otel-collector-config.yaml
-else
-  echo "docker not installed; observability runtime config validation skipped"
 fi
 
-echo "umc-infra validation passed"
+finish_validation

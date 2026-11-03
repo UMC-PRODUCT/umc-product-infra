@@ -1,0 +1,37 @@
+# Preview Pod 안 Mailpit STARTTLS 전용 인증서다. 공개 CA가 아닌 자체 서명이라 운영 host를 덮지 않는다.
+# 앱은 이 인증서를 Pod 안 truststore에만 더한다. hostAliases로 127.0.0.1에 묶은 이름 하나만 담는다.
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: preview-selfsigned
+  namespace: preview
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+spec:
+  selfSigned: {}
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: preview-mail-capture-loopback
+  namespace: preview
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  secretName: preview-mail-capture-loopback-tls
+  # 자체 서명은 issuer DN이 subject와 같다. Java는 빈 issuer DN 인증서를 읽지 못하므로 CN을 둔다.
+  commonName: smtp-capture.university.neordinary.com
+  dnsNames:
+    - smtp-capture.university.neordinary.com
+  # 갱신 때 Reloader가 PR Pod를 재시작한다. 재시작 횟수를 줄이려 1년으로 둔다.
+  duration: 8760h
+  isCA: false
+  usages: [server auth, digital signature]
+  issuerRef:
+    group: cert-manager.io
+    kind: Issuer
+    name: preview-selfsigned
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+    rotationPolicy: Always

@@ -94,9 +94,40 @@ class MigrationBootstrapTests(unittest.TestCase):
     def test_new_inventory_holds_root_and_requires_explicit_confirmation(self):
         group = load("ansible/inventories/idc-new/hosts.example.yml")["all"]["children"]["k3s_servers"]
         self.assertEqual(len(group["hosts"]), 1)
-        self.assertEqual(group["hosts"]["umc-cafe24-01"]["ansible_host"], "1.255.226.166")
         for flag in ("bootstrap_root_app_enabled", "bootstrap_confirm", "ssh_access_confirm", "ssh_access_finalize"):
             self.assertIs(group["vars"][flag], False)
+
+    # 예제에는 운영 서버 주소를 두지 않고, 자리표시자를 남긴 채로는 bootstrap이 원격 접속 전에 멈춘다.
+    def test_example_addresses_are_placeholders_rejected_before_remote_contact(self):
+        try:
+            from ansible.parsing.dataloader import DataLoader
+            from ansible.template import Templar, trust_as_template
+        except ImportError:
+            self.skipTest("Install ansible/requirements.txt to verify the Ansible runtime")
+
+        group = load("ansible/inventories/idc-new/hosts.example.yml")["all"]["children"]["k3s_servers"]
+        host = group["hosts"]["umc-cafe24-01"]
+        for value in (host["ansible_host"], group["vars"]["ssh_access_public_host"]):
+            self.assertIn("CHANGE_ME", value)
+            self.assertNotRegex(value, r"[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+")
+
+        guard = load("ansible/playbooks/bootstrap.yml")[0]["pre_tasks"][0]["ansible.builtin.assert"]["that"]
+        reviewed = {
+            **group["vars"], **host,
+            "ansible_host": "203.0.113.10", "ansible_user": "infra_operator",
+            "ssh_access_public_host": "203.0.113.10",
+            "bootstrap_confirm": True, "ssh_access_confirm": True, "ssh_access_finalize": True,
+            "groups": {"k3s_servers": ["umc-cafe24-01"]},
+        }
+        for replaced, accepted in (
+            ({}, True),
+            ({"ssh_access_public_host": group["vars"]["ssh_access_public_host"]}, False),
+            ({"ansible_host": host["ansible_host"]}, False),
+        ):
+            with self.subTest(replaced=replaced):
+                templar = Templar(loader=DataLoader(), variables={**reviewed, **replaced})
+                results = [templar.evaluate_conditional(trust_as_template(condition)) for condition in guard]
+                self.assertIs(all(results), accepted)
 
 
 if __name__ == "__main__":

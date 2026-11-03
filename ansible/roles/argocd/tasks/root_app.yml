@@ -39,6 +39,7 @@
 
 # hard refresh annotation은 Argo CD가 소비해 제거하는 일회성 신호다.
 # 캐시를 갱신해 다시 비교하도록 요청하며, 이 요청 자체가 Synced·Healthy 완료를 뜻하지는 않는다.
+# 실행할 때마다 새 refresh 요청을 기록하므로 변경으로 보고한다.
 - name: Request a hard refresh of the root Application
   ansible.builtin.command:
     argv:
@@ -50,7 +51,7 @@
       - "{{ argocd_namespace }}"
       - argocd.argoproj.io/refresh=hard
       - --overwrite
-  changed_when: false
+  changed_when: true
 
 # refresh annotation이 사라질 때까지 기다려 요청이 처리되기 전의 상태를 성공으로 오인하지 않는다.
 - name: Wait for Argo CD to consume the hard refresh

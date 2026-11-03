@@ -14,8 +14,9 @@ metadata:
     app.kubernetes.io/component: database-audit
     environment: preview
 spec:
-  schedule: "0 18 * * *" # 매일 03:00 KST
-  timeZone: Etc/UTC
+  # prod backup CronJob과 같은 방식으로 KST를 CronJob 자체에 고정한다.
+  schedule: "0 3 * * *"
+  timeZone: Asia/Seoul
   concurrencyPolicy: Forbid
   successfulJobsHistoryLimit: 1
   failedJobsHistoryLimit: 1

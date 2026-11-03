@@ -1,16 +1,16 @@
 ---
 # hosts.yml로 복사한 뒤 공개키·접속 계정을 채우는 예제다. 승인 기본값은 실행을 막는다.
-# Cafe24: 8 cores / RAM 32 GB / SSD 500 GB. mount와 실제 여유 용량은 별도 확인한다.
+# Cafe24: x86_64 8 cores / RAM 32 GB / SSD 500 GB. mount와 실제 여유 용량은 별도 확인한다.
 all:
   children:
     k3s_servers:
       hosts:
         umc-cafe24-01:
           # 1차는 기존 키 관리 경로, 2차부터 공인 IP와 개인 관리자 계정으로 접속한다.
-          ansible_host: 1.255.226.166
+          ansible_host: CHANGE_ME_SERVER_PUBLIC_IPV4
           ansible_user: CHANGE_ME_CURRENT_SSH_USER
       vars:
-        ssh_access_public_host: 1.255.226.166
+        ssh_access_public_host: CHANGE_ME_SERVER_PUBLIC_IPV4
         # confirm은 계정 변경 승인, finalize는 검증 뒤 기존 관리 경로를 닫는 최종 전환이다.
         ssh_access_confirm: false
         ssh_access_finalize: false
@@ -26,7 +26,6 @@ all:
           #   public_keys: ['CHANGE_ME_ED25519_PUBLIC_KEY']
           #   permit_open: ['CHANGE_ME_DB_SERVICE_CLUSTER_IP:5432']
           # 탈퇴 시 명단에서 지우지 말고 state: absent로 한 번 적용한다.
-        common_public_tcp_ports: [22, 443]
         bootstrap_confirm: false
         # DB 이전 전에 앱과 DNS가 뜨지 않도록 첫 root 생성을 보류한다.
         bootstrap_root_app_enabled: false

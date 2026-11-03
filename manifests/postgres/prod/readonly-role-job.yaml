@@ -75,7 +75,11 @@ spec:
                 WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'umc_product_ro') \gexec
               SELECT format('ALTER ROLE umc_product_ro LOGIN PASSWORD %L', :'ro_pw')
                 WHERE EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'umc_product_ro') \gexec
-              ALTER ROLE umc_product_ro NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLICATION NOBYPASSRLS;
+              ALTER ROLE umc_product_ro NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLICATION NOBYPASSRLS
+                CONNECTION LIMIT 10;
+              -- 사람의 긴 조회나 열어 둔 transaction이 운영 연결·vacuum을 붙잡지 않게 role 기본값으로 묶는다.
+              ALTER ROLE umc_product_ro SET statement_timeout = '60s';
+              ALTER ROLE umc_product_ro SET idle_in_transaction_session_timeout = '5min';
 
               DO $role_check$
               BEGIN
@@ -99,7 +103,7 @@ spec:
                 GRANT SELECT ON SEQUENCES TO umc_product_ro;
 
               \echo '--- umc_product_ro 권한 확인'
-              SELECT rolname, rolcanlogin, rolsuper, rolcreatedb, rolcreaterole
+              SELECT rolname, rolcanlogin, rolsuper, rolcreatedb, rolcreaterole, rolconnlimit, rolconfig
                 FROM pg_roles WHERE rolname = 'umc_product_ro';
               SQL
           env:

@@ -112,7 +112,7 @@ spec:
             - name: env.DATABASE_URL
               value: "jdbc:postgresql://postgres-preview.preview.svc.cluster.local:5432/umc_product_pr{{ .number }}"
             - name: env.SPRING_APPLICATION_NAME
-              # 로그·trace를 PR별로 구분한다. Grafana의 고정 목록에 없으면 custom value로 입력한다.
+              # 로그·metric·trace를 PR별로 구분한다. 앱이 떠 있는 동안 Grafana Service 목록에 나타난다.
               value: "preview-umc-product-pr{{ .number }}"
             - name: env.APP_ENVIRONMENT
               value: "preview-pr-{{ .number }}"
@@ -142,3 +142,10 @@ spec:
           prune: true
         syncOptions:
           - RespectIgnoreDifferences=true
+        # createdb Job 실패나 quota·Secret 준비 지연처럼 잠시 뒤 풀리는 sync 실패를 platform 앱과 같은 간격으로 재시도한다.
+        retry:
+          limit: 5
+          backoff:
+            duration: 10s
+            factor: 2
+            maxDuration: 3m

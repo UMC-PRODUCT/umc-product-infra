@@ -1,48 +1,18 @@
 ---
 
 # 서버 UFW만 관리하는 작업 목록이다. Cafe24 등 제공업체의 상위 방화벽은 변경하지 않는다.
-# 공개 포트는 22·443만 선언하고, 최종 확정 때는 앞선 SSH 역할의 관리자 검증까지 요구한다.
-- name: Require the exact public port contract before firewall mutation
+# 공개 포트는 아래 규칙에 고정된 22·443뿐이며, 최종 확정 때는 앞선 SSH 역할의 관리자 검증까지 요구한다.
+- name: Require a verified administrator before finalizing the firewall
   ansible.builtin.assert:
     that:
-      - common_public_tcp_ports == [22, 443]
       - not (ssh_access_finalize | default(false) | bool) or (ssh_access_public_verified | default(false) | bool)
     fail_msg: >-
-      Declare exactly [22, 443]. Finalizing public SSH access requires
-      a verified fresh public-key SSH connection with the personal administrator.
+      Finalizing public SSH access requires a verified fresh public-key SSH
+      connection with the personal administrator.
 
-# 관리자 PC에서 Pod·Service 주소 대역이 서로 겹치지 않는 사설 IPv4인지 검사한다.
-# 내부 통신 허용에 쓰일 값이므로 /0 같은 잘못된 입력으로 접근 범위가 넓어지는 것을 막는다.
-- name: Validate private non-overlapping K3s CIDRs before firewall mutation
-  ansible.builtin.command:
-    argv:
-      - "{{ ansible_playbook_python }}"
-      - -c
-      - |
-        import ipaddress
-        import sys
-
-        private_ranges = tuple(ipaddress.ip_network(value) for value in
-                               ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"))
-        networks = []
-        for name, raw in zip(("cluster", "service"), sys.argv[1:], strict=True):
-            try:
-                network = ipaddress.ip_network(raw, strict=True)
-            except ValueError as error:
-                raise SystemExit(f"Invalid K3s {name} CIDR: {error}") from error
-            if network.version != 4 or raw != network.with_prefixlen:
-                raise SystemExit(f"K3s {name} CIDR must be canonical IPv4")
-            if not any(network.subnet_of(private) for private in private_ranges):
-                raise SystemExit(f"K3s {name} CIDR must stay within an RFC1918 range")
-            networks.append(network)
-        if networks[0].overlaps(networks[1]):
-            raise SystemExit("K3s cluster and service CIDRs must not overlap")
-      - "{{ k3s_cluster_cidr }}"
-      - "{{ k3s_service_cidr }}"
-  changed_when: false
-  check_mode: false
-  delegate_to: localhost
-  become: false
+# 방화벽 내부 허용 규칙에 쓰기 전에 Pod·Service 대역을 관리자 PC에서 검사한다.
+- name: Validate the K3s network CIDRs before firewall mutation
+  ansible.builtin.import_tasks: network_preflight.yml
 
 # 최종적으로 남길 공개 규칙 목록을 만든다. SSH는 연결 빈도 제한, HTTPS는 접근 허용을 사용한다.
 - name: Initialize the desired inbound firewall rules
