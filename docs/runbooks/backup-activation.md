@@ -223,8 +223,8 @@ BEGIN
   END IF;
 END;
 $guard$;
--- dump에 CREATE SCHEMA public이 포함된다. 이 빈 검증 DB에서만 제거하며 CASCADE는 쓰지 않는다.
-DROP SCHEMA public;
+-- PostgreSQL 18 dump에는 CREATE SCHEMA public이 없고 ALTER SCHEMA public OWNER만 있다.
+-- 그래서 새 DB의 기본 public schema를 지우지 않는다. 지우면 pg_restore가 그 단계에서 실패한다.
 -- 운영 app-role Job과 같게 DB는 관리자 소유로 두고 앱에는 접속·임시 table·schema 생성만 준다.
 GRANT CONNECT, TEMPORARY, CREATE ON DATABASE umc_product_restore_verify TO umc_product_app;
 SQL
