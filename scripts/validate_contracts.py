@@ -1348,6 +1348,14 @@ def validate_postgres() -> None:
                 "max_connections=40" in container.get("args", []),
                 "preview: connection budget must match two slots",
             )
+            orphan_check = resource(
+                yaml_documents(directory / "orphan-database-check-cronjob.yaml"), "CronJob"
+            )["spec"]
+            require(
+                orphan_check["schedule"] == "0 3 * * *"
+                and orphan_check["timeZone"] == "Asia/Seoul",
+                "preview: orphan DB check runs daily at 03:00 Asia/Seoul",
+            )
 
         role_job = resource(yaml_documents(directory / "app-role-job.yaml"), "Job")
         role_container = role_job["spec"]["template"]["spec"]["containers"][0]
