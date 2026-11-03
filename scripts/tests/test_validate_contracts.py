@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -13,7 +14,13 @@ from unittest.mock import patch
 SCRIPTS_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(SCRIPTS_DIR))
 
-from validate_contracts import git_visible_files, validate_repository_identity
+from validate_contracts import (
+    git_visible_files,
+    validate_preview_budget_arithmetic,
+    validate_repository_identity,
+)
+
+REPOSITORY_ROOT = SCRIPTS_DIR.parent
 
 
 # 오래된 루트 runbooks가 없어도 새 checkout이 통과하고 docs/runbooks 누락은 실패해야 한다.
@@ -82,6 +89,61 @@ class GitVisibleFilesTest(unittest.TestCase):
                     Path("untracked.txt"),
                 },
             )
+
+
+def pod(kind: str, *containers: tuple[str, str, str]) -> dict:
+    spec = {
+        "containers": [
+            {"resources": {"requests": {"cpu": cpu, "memory": memory}, "limits": {"memory": limit}}}
+            for cpu, memory, limit in containers
+        ]
+    }
+    return {"kind": kind, "spec": {"template": {"spec": spec}}}
+
+
+# PR 하나의 render(앱+Mailpit, createdb, dropdb)를 두 슬롯만큼 더한 값이 quota와 맞아야 한다.
+class PreviewBudgetArithmeticTest(unittest.TestCase):
+    PR_RESOURCES = [
+        pod("Deployment", ("250m", "2Gi", "3Gi"), ("20m", "64Mi", "128Mi")),
+        pod("Job", ("100m", "128Mi", "512Mi")),
+        pod("Job", ("50m", "64Mi", "128Mi")),
+    ]
+
+    def setUp(self) -> None:
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        self.root = Path(directory.name)
+        for relative in (
+            "manifests/cluster/preview-resourcequota.yaml",
+            "manifests/postgres/preview/statefulset.yaml",
+            "manifests/postgres/preview/orphan-database-check-cronjob.yaml",
+        ):
+            (self.root / relative).parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy(REPOSITORY_ROOT / relative, self.root / relative)
+
+    def validate(self, resources: list[dict]) -> None:
+        with patch("validate_contracts.ROOT", self.root):
+            validate_preview_budget_arithmetic(resources)
+
+    def test_accepts_two_slots_with_two_dropdb_jobs(self) -> None:
+        self.validate(self.PR_RESOURCES)
+
+    def test_rejects_budget_that_fits_only_one_dropdb_job(self) -> None:
+        quota = self.root / "manifests/cluster/preview-resourcequota.yaml"
+        text = quota.read_text(encoding="utf-8")
+        for current, single_dropdb in (
+            ("requests.cpu: 1110m", "requests.cpu: 1060m"),
+            ("requests.memory: 6688Mi", "requests.memory: 6624Mi"),
+            ("limits.memory: 9792Mi", "limits.memory: 9664Mi"),
+        ):
+            text = text.replace(current, single_dropdb)
+        quota.write_text(text, encoding="utf-8")
+        with self.assertRaisesRegex(SystemExit, r"quota \[1060, 6624, 9664\]"):
+            self.validate(self.PR_RESOURCES)
+
+    def test_rejects_pr_persistent_volume_claim(self) -> None:
+        with self.assertRaisesRegex(SystemExit, "only the shared PostgreSQL PVC"):
+            self.validate(self.PR_RESOURCES + [{"kind": "PersistentVolumeClaim"}])
 
 
 if __name__ == "__main__":
