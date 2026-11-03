@@ -20,6 +20,7 @@ from validate_observability import (
     pod_spec,
     selector_matches,
     validate_alertmanager_config,
+    validate_argocd_application_alerts,
     validate_grafana_dashboard_startup,
     validate_loki_ingestion_limits,
     validate_loki_memory,
@@ -212,6 +213,30 @@ class PreviewApplicationNameTest(unittest.TestCase):
             self.parameter["value"] = value
             with self.subTest(value=value), self.assertRaisesRegex(SystemExit, "PREVIEW_APPLICATION_PATTERN"):
                 validate_preview_application_name(self.appset)
+
+    def test_renamed_preview_argocd_application_is_rejected(self) -> None:
+        for value in ("umc-product-server-preview-{{ .number }}", "umc-product-preview-42"):
+            self.appset["spec"]["template"]["metadata"]["name"] = value
+            with self.subTest(value=value), self.assertRaisesRegex(
+                    SystemExit, "PREVIEW_ARGOCD_APPLICATION_PATTERN"):
+                validate_preview_application_name(self.appset)
+
+
+# Argo CD 앱 알림이 Preview PR Application을 Discord로 보내지 않는지 생성된 rule에서 확인한다.
+class ArgoCDApplicationAlertTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self.rules = [yaml.safe_load((ROOT / "manifests/observability-integrations/prometheus-alert-rules.yaml")
+                                     .read_text(encoding="utf-8"))]
+
+    def test_generated_rules_exclude_preview_applications(self) -> None:
+        validate_argocd_application_alerts(self.rules)
+
+    def test_alert_without_preview_exclusion_is_rejected(self) -> None:
+        rule = next(rule for group in self.rules[0]["spec"]["groups"] for rule in group["rules"]
+                    if rule.get("alert") == "ArgoCDApplicationOutOfSync")
+        rule["expr"] = rule["expr"].replace(', name!~"umc-product-preview-[0-9]+"', "")
+        with self.assertRaisesRegex(SystemExit, "ArgoCDApplicationOutOfSync: must exclude"):
+            validate_argocd_application_alerts(self.rules)
 
 
 # 끝나지 않는 WATCH를 일반 initContainer에 두면 Grafana가 시작하지 못하는 회귀를 재현한다.

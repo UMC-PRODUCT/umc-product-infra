@@ -19,6 +19,7 @@ PROMETHEUS_NAME = "prometheus-kube-prometheus-prometheus"
 ALERTMANAGER_NAME = "prometheus-kube-prometheus-alertmanager"
 # Preview는 dev profile로 떠서 environment label로는 dev와 구분되지 않는다.
 PREVIEW_APPLICATION_PATTERN = "preview-umc-product-pr[0-9]+"
+PREVIEW_ARGOCD_APPLICATION_PATTERN = "umc-product-preview-[0-9]+"
 MONITORING_CLUSTER_KINDS = {
     "ClusterRole", "ClusterRoleBinding", "CustomResourceDefinition"
 }
@@ -495,6 +496,20 @@ def validate_preview_application_name(appset: dict) -> None:
     require("{{ .number }}" in template
             and re.fullmatch(PREVIEW_APPLICATION_PATTERN, template.replace("{{ .number }}", "1494")),
             "preview: ApplicationSet SPRING_APPLICATION_NAME must match PREVIEW_APPLICATION_PATTERN")
+    name = appset["spec"]["template"]["metadata"].get("name", "")
+    require("{{ .number }}" in name
+            and re.fullmatch(PREVIEW_ARGOCD_APPLICATION_PATTERN, name.replace("{{ .number }}", "1494")),
+            "preview: ApplicationSet Application name must match PREVIEW_ARGOCD_APPLICATION_PATTERN")
+
+
+# Preview PR Application은 PR 작성자가 Argo CD UI로 확인하므로 Discord 알림에서 뺀다.
+def validate_argocd_application_alerts(rules: list[dict]) -> None:
+    alerts = [rule for resource in rules for group in resource["spec"]["groups"]
+              for rule in group["rules"] if "argocd_app_info{" in rule.get("expr", "")]
+    require(alerts, "argocd: Application health/sync alerts are required")
+    for rule in alerts:
+        require(f'name!~"{PREVIEW_ARGOCD_APPLICATION_PATTERN}"' in rule["expr"],
+                f"{rule['alert']}: must exclude PREVIEW_ARGOCD_APPLICATION_PATTERN")
 
 
 # 전역 알림 경로와 Secret 참조를 검사하고 기존 평문 기반 설정이 함께 되살아나는 것을 막는다.
@@ -855,6 +870,7 @@ def main() -> int:
     prometheus = named_resource(prometheus_resources, "Prometheus", PROMETHEUS_NAME)
     validate_monitor_selection(prometheus, all_resources, services)
     rules = [resource for resource in all_resources if resource.get("kind") == "PrometheusRule"]
+    validate_argocd_application_alerts([resource for resource in rules if resource in integrations])
     require(any(resource in integrations for resource in rules)
             and any(resource in prometheus_resources for resource in rules),
             "prometheus: both UMC and chart rules must be present")
