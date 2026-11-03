@@ -21,6 +21,16 @@ groups:
 
   - name: umc-product.availability
     rules:
+      # 기존 Tempo 전용 경보를 유지한다. node-exporter/KSM은 KPS TargetDown이 담당한다.
+      - alert: TempoDown
+        expr: up{job="tempo"} == 0
+        for: 3m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Tempo metrics endpoint를 확인해주세요"
+          description: "instance={{ $labels.instance }} 의 Tempo metrics endpoint를 3분 이상 scrape하지 못했어요. Tempo pod, Service와 storage 상태를 확인해주세요."
+
       - alert: ApiServerDown
         expr: up{job=~".*umc.*|.*api.*|.*server.*"} == 0
         for: 2m
@@ -29,15 +39,6 @@ groups:
         annotations:
           summary: "API server target 연결을 확인해주세요"
           description: "Prometheus가 job={{ $labels.job }}, instance={{ $labels.instance }} 를 scrape하지 못하고 있어요. target 상태와 네트워크를 확인해주세요."
-
-      # - alert: NodeExporterDown
-      #   expr: up{job="node-exporter"} == 0
-      #   for: 3m
-      #   labels:
-      #     severity: warning
-      #   annotations:
-      #     summary: "Node exporter is down"
-      #     description: "Host metrics are not being scraped from {{ $labels.instance }}."
 
       - alert: PrometheusTargetDown
         expr: up{job!="node-exporter"} == 0
@@ -408,8 +409,64 @@ groups:
 
   - name: umc-product.observability
     rules:
+      # 100% sampling 정책과 실제 전달 성공은 다르다. Collector가 span을 거부하거나
+      # exporter queue가 포화되면 유실될 수 있으므로 별도 경보로 드러낸다.
+      - alert: OTelCollectorTraceReceiveRefusals
+        expr: sum by (receiver, transport, instance) (rate(otelcol_receiver_refused_spans[5m]) or rate(otelcol_receiver_refused_spans_total[5m])) > 0
+        for: 3m
+        labels:
+          severity: critical
+        annotations:
+          summary: "OTel Collector가 trace 수신을 거부하고 있어요"
+          description: "receiver={{ $labels.receiver }}, instance={{ $labels.instance }} 에서 span이 3분 이상 거부되고 있어요. memory limiter, Collector RSS와 client retry를 확인해주세요."
+
+      - alert: OTelCollectorTraceEnqueueFailures
+        expr: sum by (exporter, instance) (rate(otelcol_exporter_enqueue_failed_spans[5m]) or rate(otelcol_exporter_enqueue_failed_spans_total[5m])) > 0
+        for: 3m
+        labels:
+          severity: critical
+        annotations:
+          summary: "OTel Collector trace queue 유실을 확인해주세요"
+          description: "exporter={{ $labels.exporter }}, instance={{ $labels.instance }} 의 queue에 span을 넣지 못하고 있어요. Tempo 처리량과 exporter queue를 확인해주세요."
+
+      - alert: OTelCollectorExporterQueueHigh
+        expr: max by (exporter, data_type, instance) (otelcol_exporter_queue_size{data_type="traces"} / clamp_min(otelcol_exporter_queue_capacity{data_type="traces"}, 1)) > 0.7
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "OTel Collector exporter queue가 70%를 넘었어요"
+          description: "exporter={{ $labels.exporter }}, data_type={{ $labels.data_type }}, instance={{ $labels.instance }} 의 queue가 5분 이상 70%를 넘었어요. downstream 지연과 trace 유입량을 확인해주세요."
+
+      - alert: PostgresBackupFailed
+        expr: max by (namespace, job_name) (kube_job_failed{namespace="db",job_name=~"pg-backup-.+",condition="true"}) > 0
+        for: 0m
+        labels:
+          severity: critical
+        annotations:
+          summary: "PostgreSQL S3 backup Job이 실패했어요"
+          description: "job={{ $labels.job_name }} 의 dump, checksum, S3 권한과 bucket 상태를 확인해주세요."
+
+      - alert: PostgresBackupNeverSucceeded
+        expr: kube_cronjob_spec_suspend{namespace="db",cronjob="pg-backup"} == 0 unless on (namespace, cronjob) kube_cronjob_status_last_successful_time{namespace="db",cronjob="pg-backup"}
+        for: 27h
+        labels:
+          severity: critical
+        annotations:
+          summary: "활성화된 PostgreSQL S3 backup의 정규 성공 기록이 없어요"
+          description: "pg-backup을 활성화한 뒤 27시간 동안 CronJob status에 성공 기록이 없어요. 첫 schedule, controller, Job과 S3 writer 권한을 확인해주세요. 수동 create job은 이 status를 채우지 않아요."
+
+      - alert: PostgresBackupStale
+        expr: kube_cronjob_spec_suspend{namespace="db",cronjob="pg-backup"} == 0 and on (namespace, cronjob) time() - kube_cronjob_status_last_successful_time{namespace="db",cronjob="pg-backup"} > 108000
+        for: 10m
+        labels:
+          severity: critical
+        annotations:
+          summary: "최근 PostgreSQL S3 backup 성공 기록이 없어요"
+          description: "활성화된 pg-backup의 마지막 정규 성공이 30시간을 넘었어요. CronJob, ExternalSecret과 S3 writer 권한을 확인해주세요."
+
       - alert: OTelCollectorLogExportFailures
-        expr: rate(otelcol_exporter_send_failed_log_records[5m]) > 0
+        expr: (rate(otelcol_exporter_send_failed_log_records[5m]) or rate(otelcol_exporter_send_failed_log_records_total[5m])) > 0
         for: 3m
         labels:
           severity: warning
@@ -418,7 +475,7 @@ groups:
           description: "OTel Collector가 log record export에 실패하고 있어요. exporter={{ $labels.exporter }}, instance={{ $labels.instance }} 의 downstream endpoint와 인증 정보를 확인해주세요."
 
       - alert: OTelCollectorMetricExportFailures
-        expr: rate(otelcol_exporter_send_failed_metric_points[5m]) > 0
+        expr: (rate(otelcol_exporter_send_failed_metric_points[5m]) or rate(otelcol_exporter_send_failed_metric_points_total[5m])) > 0
         for: 3m
         labels:
           severity: warning
@@ -427,7 +484,7 @@ groups:
           description: "OTel Collector가 metric point export에 실패하고 있어요. exporter={{ $labels.exporter }}, instance={{ $labels.instance }} 의 downstream endpoint와 인증 정보를 확인해주세요."
 
       - alert: OTelCollectorTraceExportFailures
-        expr: rate(otelcol_exporter_send_failed_spans[5m]) > 0
+        expr: (rate(otelcol_exporter_send_failed_spans[5m]) or rate(otelcol_exporter_send_failed_spans_total[5m])) > 0
         for: 3m
         labels:
           severity: warning

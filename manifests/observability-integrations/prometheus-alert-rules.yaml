@@ -8,7 +8,7 @@ metadata:
     app.kubernetes.io/managed-by: umc-infra
     release: prometheus
 spec:
-  # umc-infra k3s topology: 없는 target 규칙 제외, 내부 target·전달 무결성 규칙 추가
+  # umc-infra k3s topology: 없는 target과 chart 기본 규칙 중복 제외
   groups:
     - name: umc-product.dashboard-services
       rules:

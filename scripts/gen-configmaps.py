@@ -41,8 +41,6 @@ LOKI_RULE_KEY = "default-log-alerts.yml"
 
 ALERT_START = re.compile(r"^(?P<indent> *)- alert: (?P<name>[^ ]+)\s*$")
 GROUP_NAME = re.compile(r"^  - name: (?P<name>\S+)\s*$", re.MULTILINE)
-AVAILABILITY_MARKER = "  - name: umc-product.availability\n    rules:\n"
-OBSERVABILITY_MARKER = "  - name: umc-product.observability\n    rules:\n"
 
 # 현재 k3s에 target이 없거나 kube-prometheus-stack 기본 규칙과 중복된다.
 # 원본 변경으로 이름이 사라지면 조용히 건너뛰지 않고 생성 단계가 실패한다.
@@ -67,101 +65,6 @@ K3S_DROPPED_ALERTS = frozenset(
         "ContainerRestarted",
     }
 )
-COMMENTED_NODE_EXPORTER_ALERT = """\
-      # - alert: NodeExporterDown
-      #   expr: up{job="node-exporter"} == 0
-      #   for: 3m
-      #   labels:
-      #     severity: warning
-      #   annotations:
-      #     summary: "Node exporter is down"
-      #     description: "Host metrics are not being scraped from {{ $labels.instance }}."
-
-"""
-K3S_STATIC_ALERTS = """\
-      # 기존 Tempo 전용 경보를 유지한다. node-exporter/KSM은 KPS TargetDown이 담당한다.
-      - alert: TempoDown
-        expr: up{job="tempo"} == 0
-        for: 3m
-        labels:
-          severity: warning
-        annotations:
-          summary: "Tempo metrics endpoint를 확인해주세요"
-          description: "instance={{ $labels.instance }} 의 Tempo metrics endpoint를 3분 이상 scrape하지 못했어요. Tempo pod, Service와 storage 상태를 확인해주세요."
-
-"""
-K3S_OBSERVABILITY_ALERTS = """\
-      # 100% sampling 정책과 실제 전달 성공은 다르다. Collector가 span을 거부하거나
-      # exporter queue가 포화되면 유실될 수 있으므로 별도 경보로 드러낸다.
-      - alert: OTelCollectorTraceReceiveRefusals
-        expr: sum by (receiver, transport, instance) (rate(otelcol_receiver_refused_spans[5m]) or rate(otelcol_receiver_refused_spans_total[5m])) > 0
-        for: 3m
-        labels:
-          severity: critical
-        annotations:
-          summary: "OTel Collector가 trace 수신을 거부하고 있어요"
-          description: "receiver={{ $labels.receiver }}, instance={{ $labels.instance }} 에서 span이 3분 이상 거부되고 있어요. memory limiter, Collector RSS와 client retry를 확인해주세요."
-
-      - alert: OTelCollectorTraceEnqueueFailures
-        expr: sum by (exporter, instance) (rate(otelcol_exporter_enqueue_failed_spans[5m]) or rate(otelcol_exporter_enqueue_failed_spans_total[5m])) > 0
-        for: 3m
-        labels:
-          severity: critical
-        annotations:
-          summary: "OTel Collector trace queue 유실을 확인해주세요"
-          description: "exporter={{ $labels.exporter }}, instance={{ $labels.instance }} 의 queue에 span을 넣지 못하고 있어요. Tempo 처리량과 exporter queue를 확인해주세요."
-
-      - alert: OTelCollectorExporterQueueHigh
-        expr: max by (exporter, data_type, instance) (otelcol_exporter_queue_size{data_type="traces"} / clamp_min(otelcol_exporter_queue_capacity{data_type="traces"}, 1)) > 0.7
-        for: 5m
-        labels:
-          severity: warning
-        annotations:
-          summary: "OTel Collector exporter queue가 70%를 넘었어요"
-          description: "exporter={{ $labels.exporter }}, data_type={{ $labels.data_type }}, instance={{ $labels.instance }} 의 queue가 5분 이상 70%를 넘었어요. downstream 지연과 trace 유입량을 확인해주세요."
-
-      - alert: PostgresBackupFailed
-        expr: max by (namespace, job_name) (kube_job_failed{namespace="db",job_name=~"pg-backup-.+",condition="true"}) > 0
-        for: 0m
-        labels:
-          severity: critical
-        annotations:
-          summary: "PostgreSQL S3 backup Job이 실패했어요"
-          description: "job={{ $labels.job_name }} 의 dump, checksum, S3 권한과 bucket 상태를 확인해주세요."
-
-      - alert: PostgresBackupNeverSucceeded
-        expr: kube_cronjob_spec_suspend{namespace="db",cronjob="pg-backup"} == 0 unless on (namespace, cronjob) kube_cronjob_status_last_successful_time{namespace="db",cronjob="pg-backup"}
-        for: 27h
-        labels:
-          severity: critical
-        annotations:
-          summary: "활성화된 PostgreSQL S3 backup의 정규 성공 기록이 없어요"
-          description: "pg-backup을 활성화한 뒤 27시간 동안 CronJob status에 성공 기록이 없어요. 첫 schedule, controller, Job과 S3 writer 권한을 확인해주세요. 수동 create job은 이 status를 채우지 않아요."
-
-      - alert: PostgresBackupStale
-        expr: kube_cronjob_spec_suspend{namespace="db",cronjob="pg-backup"} == 0 and on (namespace, cronjob) time() - kube_cronjob_status_last_successful_time{namespace="db",cronjob="pg-backup"} > 108000
-        for: 10m
-        labels:
-          severity: critical
-        annotations:
-          summary: "최근 PostgreSQL S3 backup 성공 기록이 없어요"
-          description: "활성화된 pg-backup의 마지막 정규 성공이 30시간을 넘었어요. CronJob, ExternalSecret과 S3 writer 권한을 확인해주세요."
-
-"""
-PROMETHEUS_COUNTER_REPLACEMENTS = {
-    "rate(otelcol_exporter_send_failed_log_records[5m])": (
-        "(rate(otelcol_exporter_send_failed_log_records[5m]) or "
-        "rate(otelcol_exporter_send_failed_log_records_total[5m]))"
-    ),
-    "rate(otelcol_exporter_send_failed_metric_points[5m])": (
-        "(rate(otelcol_exporter_send_failed_metric_points[5m]) or "
-        "rate(otelcol_exporter_send_failed_metric_points_total[5m]))"
-    ),
-    "rate(otelcol_exporter_send_failed_spans[5m])": (
-        "(rate(otelcol_exporter_send_failed_spans[5m]) or "
-        "rate(otelcol_exporter_send_failed_spans_total[5m]))"
-    ),
-}
 
 
 def read_text(path: pathlib.Path) -> str:
@@ -313,7 +216,7 @@ def drop_alert_rules(content: str, names: frozenset[str]) -> str:
     return "".join(output)
 
 
-# 없는 수집 대상의 규칙을 제외하고 K3s 규칙을 삽입한다. 원본 위치가 달라졌으면 중단한다.
+# 현재 K3s에 수집 대상이 없거나 chart 기본 규칙과 겹치는 원본 규칙을 제외한다.
 def k3s_prometheus_rules(content: str) -> str:
     validate_rule_groups(
         content,
@@ -321,25 +224,8 @@ def k3s_prometheus_rules(content: str) -> str:
         PROMETHEUS_RULE_SOURCE,
     )
     content = drop_alert_rules(content, K3S_DROPPED_ALERTS)
-    if content.count(COMMENTED_NODE_EXPORTER_ALERT) != 1:
-        raise ValueError("교체할 NodeExporterDown 주석을 정확히 하나 찾지 못했습니다")
-    content = content.replace(COMMENTED_NODE_EXPORTER_ALERT, "", 1)
-
-    for marker, addition in (
-        (AVAILABILITY_MARKER, K3S_STATIC_ALERTS),
-        (OBSERVABILITY_MARKER, K3S_OBSERVABILITY_ALERTS),
-    ):
-        if content.count(marker) != 1:
-            raise ValueError(f"삽입할 UMC rule group marker를 정확히 하나 찾지 못했습니다: {marker!r}")
-        content = content.replace(marker, marker + addition, 1)
-
-    for old, new in PROMETHEUS_COUNTER_REPLACEMENTS.items():
-        if content.count(old) != 1:
-            raise ValueError(f"교체할 OTel counter expression을 정확히 하나 찾지 못했습니다: {old}")
-        content = content.replace(old, new, 1)
-
     return (
-        "# umc-infra k3s topology: 없는 target 규칙 제외, 내부 target·전달 무결성 규칙 추가\n"
+        "# umc-infra k3s topology: 없는 target과 chart 기본 규칙 중복 제외\n"
         + content.rstrip()
         + "\n"
     )
