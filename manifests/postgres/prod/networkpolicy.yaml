@@ -1,5 +1,8 @@
 # 허용 정책은 default-deny보다 먼저(-2) 적용한다. NetworkPolicy는 additive라
 # 같은 ingress/egress 방향의 여러 정책에서 허용한 경로가 합집합으로 열린다.
+# 백엔드 SSH db_tunnel은 node의 sshd가 DB로 여는 연결이라 아래 허용 목록에 없다. K3s 기본 CNI
+# (flannel + 내장 kube-router netpol)가 같은 node에서 시작한 트래픽을 NetworkPolicy로 막지 않는 동작에 기댄다.
+# CNI나 netpol 구현을 바꾸면 터널 경로를 명시적으로 허용하거나 막을지 먼저 정한다.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
