@@ -126,6 +126,7 @@ secret은 이 파일에도 넣지 않는다.
 
 `bootstrap/root-app.yaml`은 Argo CD에 넣는 시작점이다. 이 Application이 `argocd/`를 읽으면
 나머지 Application이 생성된다. 이를 app-of-apps 구조라고 부른다.
+`argocd/preview-releases/`의 PR별 배포 기록 JSON은 Preview ApplicationSet만 읽고, 모든 root가 제외한다.
 
 `argocd/projects.yaml`은 각 Application이 읽을 저장소와 쓸 namespace를 제한한다.
 `argocd/applications/`는 실제 배포 묶음을 환경·플랫폼별로 선언한다.

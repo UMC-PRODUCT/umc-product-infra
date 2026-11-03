@@ -152,7 +152,7 @@ argocd_root_app_manifest_path: "{{ playbook_dir }}/../../bootstrap/root-app-veri
 ansible-playbook -i "${TARGET_INVENTORY:?새 서버 inventory 절대 경로 필요}" playbooks/bootstrap.yml
 ```
 
-Verify는 ExternalDNS만 제외한다. 현재 Preview는 `deployment.enabled`와 `ingress.enabled`가
+Verify는 Application 중 ExternalDNS만 제외한다(Preview 배포 기록 JSON은 모든 root가 공통으로 제외). 현재 Preview는 `deployment.enabled`와 `ingress.enabled`가
 false이므로 ApplicationSet 생성이 Preview workload 실행을 뜻하지 않는다. 이 gate나 미검증
 image gate를 임의로 열지 않는다. DNS가 이전 주소여도 새 앱의 Flyway,
 scheduler·외부 API 호출·데이터 정리 작업은 실행될 수 있다. 이 시점부터 새 데이터 변경을 추적한다.
