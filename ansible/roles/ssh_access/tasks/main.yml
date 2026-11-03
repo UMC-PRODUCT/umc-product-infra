@@ -19,7 +19,7 @@
       - item.name is match('^[a-z][a-z0-9_]{1,30}$')
       - item.name not in ['root', 'nobody', 'daemon']
       - item.state in ['present', 'absent']
-      - item.role in ['admin', 'db_tunnel']
+      - item.role in ssh_access_role_accounts
       - item.state != 'absent' or item.name != ansible_user
     fail_msg: Use a unique non-system username and explicit role/state; never remove the connected operator.
   loop: "{{ ssh_access_users }}"
@@ -119,21 +119,39 @@
   ansible.builtin.group:
     name: "{{ item }}"
     state: present
-  loop: [umc-ssh-admins, umc-db-tunnel]
+  loop: "{{ ssh_access_role_accounts.values() | map(attribute='group') | list }}"
 
 # 계정을 만들고 비밀번호를 잠그며, 보조 그룹을 지정 역할로 맞춰 기존 다른 보조 그룹에서 제외한다.
+# shell도 역할 표를 따른다. 관리자는 bash, DB 터널 계정은 nologin이다.
 - name: Create personal accounts without password login
   ansible.builtin.user:
     name: "{{ item.name }}"
     state: present
     create_home: true
-    shell: /bin/bash
+    shell: "{{ ssh_access_role_accounts[item.role].shell }}"
     password_lock: true
-    groups: "{{ 'umc-ssh-admins' if item.role == 'admin' else 'umc-db-tunnel' }}"
+    groups: "{{ ssh_access_role_accounts[item.role].group }}"
     append: false
   loop: "{{ ssh_access_present }}"
   loop_control:
     label: "{{ item.name }}"
+
+# 계정 변경 뒤 passwd를 다시 읽어 실제 저장된 login shell을 확인할 준비를 한다.
+- name: Re-read account entries after reconciliation
+  ansible.builtin.getent:
+    database: passwd
+
+# 역할 표와 실제 passwd의 shell이 다르면 SSH 정책 적용 전에 중단한다.
+# check mode에서는 계정 변경이 적용되지 않아 비교하지 않는다.
+- name: Require each account's login shell to match its role
+  ansible.builtin.assert:
+    that:
+      - ansible_facts.getent_passwd[item.name][5] == ssh_access_role_accounts[item.role].shell
+    fail_msg: The account's login shell differs from its role; db_tunnel accounts must use /usr/sbin/nologin.
+  loop: "{{ ssh_access_present }}"
+  loop_control:
+    label: "{{ item.name }}"
+  when: not ansible_check_mode
 
 # 일반 사용자가 승인 키를 직접 바꾸지 못하도록 홈 밖에 root 소유의 공개키 보관 디렉터리를 만든다.
 - name: Keep authorized public keys outside user-writable homes

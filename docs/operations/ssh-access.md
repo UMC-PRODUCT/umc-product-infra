@@ -12,7 +12,7 @@
 | 역할 | 허용 범위 |
 |---|---|
 | `admin` | shell과 비밀번호 없는 sudo. root에 준하므로 승인된 인프라 운영자에게만 부여 |
-| `db_tunnel` | `permit_open`에 지정한 DB로 local TCP forwarding만 허용. shell·명령 실행·sudo·원격 forwarding 차단 |
+| `db_tunnel` | `permit_open`에 지정한 DB로 local TCP forwarding만 허용. login shell은 `/usr/sbin/nologin`이며 shell·명령 실행·sudo·원격 forwarding 차단 |
 
 SSH 계정과 PostgreSQL 계정은 별개다. SSH 등록으로 DB 계정이나 SQL 권한이 생기지 않는다.
 prod 조회 목적에는 읽기 전용 DB 계정을 제공하고, 쓰기 권한은 업무 범위를 확인해 별도로 승인한다.
@@ -110,7 +110,8 @@ Git 커밋·푸시만으로는 서버 계정이 생성되지 않는다.
 비밀번호는 승인된 비밀 전달 수단으로 제공하며 Git·채팅방에 남기지 않는다.
 [DataGrip 설정](../guides/db-access.md#2-datagrip-설정)에 따라 실제 DB 연결을 검증한다.
 
-`db_tunnel`의 shell 접속 거부는 정상이다. 실제 DB `Test Connection` 성공과 shell·명령 실행·
+`db_tunnel`의 shell 접속 거부는 정상이다. sshd가 세션을 막고, 계정 shell도 `/usr/sbin/nologin`이라
+두 겹으로 차단된다. DB 터널은 세션 없이 TCP forwarding만 쓰므로 nologin에서도 동작한다. 실제 DB `Test Connection` 성공과 shell·명령 실행·
 원격 forwarding·미승인 목적지 연결 거부를 확인해야 등록이 끝난다.
 
 ## 팀원 회수

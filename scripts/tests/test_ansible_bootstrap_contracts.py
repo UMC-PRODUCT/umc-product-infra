@@ -323,6 +323,47 @@ class PublicSshBootstrapContractTests(unittest.TestCase):
         self.assertLess(tasks.index(sudo), tasks.index(mark))
         self.assertEqual(mark["when"], "ssh_access_finalize")
 
+    def test_tunnel_accounts_get_nologin_and_the_stored_shell_is_asserted(self) -> None:
+        try:
+            from ansible.parsing.dataloader import DataLoader
+            from ansible.template import Templar, trust_as_template
+        except ImportError:
+            self.skipTest("Install ansible/requirements.txt to verify the Ansible runtime")
+
+        role_vars = yaml.safe_load(
+            (ROOT / "ansible/roles/ssh_access/vars/main.yml").read_text(encoding="utf-8")
+        )
+        tasks = load_tasks("ansible/roles/ssh_access/tasks/main.yml")
+        user_index = next(index for index, task in enumerate(tasks) if "ansible.builtin.user" in task)
+        user = tasks[user_index]["ansible.builtin.user"]
+        guard_index = next(index for index, task in enumerate(tasks) if task.get("name")
+                           == "Require each account's login shell to match its role")
+        reread_index = next(index for index, task in enumerate(tasks[user_index:], user_index)
+                            if "ansible.builtin.getent" in task)
+        config_index = next(index for index, task in enumerate(tasks) if "ansible.builtin.template" in task)
+        self.assertLess(user_index, reread_index)
+        self.assertLess(reread_index, guard_index)
+        self.assertLess(guard_index, config_index)
+        guard = tasks[guard_index]
+        self.assertEqual(guard["when"], "not ansible_check_mode")
+
+        for role, shell, group in (
+            ("admin", "/bin/bash", "umc-ssh-admins"),
+            ("db_tunnel", "/usr/sbin/nologin", "umc-db-tunnel"),
+        ):
+            with self.subTest(role=role):
+                item = {"name": "member", "role": role}
+                templar = Templar(loader=DataLoader(), variables={**role_vars, "item": item})
+                self.assertEqual(templar.template(trust_as_template(user["shell"])), shell)
+                self.assertEqual(templar.template(trust_as_template(user["groups"])), group)
+                for stored, accepted in ((shell, True), ("/bin/sh", False)):
+                    passwd = {"member": ["x", "1001", "1001", "", "/home/member", stored]}
+                    templar = Templar(loader=DataLoader(), variables={
+                        **role_vars, "item": item, "ansible_facts": {"getent_passwd": passwd},
+                    })
+                    condition = guard["ansible.builtin.assert"]["that"][0]
+                    self.assertIs(templar.evaluate_conditional(trust_as_template(condition)), accepted)
+
     def test_explicit_account_retirement_terminates_existing_tunnels(self) -> None:
         tasks = load_tasks("ansible/roles/ssh_access/tasks/revoke.yml")
         revoke_keys = next(task for task in tasks if "ansible.builtin.file" in task)
