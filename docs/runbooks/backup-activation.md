@@ -269,19 +269,29 @@ Flyway 이력과 대표 row count가 backup 시점에 기대한 값인지 확인
 앱 owner·권한과 조회 전용 role의 읽기 성공·쓰기 거부를 확인한다. extension 소유권도 대조하고
 복원 중 오류가 발생하면 이미 켜진 예약 백업도 복원되지 않을 수 있으므로 원인을 바로 조사한다.
 
-운영 DB를 새 PVC에 다시 만들고 `pg_restore`로 복구했다면 role Job을 다시 실행해야 한다.
+운영 DB를 새 PVC에 다시 만들어 `pg_restore`로 복구할 때는 role Job을 다시 실행해야 한다.
 role은 cluster 전역 객체라 dump에 들어 있지 않고, 이미 Complete인 Job은 Argo CD가 다시 돌리지 않는다.
-`umc_product_backup`이 없으면 다음 03:00 `pg-backup`이 로그인에 실패해 그날 backup이 생기지 않는다.
-다음 03:00 KST 전에 Job을 지우면 Argo CD selfHeal이 다시 만든다.
-`postgres-backup-role`은 마지막에 `umc_product_backup`의 최종 권한까지 검사하므로 Complete면 role이 준비된 것이다.
+Job을 지우면 Argo CD selfHeal이 다시 만든다. 순서가 중요하다.
+
+1. `pg_restore` **전에** `postgres-app-role`을 다시 실행한다. dump에는 `ALTER ... OWNER TO umc_product_app`이
+   있어서 `umc_product_app`이 없으면 소유자를 복원하는 단계에서 실패한다.
+2. 복구가 끝난 **뒤에** 나머지 세 Job을 다시 실행한다. readonly·exporter·backup role의 권한은 복원된 객체에 맞춰
+   다시 적용해야 한다.
+3. 다음 03:00 KST 전에 끝낸다. `umc_product_backup`이 없으면 그날 `pg-backup`이 로그인에 실패해 backup이 생기지 않는다.
+   `postgres-backup-role`은 마지막에 `umc_product_backup`의 최종 권한까지 검사하므로 Complete면 role이 준비된 것이다.
 
 ```bash
-sudo k3s kubectl delete job -n db \
-  postgres-app-role postgres-readonly-role postgres-exporter-role postgres-backup-role
-for job in postgres-app-role postgres-readonly-role postgres-exporter-role postgres-backup-role; do
-  until sudo k3s kubectl get "job/$job" -n db >/dev/null 2>&1; do sleep 5; done
-  sudo k3s kubectl wait --for=condition=Complete "job/$job" -n db --timeout=600s
-done
+rerun_role_jobs() {
+  sudo k3s kubectl delete job -n db "$@"
+  for job in "$@"; do
+    until sudo k3s kubectl get "job/$job" -n db >/dev/null 2>&1; do sleep 5; done
+    sudo k3s kubectl wait --for=condition=Complete "job/$job" -n db --timeout=600s
+  done
+}
+# 1. pg_restore 전
+rerun_role_jobs postgres-app-role
+# 2. pg_restore 후
+rerun_role_jobs postgres-readonly-role postgres-exporter-role postgres-backup-role
 ```
 
 ## 5. RPO와 RTO 기록
