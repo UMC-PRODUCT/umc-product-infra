@@ -39,13 +39,13 @@ Match all
 {% endif %}
 {% for account in ssh_access_present %}
 Match User {{ account.name }}
-{% if account.role == 'db_tunnel' %}
+{% if ssh_access_role_accounts[account.role].tunnel_only %}
     # PTY만 끄면 명령 실행은 남는다. 세션은 모두 금지하고 TCP 터널만 허용한다.
     MaxSessions 0
     PermitTTY no
     PermitOpen {{ account.permit_open | join(' ') }}
 {% else %}
-{# 관리자만 임의 목적지 local TCP 터널을 허용한다. db_tunnel은 위 permit_open 목록으로 제한한다. #}
+{# 관리자만 임의 목적지 local TCP 터널을 허용한다. tunnel_only 역할은 위 permit_open 목록으로 제한한다. #}
     PermitOpen any
 {% endif %}
 Match all

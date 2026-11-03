@@ -1,11 +1,14 @@
 ---
-# 역할별 Linux 그룹과 login shell의 단일 원본이다. inventory에서 덮어쓰지 않는다.
-# db_tunnel은 sshd가 세션을 막더라도 shell이 없어야 설정 실수 하나로 명령 실행이 열리지 않는다.
+# 역할별 Linux 그룹·login shell·터널 전용 여부의 단일 원본이다. inventory에서 덮어쓰지 않는다.
+# sudoers와 sshd 정책도 이 표를 읽으므로 그룹 이름을 바꿔도 admin sudo가 함께 따라간다.
+# tunnel_only 계정은 sshd가 세션을 막더라도 shell이 없어야 설정 실수 하나로 명령 실행이 열리지 않는다.
 # local TCP forwarding은 session channel을 쓰지 않아 nologin에서도 동작한다.
 ssh_access_role_accounts:
   admin:
     group: umc-ssh-admins
     shell: /bin/bash
+    tunnel_only: false
   db_tunnel:
     group: umc-db-tunnel
     shell: /usr/sbin/nologin
+    tunnel_only: true

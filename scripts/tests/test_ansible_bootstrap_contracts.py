@@ -485,6 +485,51 @@ class PublicSshBootstrapContractTests(unittest.TestCase):
                     }), accepted)
 
     @requires_ansible
+    def test_sudo_and_tunnel_policy_follow_the_role_table(self) -> None:
+        tasks = load_tasks("ansible/roles/ssh_access/tasks/main.yml")
+        sudoers = next(task["ansible.builtin.copy"] for task in tasks
+                       if task.get("name") == "Grant sudo only to the personal administrator group")
+        keys_guard = next(task for task in tasks if task.get("name")
+                          == "Require public keys and narrowly scoped tunnel destinations")
+        template = (ROOT / "ansible/roles/ssh_access/templates/sshd.conf.j2").read_text(encoding="utf-8")
+        role_vars = yaml.safe_load(
+            (ROOT / "ansible/roles/ssh_access/vars/main.yml").read_text(encoding="utf-8")
+        )
+        table = role_vars["ssh_access_role_accounts"]
+        self.assertIs(table["admin"]["tunnel_only"], False)
+        self.assertIs(table["db_tunnel"]["tunnel_only"], True)
+
+        renamed = {**table, "admin": {**table["admin"], "group": "umc-operators"},
+                   "metrics_tunnel": {**table["db_tunnel"], "group": "umc-metrics-tunnel"}}
+        variables = {"ssh_access_role_accounts": renamed}
+        self.assertEqual(render(sudoers["content"], variables), "%umc-operators ALL=(ALL:ALL) NOPASSWD: ALL\n")
+        self.assertEqual(render(sudoers["dest"], variables), "/etc/sudoers.d/umc-operators")
+
+        key = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIExample member@example.com"
+        metrics = {"name": "metrics1", "role": "metrics_tunnel", "public_keys": [key],
+                   "permit_open": ["10.43.0.20:5432"]}
+        admin = {"name": "admin1", "role": "admin", "public_keys": [key]}
+        for account, accepted in (
+            (metrics, True),
+            ({**metrics, "permit_open": []}, False),
+            ({**metrics, "permit_open": ["10.43.0.20:*"]}, False),
+            (admin, True),
+        ):
+            with self.subTest(account=account):
+                self.assertIs(passes(keys_guard["ansible.builtin.assert"]["that"],
+                                     {**variables, "item": account}), accepted)
+
+        config = render(template, {
+            **variables, "ssh_access_present": [admin, metrics],
+            "ssh_access_finalize": True, "ansible_user": "admin1",
+        })
+        blocks = {block.split("\n", 1)[0]: block for block in config.split("Match User ")[1:]}
+        self.assertIn("MaxSessions 0", blocks["metrics1"])
+        self.assertIn("PermitOpen 10.43.0.20:5432", blocks["metrics1"])
+        self.assertNotIn("MaxSessions 0", blocks["admin1"])
+        self.assertIn("PermitOpen any", blocks["admin1"])
+
+    @requires_ansible
     def test_finalization_reports_legacy_root_keys_by_fingerprint_only(self) -> None:
         root_keys = "/root/.ssh/authorized_keys"
         tasks = load_tasks("ansible/roles/ssh_access/tasks/main.yml")
