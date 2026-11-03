@@ -12,8 +12,6 @@ from pathlib import Path
 
 import yaml
 
-from argocd_project_kinds import validation_errors as project_whitelist_errors
-
 ROOT = Path(__file__).resolve().parent.parent
 DEFAULTS_PATH = ROOT / "ansible" / "roles" / "argocd" / "defaults" / "main.yml"
 VALUES_PATH = ROOT / "ansible" / "roles" / "argocd" / "files" / "argo-cd-values.yaml"

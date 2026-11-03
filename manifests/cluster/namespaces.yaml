@@ -146,8 +146,8 @@ kind: Namespace
 metadata:
   name: default
   annotations:
-    # Kubernetes는 default 삭제를 거부한다. cluster Application을 지울 때 finalizer가 멈추지 않게 삭제 대상에서 뺀다.
-    argocd.argoproj.io/sync-options: Delete=false
+    # Kubernetes는 default 삭제를 거부한다. Git에서 빠지거나 cluster Application을 지울 때 삭제를 시도하지 않게 한다.
+    argocd.argoproj.io/sync-options: Prune=false,Delete=false
   labels:
     pod-security.kubernetes.io/enforce: restricted
     pod-security.kubernetes.io/enforce-version: v1.36

@@ -693,7 +693,6 @@ def validate_project_boundaries() -> None:
             ("apps", "Deployment"),
             ("batch", "Job"),
             ("cert-manager.io", "Certificate"),
-            ("cert-manager.io", "Issuer"),
             ("rbac.authorization.k8s.io", "Role"),
             ("rbac.authorization.k8s.io", "RoleBinding"),
         },

@@ -3,14 +3,18 @@
 
 usage: argocd_project_kinds.py VALIDATION_OUTPUT_DIR
 
-Prints the minimal cluster/namespace resource whitelist per project and every kind
-that the current projects.yaml would reject. Run scripts/validate.sh with
-VALIDATION_OUTPUT_DIR first so the chart renders exist.
+Prints the minimal cluster/namespace resource whitelist per project, then every error:
+a rendered kind the project would reject, a namespaced whitelist entry that no render
+needs and NAMESPACE_WHITELIST_EXTRAS does not justify, a missing render, or a platform
+object in argocd outside the pinned set. Exits 1 on any error. scripts/validate.sh
+calls it after the chart renders exist.
 """
 
 from __future__ import annotations
 
 import fnmatch
+import json
+import re
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -64,6 +68,15 @@ CLUSTER_SCOPED = {
 }
 
 GroupKind = tuple[str, str]
+# group, kind, name. 빈 name은 같은 group/kind의 모든 이름을 뜻한다(Argo CD ClusterResourceRestrictionItem).
+Restriction = tuple[str, str, str]
+
+# 렌더에 없지만 열어 두는 namespaced kind다. 항목마다 이유를 적는다. 여기 없는 kind를 whitelist에 넣으면 실패한다.
+NAMESPACE_WHITELIST_EXTRAS: dict[str, dict[GroupKind, str]] = {}
+
+# Argo CD 디렉터리 source가 읽는 확장자다. jsonnet은 이 검사가 평가하지 못하므로 거부한다.
+MANIFEST_SUFFIXES = (".yaml", ".yml", ".json")
+SKIP_RENDERING_MARKER = "+argocd:skip-file-rendering"
 
 
 @dataclass(frozen=True)
@@ -74,21 +87,46 @@ class Application:
 
 
 @dataclass(frozen=True)
+class Rendered:
+    app: str
+    kind: GroupKind
+    resource: dict
+
+    @property
+    def name(self) -> str:
+        return self.resource.get("metadata", {}).get("name", "")
+
+
+@dataclass(frozen=True)
 class Project:
     name: str
-    cluster_whitelist: tuple[GroupKind, ...]
+    cluster_whitelist: tuple[Restriction, ...]
+    cluster_blacklist: tuple[Restriction, ...]
     namespace_whitelist: tuple[GroupKind, ...] | None
+    namespace_blacklist: tuple[GroupKind, ...]
 
-    def permits(self, kind: GroupKind) -> bool:
+    # Argo CD v3.5 AppProject.IsGroupKindNamePermitted와 같은 판정이다.
+    # namespaced whitelist는 필드가 없을 때만 전부 허용하고 []이면 전부 거부한다. cluster whitelist는 비면 전부 거부한다.
+    def permits(self, kind: GroupKind, name: str) -> bool:
         if kind in CLUSTER_SCOPED:
-            return matches(self.cluster_whitelist, kind)
-        # Argo CD는 namespaceResourceWhitelist가 없거나 비면 모든 namespaced kind를 허용한다.
-        return not self.namespace_whitelist or matches(self.namespace_whitelist, kind)
+            return (named_match(self.cluster_whitelist, kind, name)
+                    and not named_match(self.cluster_blacklist, kind, name))
+        allowed = self.namespace_whitelist is None or matches(self.namespace_whitelist, kind)
+        return allowed and not matches(self.namespace_blacklist, kind)
 
 
-def matches(whitelist: tuple[GroupKind, ...], kind: GroupKind) -> bool:
+def matches(entries: tuple[GroupKind, ...], kind: GroupKind) -> bool:
     return any(fnmatch.fnmatchcase(kind[0], group) and fnmatch.fnmatchcase(kind[1], name)
-               for group, name in whitelist)
+               for group, name in entries)
+
+
+def named_match(entries: tuple[Restriction, ...], kind: GroupKind, name: str) -> bool:
+    return any(matches(((group, kind_pattern),), kind) and (not name_pattern or fnmatch.fnmatchcase(name, name_pattern))
+               for group, kind_pattern, name_pattern in entries)
+
+
+def is_pattern(value: str) -> bool:
+    return any(char in value for char in "*?[")
 
 
 def group_kind(resource: dict) -> GroupKind:
@@ -105,8 +143,22 @@ ManifestLoader.add_constructor("tag:yaml.org,2002:value", ManifestLoader.constru
 
 
 def load_yaml(path: Path) -> list[dict]:
-    return [item for item in yaml.load_all(path.read_text(encoding="utf-8"), Loader=ManifestLoader)
-            if isinstance(item, dict)]
+    text = path.read_text(encoding="utf-8")
+    if path.suffix == ".json":
+        loaded = json.loads(text)
+        items = loaded if isinstance(loaded, list) else [loaded]
+    else:
+        items = yaml.load_all(text, Loader=ManifestLoader)
+    return [item for item in items if isinstance(item, dict)]
+
+
+# Argo CD glob처럼 `*`가 `/`도 넘고 `{a,b}` 대안을 지원한다.
+def glob_match(pattern: str, path: str) -> bool:
+    brace = re.search(r"\{([^{}]*)\}", pattern)
+    if brace is None:
+        return fnmatch.fnmatchcase(path, pattern)
+    return any(glob_match(pattern[:brace.start()] + option + pattern[brace.end():], path)
+               for option in brace.group(1).split(","))
 
 
 def directory_renders(source: dict) -> tuple[Path, ...]:
@@ -114,11 +166,18 @@ def directory_renders(source: dict) -> tuple[Path, ...]:
     if (directory / "Chart.yaml").exists():
         return ()
     options = source.get("directory", {})
-    paths = directory.rglob("*.yaml") if options.get("recurse") else directory.glob("*.yaml")
-    excludes = options.get("exclude", "").strip("{}").split(",")
-    return tuple(sorted(path for path in paths
-                        if not any(pattern and fnmatch.fnmatch(str(path.relative_to(directory)), pattern)
-                                   for pattern in excludes)))
+    include, exclude = options.get("include", ""), options.get("exclude", "")
+    found = []
+    for path in sorted(directory.rglob("*") if options.get("recurse") else directory.glob("*")):
+        relative = str(path.relative_to(directory))
+        if not path.is_file() or (exclude and glob_match(exclude, relative)) \
+                or (include and not glob_match(include, relative)):
+            continue
+        if path.suffix == ".jsonnet":
+            raise SystemExit(f"{path}: jsonnet directory sources are not evaluated by this check")
+        if path.suffix in MANIFEST_SUFFIXES and SKIP_RENDERING_MARKER not in path.read_text(encoding="utf-8"):
+            found.append(path)
+    return tuple(found)
 
 
 def applications(output_dir: Path) -> list[Application]:
@@ -142,48 +201,85 @@ def projects() -> dict[str, Project]:
     def kinds(entries: list[dict] | None) -> tuple[GroupKind, ...]:
         return tuple((entry["group"], entry["kind"]) for entry in entries or ())
 
+    def restrictions(entries: list[dict] | None) -> tuple[Restriction, ...]:
+        return tuple((entry["group"], entry["kind"], entry.get("name", "")) for entry in entries or ())
+
     return {
         item["metadata"]["name"]: Project(
             item["metadata"]["name"],
-            kinds(item["spec"].get("clusterResourceWhitelist")),
+            restrictions(item["spec"].get("clusterResourceWhitelist")),
+            restrictions(item["spec"].get("clusterResourceBlacklist")),
             kinds(item["spec"]["namespaceResourceWhitelist"])
-            if "namespaceResourceWhitelist" in item["spec"] else None,
+            if item["spec"].get("namespaceResourceWhitelist") is not None else None,
+            kinds(item["spec"].get("namespaceResourceBlacklist")),
         )
         for item in load_yaml(PROJECTS_PATH)
         if item.get("kind") == "AppProject"
     }
 
 
-def required_kinds(apps: list[Application]) -> tuple[dict[str, dict[GroupKind, set[str]]], list[str]]:
-    """Return {project: {group_kind: app names}} and the renders that do not exist."""
-    needed: dict[str, dict[GroupKind, set[str]]] = {}
+def rendered_resources(apps: list[Application]) -> tuple[dict[str, list[Rendered]], list[tuple[Application, str]]]:
+    """Return {project: rendered resources} and (Application, reason) for every missing render."""
+    rendered: dict[str, list[Rendered]] = {}
     missing = []
     for app in apps:
-        needed.setdefault(app.project, {})
-        if not app.renders:
-            missing.append(f"{app.name}: no render registered")
+        resources = rendered.setdefault(app.project, [])
+        absent = [str(render) for render in app.renders if not render.exists()]
+        if not app.renders or absent:
+            missing.append((app, ", ".join(absent) or "no render registered"))
         for render in app.renders:
-            if not render.exists():
-                missing.append(f"{app.name}: {render}")
-                continue
-            for resource in load_yaml(render):
-                needed[app.project].setdefault(group_kind(resource), set()).add(app.name)
-    return needed, missing
+            resources.extend(Rendered(app.name, group_kind(item), item)
+                             for item in (load_yaml(render) if render.exists() else ()))
+    return rendered, missing
 
 
-def rejected_kinds(needed: dict[str, dict[GroupKind, set[str]]],
-                   reviewed: dict[str, Project]) -> list[str]:
+def kinds_by_app(resources: list[Rendered]) -> dict[GroupKind, set[str]]:
+    by_kind: dict[GroupKind, set[str]] = {}
+    for item in resources:
+        by_kind.setdefault(item.kind, set()).add(item.app)
+    return by_kind
+
+
+def label(kind: GroupKind) -> str:
+    return f"{kind[0] or 'core'}/{kind[1]}"
+
+
+def rejected_kinds(rendered: dict[str, list[Rendered]], reviewed: dict[str, Project]) -> list[str]:
     errors = []
-    for project_name, kinds in sorted(needed.items()):
+    for project_name, resources in sorted(rendered.items()):
         project = reviewed.get(project_name)
         if project is None:
             errors.append(f"{project_name}: AppProject is not declared")
             continue
-        for kind in sorted(kinds):
-            if not project.permits(kind):
-                scope = "cluster" if kind in CLUSTER_SCOPED else "namespace"
-                errors.append(f"{project_name}: {scope} kind {kind[0] or 'core'}/{kind[1]} "
-                              f"from {', '.join(sorted(kinds[kind]))} is not whitelisted")
+        rejected = kinds_by_app([item for item in resources if not project.permits(item.kind, item.name)])
+        for kind, apps in sorted(rejected.items()):
+            scope = "cluster" if kind in CLUSTER_SCOPED else "namespace"
+            errors.append(f"{project_name}: {scope} kind {label(kind)} "
+                          f"from {', '.join(sorted(apps))} is not whitelisted")
+    return errors
+
+
+# 렌더가 쓰지 않는 kind를 whitelist에 더하면 Secret·RBAC 같은 권한이 조용히 넓어진다.
+# 선언 = 렌더에 필요한 namespaced kind ∪ NAMESPACE_WHITELIST_EXTRAS여야 한다.
+def whitelist_drift_errors(rendered: dict[str, list[Rendered]], reviewed: dict[str, Project]) -> list[str]:
+    errors = []
+    for project_name, project in sorted(reviewed.items()):
+        if project.namespace_whitelist is None:
+            continue
+        declared = set(project.namespace_whitelist)
+        extras = set(NAMESPACE_WHITELIST_EXTRAS.get(project_name, {}))
+        required = {item.kind for item in rendered.get(project_name, []) if item.kind not in CLUSTER_SCOPED}
+        for kind in sorted(kind for kind in declared if is_pattern(kind[0]) or is_pattern(kind[1])):
+            errors.append(f"{project_name}: namespace whitelist entry {label(kind)} must name an exact group/kind")
+        for kind in sorted(declared - required - extras):
+            errors.append(f"{project_name}: namespace kind {label(kind)} is whitelisted but no Application renders it; "
+                          "remove it or justify it in NAMESPACE_WHITELIST_EXTRAS")
+        for kind in sorted(extras - declared):
+            errors.append(f"{project_name}: NAMESPACE_WHITELIST_EXTRAS lists {label(kind)}, which is not whitelisted")
+        for kind in sorted(extras & required):
+            errors.append(f"{project_name}: NAMESPACE_WHITELIST_EXTRAS lists {label(kind)}, which is already rendered")
+    for project_name in sorted(set(NAMESPACE_WHITELIST_EXTRAS) - set(reviewed)):
+        errors.append(f"{project_name}: NAMESPACE_WHITELIST_EXTRAS names an undeclared AppProject")
     return errors
 
 
@@ -192,53 +288,55 @@ PLATFORM_ARGOCD_OBJECTS = {
     ("SecretStore", "aws-secretsmanager", None),
     ("ExternalSecret", "preview-github-token", "preview-github-token"),
 }
+# argocd.argoproj.io/secret-type 등이 붙은 Secret은 Argo CD가 저장소·cluster 자격증명으로 읽는다.
+ARGOCD_LABEL_PREFIX = "argocd.argoproj.io/"
 
 
-def platform_argocd_errors(apps: list[Application]) -> list[str]:
+def platform_argocd_errors(rendered: dict[str, list[Rendered]]) -> list[str]:
     errors = []
-    for app in apps:
-        if app.project != "platform":
+    for item in rendered.get("platform", []):
+        resource = item.resource
+        if resource["metadata"].get("namespace") != "argocd":
             continue
-        for render in app.renders:
-            for resource in load_yaml(render) if render.exists() else ():
-                if resource["metadata"].get("namespace") != "argocd":
-                    continue
-                target = resource.get("spec", {}).get("target", {}).get("name") \
-                    if resource["kind"] == "ExternalSecret" else None
-                if (resource["kind"], resource["metadata"]["name"], target) not in PLATFORM_ARGOCD_OBJECTS:
-                    errors.append(f"platform: {resource['kind']}/{resource['metadata']['name']} "
-                                  f"(target {target}) may not be written into argocd")
+        target = resource.get("spec", {}).get("target", {}) if resource["kind"] == "ExternalSecret" else {}
+        if (resource["kind"], item.name, target.get("name")) not in PLATFORM_ARGOCD_OBJECTS:
+            errors.append(f"platform: {resource['kind']}/{item.name} "
+                          f"(target {target.get('name')}) may not be written into argocd")
+        labels = (target.get("template") or {}).get("metadata", {}).get("labels") or {}
+        for key in sorted(key for key in labels if key.startswith(ARGOCD_LABEL_PREFIX)):
+            errors.append(f"platform: {resource['kind']}/{item.name} may not label its Secret with {key}")
     return errors
 
 
 def validation_errors(output_dir: Path) -> list[str]:
-    """Errors that make an Application sync fail or widen platform's reach into argocd."""
+    """Errors that make an Application sync fail, widen a project, or widen platform's reach into argocd."""
     apps = applications(output_dir)
-    needed, missing = required_kinds(apps)
+    rendered, missing = rendered_resources(apps)
     reviewed = projects()
-    restricted = {name for name, project in reviewed.items() if project.namespace_whitelist}
-    unproven = [line for line in missing
-                if next(app.project for app in apps if line.startswith(f"{app.name}:")) in restricted]
-    return ([f"missing render: {line}" for line in unproven]
-            + rejected_kinds(needed, reviewed) + platform_argocd_errors(apps))
+    # namespaced whitelist가 있는 project는 렌더 없이 필요한 kind를 증명할 수 없다.
+    return ([f"missing render: {app.name}: {reason}" for app, reason in missing
+             if app.project in reviewed and reviewed[app.project].namespace_whitelist is not None]
+            + rejected_kinds(rendered, reviewed)
+            + whitelist_drift_errors(rendered, reviewed)
+            + platform_argocd_errors(rendered))
 
 
 def main(output_dir: Path) -> int:
-    apps = applications(output_dir)
-    needed, missing = required_kinds(apps)
-    reviewed = projects()
-    for project_name, kinds in sorted(needed.items()):
+    rendered, missing = rendered_resources(applications(output_dir))
+    for project_name, resources in sorted(rendered.items()):
+        by_kind = kinds_by_app(resources)
         print(f"## {project_name}")
         for scope, is_cluster in (("clusterResourceWhitelist", True), ("namespaceResourceWhitelist", False)):
             print(f"  {scope}:")
-            for kind in sorted(kind for kind in kinds if (kind in CLUSTER_SCOPED) == is_cluster):
+            for kind in sorted(kind for kind in by_kind if (kind in CLUSTER_SCOPED) == is_cluster):
                 print(f"    - group: {kind[0]!r}\n      kind: {kind[1]}"
-                      f"  # {', '.join(sorted(kinds[kind]))}")
-    for line in missing:
-        print(f"missing render: {line}")
-    errors = rejected_kinds(needed, reviewed) + platform_argocd_errors(apps)
+                      f"  # {', '.join(sorted(by_kind[kind]))}")
+    for app, reason in missing:
+        print(f"render not checked: {app.name} ({app.project}): {reason}")
+    errors = validation_errors(output_dir)
     for line in errors:
-        print(f"rejected: {line}")
+        print(f"error: {line}")
+    print(f"AppProject whitelist check: {len(errors)} error(s)")
     return 1 if errors else 0
 
 
