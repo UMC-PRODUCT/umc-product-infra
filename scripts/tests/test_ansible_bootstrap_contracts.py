@@ -391,8 +391,13 @@ class PublicSshBootstrapContractTests(unittest.TestCase):
             "MaxSessions 0",
             "PermitTTY no",
             "PermitOpen {{ account.permit_open | join(' ') }}",
+            "ClientAliveInterval 60",
+            "ClientAliveCountMax 3",
         ):
             self.assertIn(setting, template)
+        global_section = template.split("Match ", 1)[0]
+        self.assertIn("ClientAliveInterval 60", global_section)
+        self.assertIn("ClientAliveCountMax 3", global_section)
         self.assertIn("PermitRootLogin {{ 'no' if ssh_access_finalize else 'prohibit-password' }}", template)
         self.assertIn("AllowUsers {{ ssh_access_present", template)
         self.assertIn("MaxStartups ", template)

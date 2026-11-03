@@ -16,6 +16,9 @@ LoginGraceTime 30
 MaxAuthTries 3
 MaxStartups 10:30:30
 LogLevel VERBOSE
+{# 응답 없는 클라이언트의 연결을 약 3분 뒤 닫아 끊긴 DB 터널이 남지 않게 한다. 살아 있는 클라이언트는 응답하므로 끊지 않는다. #}
+ClientAliveInterval 60
+ClientAliveCountMax 3
 {# agent·원격 포워딩 등 불필요한 기능은 끄고 local TCP 터널도 계정별 목적지만 허용한다. #}
 AllowAgentForwarding no
 AllowStreamLocalForwarding no

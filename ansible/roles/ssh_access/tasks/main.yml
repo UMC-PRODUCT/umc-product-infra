@@ -236,6 +236,8 @@
       - "'authenticationmethods publickey' in item.stdout_lines"
       - "'authorizedkeysfile /etc/ssh/authorized_keys/%u' in item.stdout_lines"
       - "not ssh_access_finalize or 'permitrootlogin no' in item.stdout_lines"
+      - "'clientaliveinterval 60' in item.stdout_lines"
+      - "'clientalivecountmax 3' in item.stdout_lines"
       - "item.item.role != 'db_tunnel' or 'maxsessions 0' in item.stdout_lines"
       - "item.item.role != 'db_tunnel' or 'allowtcpforwarding local' in item.stdout_lines"
       - "item.item.role != 'db_tunnel' or ('permitopen ' ~ (item.item.permit_open | join(' '))) in item.stdout_lines"
