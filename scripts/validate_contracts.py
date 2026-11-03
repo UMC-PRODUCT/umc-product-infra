@@ -1390,7 +1390,7 @@ def validate_postgres() -> None:
         yaml_documents(prod_directory / "readonly-role-job.yaml"), "Job"
     )["spec"]["template"]["spec"]["containers"][0]["args"][0]
     for statement in (
-        "CONNECTION LIMIT 5;",
+        "CONNECTION LIMIT 10;",
         "ALTER ROLE umc_product_ro SET statement_timeout = '60s';",
         "ALTER ROLE umc_product_ro SET idle_in_transaction_session_timeout = '5min';",
     ):

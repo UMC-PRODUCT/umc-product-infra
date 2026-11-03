@@ -57,8 +57,10 @@ SSH 연결 성공만으로 DB 연결까지 완료됐다고 판단하지 않는�
 
 터널용 SSH 계정으로 터미널 shell에 접속하거나 서버 명령을 실행할 수 없는 것은 정상이다.
 승인받지 않은 DB 목적지로 연결할 수 없으며, 읽기 전용 DB 계정의 쓰기 작업 거부도 정상이다.
-공용 prod 읽기 전용 계정(`umc_product_ro`)은 동시 연결 5개, query 하나에 60초, transaction을 연 채 5분 대기까지 허용한다.
+공용 prod 읽기 전용 계정(`umc_product_ro`)은 팀 전체 합쳐 동시 연결 10개, query 하나에 60초, transaction을 연 채 5분 대기까지 허용한다.
 운영 DB 연결과 vacuum을 보호하려는 제한이다. DataGrip은 기본 auto-commit을 유지하고, 큰 조회는 범위를 좁힌다.
+DataGrip은 창·console마다 연결을 따로 열 수 있으므로 쓰지 않는 console은 닫는다.
+60초와 5분은 role 기본값이다. 꼭 필요한 조회에서는 그 세션에서만 `SET statement_timeout = '5min';`처럼 바꿀 수 있다.
 
 Preview DB는 해당 PR의 배포가 DB를 만든 뒤에만 존재한다.
 Preview 종료·정리 전에는 DataGrip 연결을 닫고, 보존할 테스트 데이터가 있는지 확인한다.
