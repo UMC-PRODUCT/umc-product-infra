@@ -308,10 +308,12 @@ spec:
                         key: discord-webhook
                       # Helm tpl을 한 번 통과한 뒤 Alertmanager가 실행할 템플릿이다.
                       title: '{{`{{ $scope := or (index .CommonLabels "environment") (index .CommonLabels "deployment_environment") (index .CommonLabels "service_name") (index .CommonLabels "application") (index .CommonLabels "job") (index .CommonLabels "instance") "unknown" }}[{{ .Status | toUpper }}{{ if eq .Status "firing" }}:{{ .Alerts.Firing | len }}{{ end }}][{{ $scope }}] {{ .CommonLabels.alertname }}`}}'
+                      # 대상은 Certificate name, KSM이 붙인 pod, scrape instance 순으로 고른다.
+                      # instance는 수집기 주소이고 cert-manager 지표의 pod는 cert-manager 자신이다.
                       message: |
                         {{`{{ range .Alerts }}
                         {{ $scope := or (index .Labels "environment") (index .Labels "deployment_environment") (index .Labels "service_name") (index .Labels "application") (index .Labels "job") "unknown" }}
-                        {{ $target := or (index .Labels "instance") (index .Labels "pod") (index .Labels "name") "-" }}
+                        {{ $target := or (index .Labels "name") (index .Labels "pod") (index .Labels "instance") "-" }}
                         • {{ .Annotations.summary }}
                           환경: {{ $scope }}
                           severity: {{ .Labels.severity }}
@@ -322,11 +324,13 @@ spec:
                         {{ end }}`}}
               # 같은 대상의 상위 장애가 이미 알림을 내면 겹치는 warning·일반 장애 알림을 억제한다.
               inhibitRules:
+                # KSM 알림은 job·instance가 KSM 자신이라 namespace가 없으면 app critical이 preview warning을 덮는다.
+                # service_name은 Loki 로그 알림이 쓰는 대상 label이다.
                 - sourceMatch:
                     - { name: severity, matchType: "=", value: critical }
                   targetMatch:
                     - { name: severity, matchType: "=", value: warning }
-                  equal: [alertname, service_name, application, job, instance]
+                  equal: [alertname, service_name, application, namespace, job, instance]
                 # 같은 앱의 5xx 비율 critical이 이미 나가면 건수 기반 5xx warning은 따로 보내지 않는다.
                 - sourceMatch:
                     - { name: alertname, matchType: "=", value: ApiHigh5xxErrorRatio }
