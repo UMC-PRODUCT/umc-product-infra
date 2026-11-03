@@ -54,7 +54,10 @@ cp -n inventories/idc-new/hosts.example.yml "$NEW_SERVER_INVENTORY"
 ```
 
 이후 명령은 관리자 PC의 `ansible/`에서 실행하며 대상 inventory를 항상 `-i`로 지정한다.
-예제에 든 서버 주소는 새 서버 공인 IP로 교체하고 현재 운영 서버와 IP·host key가 다른지 대조한다.
+예제의 `ansible_host`와 `ssh_access_public_host`는 `CHANGE_ME_SERVER_PUBLIC_IPV4` 자리표시자다.
+새 서버 공인 IP로 교체하고 현재 운영 서버와 IP·host key가 다른지 대조한다. 자리표시자가 남아 있으면
+bootstrap은 원격 접속 전에 중단한다. 운영 서버의 실제 공인 IP는 Git에서 제외된
+`inventories/idc-new/hosts.yml`에 있고, 공개 DNS 대상 값은 [도메인·TLS 운영](domains-tls.md)에 있다.
 `ssh_access_users`에는 승인된 개인 관리자와 실제 공개키를 넣는다. 개인키 경로는
 `ansible_ssh_private_key_file`로 지정하거나 `--private-key /absolute/path/to/private-key`를 붙인다.
 private key 본문·DB 비밀번호·AWS key를 inventory에 넣지 않는다.

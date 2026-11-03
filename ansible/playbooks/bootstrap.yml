@@ -26,6 +26,8 @@
           - "'CHANGE_ME' not in ansible_host"
           - ansible_user is defined
           - "'CHANGE_ME' not in ansible_user"
+          - ssh_access_public_host is defined
+          - "'CHANGE_ME' not in ssh_access_public_host"
           - ssh_access_finalize | default(false) | bool
           - ssh_access_confirm | default(false) | bool
           - ansible_user != 'root'
