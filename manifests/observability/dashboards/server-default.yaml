@@ -3568,6 +3568,7 @@ data:
           {
             "kind": "QueryVariable",
             "spec": {
+              "allValue": "(prod|dev|local)-umc-product",
               "allowCustomValue": true,
               "current": {
                 "text": "All",

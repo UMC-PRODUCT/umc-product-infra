@@ -68,7 +68,8 @@ Application Detail과 API 호환성의 Service 변수는 Loki label 목록이 �
 `application` label을 사용한다. recording rule `umc_product_service_fallback_info`가 앱 signal이
 잠시 비어도 prod/dev/local 선택지를 유지하고, `process_uptime_milliseconds`가 지금 떠 있는
 `preview-umc-product-prN`을 더한다. 변수 regex는 이 네 형태만 남겨 `x-umc-product` 같은 기본값 이름을
-숨긴다. Overview는 prod/dev만 비교한다. 원본 변경 시 이 변수와 dashboard 간 링크를 함께 확인한다.
+숨긴다. Application Detail의 `All`은 prod/dev/local만 묶고 Preview PR은 직접 골라야 보인다.
+Overview는 prod/dev만 비교한다. 원본 변경 시 이 변수와 dashboard 간 링크를 함께 확인한다.
 
 - `api-flow.json`
 - `api-lifecycle.json` — API·클라이언트 버전별 호출과 계측 누락 현황

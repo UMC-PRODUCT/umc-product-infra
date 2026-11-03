@@ -125,6 +125,17 @@ class ServiceVariableTest(unittest.TestCase):
                               "prod-umc-product-old"):
                     self.assertNotRegex(value, pattern)
 
+    # 첫 화면의 All에 PR seed·테스트 트래픽이 섞이지 않게 공유 환경만 묶는다.
+    def test_application_detail의_all은_preview를_섞지_않는다(self) -> None:
+        dashboard = json.loads((ROOT / "observability/dashboards/server-default.json").read_text(encoding="utf-8"))
+        service = next(v["spec"] for v in dashboard["spec"]["variables"] if v["spec"]["name"] == "service")
+        self.assertEqual(service["current"]["value"], "$__all")
+        all_value = re.compile(service["allValue"])
+        for value in ("prod-umc-product", "dev-umc-product", "local-umc-product"):
+            self.assertTrue(all_value.fullmatch(value), value)
+        for value in ("preview-umc-product-pr1494", "x-umc-product"):
+            self.assertFalse(all_value.fullmatch(value), value)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -112,7 +112,7 @@ spec:
             - name: env.DATABASE_URL
               value: "jdbc:postgresql://postgres-preview.preview.svc.cluster.local:5432/umc_product_pr{{ .number }}"
             - name: env.SPRING_APPLICATION_NAME
-              # 로그·trace를 PR별로 구분한다. Grafana의 고정 목록에 없으면 custom value로 입력한다.
+              # 로그·metric·trace를 PR별로 구분한다. 앱이 떠 있는 동안 Grafana Service 목록에 나타난다.
               value: "preview-umc-product-pr{{ .number }}"
             - name: env.APP_ENVIRONMENT
               value: "preview-pr-{{ .number }}"
