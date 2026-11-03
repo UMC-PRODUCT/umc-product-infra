@@ -87,12 +87,12 @@ spec:
               env:
                 - name: PGHOST
                   value: postgres.db.svc.cluster.local
+                # 이 Pod는 S3로 나가는 443 송신이 있으므로 관리자 대신 조회 전용 role로 dump한다.
                 - name: PGUSER
-                  valueFrom:
-                    secretKeyRef: { name: postgres-secrets, key: POSTGRES_USER }
+                  value: umc_product_backup
                 - name: PGPASSWORD
                   valueFrom:
-                    secretKeyRef: { name: postgres-secrets, key: POSTGRES_PASSWORD }
+                    secretKeyRef: { name: postgres-backup, key: POSTGRES_BACKUP_PASSWORD }
                 - name: PGDATABASE
                   value: umc_product
                 - name: BACKUP_RUN_ID

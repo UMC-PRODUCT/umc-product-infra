@@ -27,6 +27,8 @@
 
 - `umc-product-postgres-backup-s3` stack이 실제 bucket으로 배포됐다.
 - `/umc-product/prod/backup-s3` ExternalSecret이 새 version으로 Ready다.
+- dump는 조회 전용 `umc_product_backup` role로 실행한다. `/umc-product/prod/postgres-backup`
+  ExternalSecret이 Ready이고 `postgres-backup-role` Job이 완료됐다.
 - cluster writer는 `postgres/prod/*` write만 할 수 있다.
 - 운영자는 별도 read-only AWS identity를 사용한다.
 - read identity는 대상 bucket의 `postgres/prod/*` 조회에 필요한 ListBucket과
@@ -47,11 +49,14 @@ Secret 값을 셸 인자, Git, log에 출력하지 않는다.
 sudo k3s kubectl get cronjob/pg-backup -n db \
   -o custom-columns='NAME:.metadata.name,SUSPEND:.spec.suspend,SCHEDULE:.spec.schedule,TZ:.spec.timeZone'
 sudo k3s kubectl wait --for=condition=Ready externalsecret/backup-s3 -n db --timeout=180s
+sudo k3s kubectl wait --for=condition=Ready externalsecret/postgres-backup -n db --timeout=180s
+sudo k3s kubectl wait --for=condition=Complete job/postgres-backup-role -n db --timeout=180s
 ```
 
 현재 계약은 `SUSPEND=false`, `0 3 * * *`, `Asia/Seoul`이다.
 수동 `create job --from=cronjob`은 `suspend` 값과 무관하게 실행되며 `concurrencyPolicy: Forbid`도
 적용되지 않는다. 03:00 KST 예약 실행과 겹치지 않는 시간에 2단계를 실행한다.
+backup role은 동시 접속 2개까지만 허용하므로 겹친 실행은 `too many connections for role`로 실패할 수 있다.
 
 ## 2. 수동 backup
 
