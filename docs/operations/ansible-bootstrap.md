@@ -43,6 +43,9 @@ pip install -r requirements.txt
 ansible-galaxy collection install -r collections/requirements.yml
 ```
 
+`ansible.cfg`의 `collections_path`가 `ansible/collections`를 먼저 찾으므로 collection은 Git에서 제외된
+`ansible/collections/ansible_collections/`에 설치된다. 이 경로에 없으면 `~/.ansible/collections`도 찾는다.
+
 현재 운영 기본 inventory는 Git에서 제외된 `ansible/inventories/idc-new/hosts.yml`이다.
 **이 파일을 새 서버 준비용으로 덮어쓰거나 운영 서버의 `ssh_access_finalize`를 `false`로 되돌리지 않는다.**
 새 서버는 저장소 밖의 별도 파일을 사용한다. 아래 경로는 승인된 실제 저장 위치로 바꾼다.

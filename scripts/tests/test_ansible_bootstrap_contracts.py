@@ -54,6 +54,16 @@ class AnsibleInventoryContractTests(unittest.TestCase):
         config.read(ROOT / "ansible" / "ansible.cfg", encoding="utf-8")
         self.assertEqual(config["defaults"]["inventory"], "inventories/idc-new/hosts.yml")
 
+    def test_repo_local_collections_are_searched_first(self) -> None:
+        config = configparser.ConfigParser(interpolation=None)
+        config.read(ROOT / "ansible" / "ansible.cfg", encoding="utf-8")
+        paths = config["defaults"]["collections_path"].split(":")
+        self.assertEqual(paths[0], "collections")
+        self.assertIn("~/.ansible/collections", paths)
+        self.assertTrue((ROOT / "ansible" / "collections" / "requirements.yml").is_file())
+        ignored = (ROOT / ".gitignore").read_text(encoding="utf-8").splitlines()
+        self.assertIn("ansible/collections/ansible_collections/", ignored)
+
     def test_validation_uses_the_remaining_safe_example_inventory(self) -> None:
         inventories = ROOT / "ansible" / "inventories"
         self.assertFalse((inventories / "idc" / "hosts.example.yml").exists())
