@@ -28,7 +28,15 @@
     group: root
     mode: '0755'
 
-# 지정한 설치 스크립트를 내려받고, checksum이 설정되어 있으면 내용도 검증한다.
+# checksum을 비우거나 형식이 틀리면 검증 없이 내려받지 않도록 먼저 중단한다.
+- name: Require pinned SHA-256 values for the K3s installer and binary
+  ansible.builtin.assert:
+    that:
+      - k3s_install_script_checksum is match('^sha256:[0-9a-f]{64}$')
+      - k3s_binary_checksum is match('^[0-9a-f]{64}$')
+    fail_msg: Pin the installer as sha256:<64 hex> and the k3s binary as <64 hex> from the same release.
+
+# 지정한 설치 스크립트를 내려받고 고정 checksum과 다르면 저장하지 않는다.
 - name: Download the K3s installer
   ansible.builtin.get_url:
     url: "{{ k3s_install_script_url }}"
@@ -36,14 +44,16 @@
     owner: root
     group: root
     mode: '0755'
-    checksum: "{{ k3s_install_script_checksum if k3s_install_script_checksum | length > 0 else omit }}"
+    checksum: "{{ k3s_install_script_checksum }}"
 
 # 설치된 버전을 조회해 재설치 필요 여부를 판단한다. 미설치로 인한 조회 실패도 허용한다.
+# 조회만 하므로 check mode에서도 실행해 아래 binary 검증이 실제 서버 값을 보게 한다.
 - name: Inspect the installed K3s version
   ansible.builtin.command: /usr/local/bin/k3s --version
   register: k3s_installed_version
   changed_when: false
   failed_when: false
+  check_mode: false
 
 # 조회 결과에 목표 버전이 없을 때만 installer를 실행해 해당 버전의 server를 설치한다.
 - name: Install or upgrade the pinned K3s version
@@ -53,6 +63,25 @@
     INSTALL_K3S_EXEC: server
   when: k3s_version not in k3s_installed_version.stdout
   changed_when: true
+
+# 설치·유지된 binary의 SHA-256을 읽는다. 서비스 시작 전에 고정 값과 대조한다.
+- name: Inspect the installed K3s binary
+  ansible.builtin.stat:
+    path: "{{ k3s_binary_path }}"
+    checksum_algorithm: sha256
+  register: k3s_binary
+
+# 고정 값과 다른 binary로 클러스터를 시작하지 않는다.
+# check mode에서 설치가 예정된 경우에는 아직 새 binary가 없어 비교하지 않는다.
+- name: Require the pinned K3s binary
+  ansible.builtin.assert:
+    that:
+      - k3s_binary.stat.exists
+      - k3s_binary.stat.checksum == k3s_binary_checksum
+    fail_msg: >-
+      {{ k3s_binary_path }} does not match the pinned {{ k3s_version }}
+      amd64 checksum. Stop and inspect the binary before starting K3s.
+  when: not ansible_check_mode or k3s_version in k3s_installed_version.stdout
 
 # K3s 서비스를 시작하고 서버 재부팅 후에도 자동으로 시작되도록 등록한다.
 - name: Ensure K3s starts at boot

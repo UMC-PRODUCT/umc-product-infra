@@ -79,6 +79,55 @@ class K3sInstallerContractTests(unittest.TestCase):
         self.assertRegex(
             defaults["k3s_install_script_checksum"], r"^sha256:[0-9a-f]{64}$"
         )
+        self.assertRegex(defaults["k3s_binary_checksum"], r"^[0-9a-f]{64}$")
+
+    def test_installer_and_binary_checksums_fail_closed(self) -> None:
+        try:
+            from ansible.parsing.dataloader import DataLoader
+            from ansible.template import Templar, trust_as_template
+        except ImportError:
+            self.skipTest("Install ansible/requirements.txt to verify the Ansible runtime")
+
+        tasks = load_tasks("ansible/roles/k3s/tasks/main.yml")
+        names = [task["name"] for task in tasks]
+        pin_guard = tasks[names.index("Require pinned SHA-256 values for the K3s installer and binary")]
+        download = tasks[names.index("Download the K3s installer")]
+        install = tasks[names.index("Install or upgrade the pinned K3s version")]
+        binary_guard = tasks[names.index("Require the pinned K3s binary")]
+        start = tasks[names.index("Ensure K3s starts at boot")]
+        self.assertLess(names.index(pin_guard["name"]), names.index(download["name"]))
+        self.assertEqual(download["ansible.builtin.get_url"]["checksum"], "{{ k3s_install_script_checksum }}")
+        self.assertLess(names.index(install["name"]), names.index(binary_guard["name"]))
+        self.assertLess(names.index(binary_guard["name"]), names.index(start["name"]))
+        inspect = next(task for task in tasks
+                       if task.get("ansible.builtin.stat", {}).get("path") == "{{ k3s_binary_path }}")
+        self.assertEqual(inspect["ansible.builtin.stat"]["checksum_algorithm"], "sha256")
+
+        pinned = "sha256:" + "a" * 64
+        for installer, binary, accepted in (
+            (pinned, "b" * 64, True),
+            ("", "b" * 64, False),
+            (pinned, "", False),
+            ("a" * 64, "b" * 64, False),
+            (pinned, "sha256:" + "b" * 64, False),
+            (pinned.upper(), "b" * 64, False),
+        ):
+            with self.subTest(installer=installer, binary=binary):
+                templar = Templar(loader=DataLoader(), variables={
+                    "k3s_install_script_checksum": installer, "k3s_binary_checksum": binary,
+                })
+                results = [templar.evaluate_conditional(trust_as_template(condition))
+                           for condition in pin_guard["ansible.builtin.assert"]["that"]]
+                self.assertIs(all(results), accepted)
+
+        for checksum, accepted in (("b" * 64, True), ("c" * 64, False)):
+            templar = Templar(loader=DataLoader(), variables={
+                "k3s_binary": {"stat": {"exists": True, "checksum": checksum}},
+                "k3s_binary_checksum": "b" * 64,
+            })
+            results = [templar.evaluate_conditional(trust_as_template(condition))
+                       for condition in binary_guard["ansible.builtin.assert"]["that"]]
+            self.assertIs(all(results), accepted)
 
 
 # Traefik 생성 → rollout → Service 검증 순서와 유한한 대기를 유지한다.

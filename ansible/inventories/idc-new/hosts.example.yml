@@ -1,6 +1,6 @@
 ---
 # hosts.yml로 복사한 뒤 공개키·접속 계정을 채우는 예제다. 승인 기본값은 실행을 막는다.
-# Cafe24: 8 cores / RAM 32 GB / SSD 500 GB. mount와 실제 여유 용량은 별도 확인한다.
+# Cafe24: x86_64 8 cores / RAM 32 GB / SSD 500 GB. mount와 실제 여유 용량은 별도 확인한다.
 all:
   children:
     k3s_servers:
