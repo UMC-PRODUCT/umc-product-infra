@@ -582,6 +582,72 @@ def validate_monitor_selection(prometheus: dict, monitors: list[dict], services:
                     f"{identity}: endpoint port {port} missing from selected Service")
 
 
+LOKI_OTLP_ENDPOINT = "http://loki.monitoring.svc.cluster.local:3100/otlp"
+# chart가 Preview Deployment에 강제하는 SPRING_APPLICATION_NAME(service.name) 형식과 같다.
+PREVIEW_SERVICE_NAME = "^preview-umc-product-pr[0-9]+$"
+PREVIEW_LOG_ROUTE = {
+    "context": "resource",
+    "condition": f'IsMatch(attributes["service.name"], "{PREVIEW_SERVICE_NAME}")',
+    "pipelines": ["logs/preview"],
+}
+COLLECTOR_EXPORTERS = {"otlphttp/loki", "otlphttp/loki-preview", "otlphttp/prometheus", "otlphttp/tempo"}
+COLLECTOR_PIPELINES = {
+    "metrics": (["otlp"], ["memory_limiter", "batch"], ["otlphttp/prometheus"]),
+    "traces": (["otlp"], ["memory_limiter", "batch"], ["otlphttp/tempo"]),
+    "logs": (["otlp"], ["memory_limiter"], ["routing/logs"]),
+    "logs/default": (["routing/logs"], ["memory_limiter", "batch"], ["otlphttp/loki"]),
+    "logs/preview": (["routing/logs"],
+                     ["memory_limiter", "filter/preview", "probabilistic_sampler/preview", "batch"],
+                     ["otlphttp/loki-preview"]),
+}
+
+
+# 수신·전달 주소와 경로 전체를 고정한다. Preview 로그가 운영·dev push에 섞이거나 운영·dev가 샘플링되면 안 된다.
+def validate_collector_config(otel: dict) -> None:
+    require(set(otel.get("receivers", {})) == {"otlp"}, "OTel: receiver set")
+    exporters = otel.get("exporters", {})
+    require(set(exporters) == COLLECTOR_EXPORTERS, f"OTel: exporter set must be {sorted(COLLECTOR_EXPORTERS)}")
+    require(exporters.get("otlphttp/prometheus", {}).get("endpoint") ==
+            f"http://{PROMETHEUS_NAME}.monitoring.svc.cluster.local:9090/api/v1/otlp",
+            "OTel: metrics exporter must reach the Prometheus OTLP receiver")
+    require(all(exporters.get(name, {}).get("endpoint") == LOKI_OTLP_ENDPOINT
+                for name in ("otlphttp/loki", "otlphttp/loki-preview")),
+            "OTel: both log exporters must reach the Loki OTLP endpoint")
+
+    pipelines = otel.get("service", {}).get("pipelines", {})
+    require(set(pipelines) == set(COLLECTOR_PIPELINES), "OTel: pipeline set")
+    for name, (receivers, processors, exporter_names) in COLLECTOR_PIPELINES.items():
+        pipeline = pipelines[name]
+        require(pipeline.get("receivers") == receivers and pipeline.get("exporters") == exporter_names,
+                f"OTel: {name} must keep receivers {receivers} and exporters {exporter_names}")
+        require(pipeline.get("processors") == processors,
+                f"OTel: {name} processors must be exactly {processors}; "
+                "update COLLECTOR_PIPELINES in validate_observability.py to change them")
+    routing = otel.get("connectors", {}).get("routing/logs", {})
+    require(routing.get("default_pipelines") == ["logs/default"]
+            and routing.get("table") == [PREVIEW_LOG_ROUTE],
+            "OTel: routing/logs must move only Preview service.name to logs/preview")
+
+    # queue가 꺼지거나 가득 찰 때 기다리면 Preview 재시도가 공유 memory_limiter까지 밀려온다.
+    queue = exporters.get("otlphttp/loki-preview", {}).get("sending_queue", {})
+    size = queue.get("queue_size")
+    require(queue.get("enabled", True) is True, "OTel: Preview Loki sending_queue must stay enabled")
+    require(queue.get("block_on_overflow", False) is False,
+            "OTel: Preview Loki queue must drop on overflow (block_on_overflow: false)")
+    require(queue.get("sizer") == "bytes" and type(size) is int and 0 < size <= 64 << 20,
+            "OTel: Preview Loki queue must be bounded in bytes with an integer queue_size up to 64MiB")
+    processors = otel.get("processors", {})
+    require(processors.get("filter/preview", {}).get("log_conditions")
+            == ["log.severity_number < SEVERITY_NUMBER_WARN"],
+            "OTel: Preview logs below WARN must be dropped")
+    sampler = processors.get("probabilistic_sampler/preview", {})
+    percentage = sampler.get("sampling_percentage")
+    require(type(percentage) in (int, float) and 0 < percentage < 100,
+            "OTel: Preview logs must be sampled below 100%")
+    require(sampler.get("fail_closed") is False,
+            "OTel: Preview sampler must pass logs without trace (fail_closed: false)")
+
+
 # 지표·로그·트레이스의 내부 전달 주소를 대조하고 실제 이미지로 검사할 설정을 추출한다.
 def validate_runtime_configs(rendered: dict[str, list[dict]]) -> dict[str, str]:
     tempo_raw = configmap_value(rendered["tempo"], "tempo", "tempo.yaml")
@@ -598,20 +664,7 @@ def validate_runtime_configs(rendered: dict[str, list[dict]]) -> dict[str, str]:
 
     otel_raw = configmap_value(rendered["otel-collector"], "otel-collector", "relay")
     otel = yaml.safe_load(otel_raw)
-    require(set(otel.get("receivers", {})) == {"otlp"}, "OTel: receiver set")
-    require(
-        set(otel.get("exporters", {}))
-        == {"otlphttp/loki", "otlphttp/prometheus", "otlphttp/tempo"},
-        "OTel: exporter set",
-    )
-    require(otel["exporters"]["otlphttp/prometheus"].get("endpoint") ==
-            f"http://{PROMETHEUS_NAME}.monitoring.svc.cluster.local:9090/api/v1/otlp",
-            "OTel: metrics exporter must reach the Prometheus OTLP receiver")
-    require(
-        set(otel.get("service", {}).get("pipelines", {}))
-        == {"logs", "metrics", "traces"},
-        "OTel: pipeline set",
-    )
+    validate_collector_config(otel)
 
     loki_raw = configmap_value(rendered["loki"], "loki", "config.yaml")
     loki = yaml.safe_load(loki_raw)
