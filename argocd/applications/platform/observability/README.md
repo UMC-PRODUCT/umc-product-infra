@@ -86,8 +86,12 @@ SecretKeySelector로 읽어 runtime 설정을 생성한다. `useExistingSecret: 
 | Grafana | 1Gi | local user와 Grafana 내부 DB |
 
 `local-path`는 PVC 요청량을 실제 disk quota로 강제하지 않으므로 Prometheus는 별도 4GB retention
-상한을 둔다. Loki는 디스크 대신 수집 속도를 묶는다. 전체 4MB/s(burst 16MB), 환경별 stream 2MB/s를
-넘는 로그는 버려지고 `LokiDiscardedSamples` 알림이 뜬다. 64KB를 넘는 줄은 잘라서 저장한다.
+상한을 둔다. Loki는 디스크 크기가 아니라 수집 속도를 묶는다. 모든 환경을 합쳐 4MB/s(burst 16MB)를
+넘는 push는 429로 통째로 거부되고 `LokiDiscardedSamples` 알림이 뜬다. Collector가 모든 환경의 로그를
+한 push로 보내므로 Preview 폭주만으로 운영 로그도 거부될 수 있다. Preview를 격리하려면 Collector에서
+파이프라인을 나누거나 샘플링해야 한다. stream 상한 2MB/s는 1536KB/s를 넘으면 자동 분할되는 shard마다
+걸리므로 환경별 상한이 아니다. 4MB/s가 이어지면 디스크는 계속 차고 보존기간은 오래된 데이터만 지우므로
+노드 디스크 사용량은 따로 감시한다. 64KB를 넘는 줄은 잘라서 저장한다.
 모든 PVC는 단일 노드의 `local-path`를 사용한다. Node나 disk를 잃으면 telemetry와 Grafana local
 user 상태를 잃을 수 있다. Dashboard와 datasource는 Git에서 복원하지만 이 저장소는 PostgreSQL
 backup을 대신하지 않는다.

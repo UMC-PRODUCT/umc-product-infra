@@ -48,10 +48,11 @@ LOKI_INGESTION_CEILINGS = {
     "max_structured_metadata_size": "64KB",
     "max_global_streams_per_user": 2000,
 }
-LOKI_STREAM_RETENTION = {
-    '{service_name=~"preview-umc-product-pr[0-9]+"}': "168h",
-    '{service_name="dev-umc-product"}': "720h",
-}
+# Loki는 겹치는 selector 중 priority가 높은 규칙을 쓰므로 항목 추가만으로도 보존기간이 바뀐다. 목록 전체를 고정한다.
+LOKI_STREAM_RETENTION = [
+    ('{service_name=~"preview-umc-product-pr[0-9]+"}', 1, "168h"),
+    ('{service_name="dev-umc-product"}', 1, "720h"),
+]
 
 
 class ManifestLoader(yaml.SafeLoader):
@@ -384,10 +385,17 @@ def validate_loki_ingestion_limits(config: dict) -> None:
                 f"Loki: limits_config.{key} must be set, nonzero, and at most {ceiling}")
     require(limits.get("max_line_size_truncate") is True,
             "Loki: max_line_size_truncate must keep oversized lines instead of dropping them")
-    retention = {item.get("selector"): str(item.get("period"))
-                 for item in limits.get("retention_stream", [])}
-    require(retention == LOKI_STREAM_RETENTION,
-            "Loki: retention_stream must keep preview 7 days and dev 30 days")
+
+
+def validate_loki_retention(config: dict) -> None:
+    limits = config.get("limits_config") or {}
+    require(str(limits.get("retention_period")) == "2160h", "Loki: retention must remain 90 days")
+    streams = limits.get("retention_stream")
+    require(isinstance(streams, list) and all(isinstance(item, dict) for item in streams),
+            "Loki: retention_stream must be a list of rules")
+    rules = [(item.get("selector"), item.get("priority"), item.get("period")) for item in streams]
+    require(rules == LOKI_STREAM_RETENTION,
+            "Loki: retention_stream must be exactly preview 7 days and dev 30 days")
 
 
 # GOMEMLIMIT가 limit보다 너무 낮으면 GC가 과열되고, 너무 높으면 GC 전에 cgroup OOM kill이 난다.
@@ -579,11 +587,8 @@ def validate_runtime_configs(rendered: dict[str, list[dict]]) -> dict[str, str]:
     loki = yaml.safe_load(loki_raw)
     validate_loki_query_budget(loki)
     validate_loki_ingestion_limits(loki)
+    validate_loki_retention(loki)
     validate_loki_memory(rendered["loki"], loki)
-    require(
-        str(loki.get("limits_config", {}).get("retention_period")) == "2160h",
-        "Loki: retention must remain 90 days",
-    )
     require(loki.get("ruler", {}).get("alertmanager_url") ==
             f"http://{ALERTMANAGER_NAME}.monitoring.svc.cluster.local:9093",
             "Loki: ruler must send alerts to operator-managed Alertmanager")

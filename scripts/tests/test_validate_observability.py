@@ -23,6 +23,7 @@ from validate_observability import (
     validate_loki_ingestion_limits,
     validate_loki_memory,
     validate_loki_query_budget,
+    validate_loki_retention,
     validate_cluster_resource,
     validate_monitor_selection,
     validate_monitoring_rbac,
@@ -189,10 +190,6 @@ class LokiIngestionLimitsTest(unittest.TestCase):
                 "per_stream_rate_limit": "2MB", "per_stream_rate_limit_burst": "6MB",
                 "max_line_size": "64KB", "max_line_size_truncate": True,
                 "max_structured_metadata_size": "64KB", "max_global_streams_per_user": 2000,
-                "retention_stream": [
-                    {"selector": '{service_name=~"preview-umc-product-pr[0-9]+"}', "priority": 1, "period": "168h"},
-                    {"selector": '{service_name="dev-umc-product"}', "priority": 1, "period": "720h"},
-                ],
             },
             "ingester": {"wal": {"replay_memory_ceiling": "768MB"}},
         }
@@ -200,7 +197,7 @@ class LokiIngestionLimitsTest(unittest.TestCase):
             "containers": [{"name": "loki", "env": [{"name": "GOMEMLIMIT", "value": "1200MiB"}],
                             "resources": {"limits": {"memory": "1.5Gi"}}}]}}}}]
 
-    def test_명시한_상한과_보존기간과_메모리_설정을_통과시킨다(self) -> None:
+    def test_명시한_상한과_메모리_설정을_통과시킨다(self) -> None:
         validate_loki_ingestion_limits(self.config)
         validate_loki_memory(self.resources, self.config)
 
@@ -222,13 +219,9 @@ class LokiIngestionLimitsTest(unittest.TestCase):
         self.config["limits_config"].update(ingestion_rate_mb=2, per_stream_rate_limit="512KB")
         validate_loki_ingestion_limits(self.config)
 
-    def test_긴_줄을_버리거나_환경별_보존기간이_빠지면_실패한다(self) -> None:
+    def test_긴_줄을_버리도록_바꾸면_실패한다(self) -> None:
         self.config["limits_config"]["max_line_size_truncate"] = False
         with self.assertRaisesRegex(SystemExit, "max_line_size_truncate"):
-            validate_loki_ingestion_limits(self.config)
-        self.config["limits_config"]["max_line_size_truncate"] = True
-        self.config["limits_config"]["retention_stream"].pop(0)
-        with self.assertRaisesRegex(SystemExit, "retention_stream"):
             validate_loki_ingestion_limits(self.config)
 
     def test_GOMEMLIMIT가_limit에서_벗어나거나_WAL_재생_상한이_없으면_실패한다(self) -> None:
@@ -246,6 +239,55 @@ class LokiIngestionLimitsTest(unittest.TestCase):
                 config["ingester"]["wal"]["replay_memory_ceiling"] = ceiling
             with self.subTest(ceiling=ceiling), self.assertRaisesRegex(SystemExit, "replay_memory_ceiling"):
                 validate_loki_memory(self.resources, config)
+
+
+# compactor 삭제는 되돌릴 수 없으므로 보존기간이 늘거나 줄어드는 어떤 변경도 막는다.
+class LokiRetentionTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self.limits = {
+            "retention_period": "2160h",
+            "retention_stream": [
+                {"selector": '{service_name=~"preview-umc-product-pr[0-9]+"}', "priority": 1, "period": "168h"},
+                {"selector": '{service_name="dev-umc-product"}', "priority": 1, "period": "720h"},
+            ],
+        }
+
+    def assert_rejected(self, pattern: str) -> None:
+        with self.assertRaisesRegex(SystemExit, pattern):
+            validate_loki_retention({"limits_config": self.limits})
+
+    def test_운영_90일과_환경별_보존기간을_통과시킨다(self) -> None:
+        validate_loki_retention({"limits_config": self.limits})
+
+    def test_운영_보존기간을_바꾸면_실패한다(self) -> None:
+        self.limits["retention_period"] = "720h"
+        self.assert_rejected("90 days")
+
+    def test_같은_selector를_더_높은_priority로_추가하면_위치와_상관없이_실패한다(self) -> None:
+        for index in (0, 2):
+            with self.subTest(index=index):
+                self.setUp()
+                self.limits["retention_stream"].insert(
+                    index, {"selector": '{service_name="dev-umc-product"}', "priority": 2, "period": "9999h"})
+                self.assert_rejected("retention_stream")
+
+    def test_priority나_period를_바꾸거나_규칙을_빼면_실패한다(self) -> None:
+        for key, value in (("priority", 0), ("period", "336h")):
+            with self.subTest(key=key):
+                self.setUp()
+                self.limits["retention_stream"][0][key] = value
+                self.assert_rejected("retention_stream")
+        self.setUp()
+        self.limits["retention_stream"].pop(0)
+        self.assert_rejected("retention_stream")
+
+    def test_null이면_TypeError가_아니라_검증_실패로_끝난다(self) -> None:
+        self.limits["retention_stream"] = None
+        self.assert_rejected("retention_stream")
+        self.limits["retention_stream"] = [None]
+        self.assert_rejected("retention_stream")
+        with self.assertRaisesRegex(SystemExit, "90 days"):
+            validate_loki_retention({"limits_config": None})
 
 
 if __name__ == "__main__":
