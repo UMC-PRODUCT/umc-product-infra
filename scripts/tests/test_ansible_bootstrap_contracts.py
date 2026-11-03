@@ -733,20 +733,30 @@ class AutomaticUpdateContractTests(unittest.TestCase):
         needrestart = (ROOT / "ansible/roles/common/files/needrestart-list-only.conf").read_text(encoding="utf-8")
         self.assertIn("$nrconf{restart} = 'l';", needrestart)
 
-    def test_configuration_precedes_package_installation_and_is_validated(self) -> None:
+    def test_timers_start_only_after_the_installed_configuration_is_validated(self) -> None:
         main = load_tasks("ansible/roles/common/tasks/main.yml")
+        needrestart = next(index for index, task in enumerate(main)
+                           if task.get("ansible.builtin.copy", {}).get("src") == "needrestart-list-only.conf")
+        install = next(index for index, task in enumerate(main) if "ansible.builtin.apt" in task)
         imported = next(index for index, task in enumerate(main)
                         if task.get("ansible.builtin.import_tasks") == "automatic_updates.yml")
-        install = next(index for index, task in enumerate(main) if "ansible.builtin.apt" in task)
-        self.assertLess(imported, install)
+        self.assertLess(needrestart, install)
+        self.assertLess(install, imported)
         defaults = yaml.safe_load((ROOT / "ansible/roles/common/defaults/main.yml").read_text(encoding="utf-8"))
         self.assertIn("unattended-upgrades", defaults["common_packages"])
+
         tasks = load_tasks("ansible/roles/common/tasks/automatic_updates.yml")
-        apt_conf = next(task["ansible.builtin.copy"] for task in tasks
+        apt_conf = next(index for index, task in enumerate(tasks)
                         if task.get("ansible.builtin.copy", {}).get("src") == "unattended-upgrades.conf")
+        guard = next(index for index, task in enumerate(tasks) if "ansible.builtin.assert" in task)
+        timers = next(index for index, task in enumerate(tasks) if "ansible.builtin.systemd_service" in task)
+        self.assertLess(apt_conf, guard)
+        self.assertEqual(timers, len(tasks) - 1)
+        self.assertEqual(tasks[timers]["loop"], ["apt-daily.timer", "apt-daily-upgrade.timer"])
+        copy = tasks[apt_conf]["ansible.builtin.copy"]
         # 50unattended-upgrades보다 뒤에 읽혀야 #clear가 기본 목록을 지운다.
-        self.assertGreater(Path(apt_conf["dest"]).name, "50unattended-upgrades")
-        self.assertEqual(apt_conf["validate"], "/usr/bin/apt-config -c %s dump")
+        self.assertGreater(Path(copy["dest"]).name, "50unattended-upgrades")
+        self.assertEqual(copy["validate"], "/usr/bin/apt-config -c %s dump")
 
     def test_effective_configuration_guard_rejects_wider_origins_reboot_or_mail(self) -> None:
         try:

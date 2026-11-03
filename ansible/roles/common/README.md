@@ -6,8 +6,8 @@
 ## 하는 일
 
 1. 지원 OS를 검증한다. 공인 포트는 변수가 아니라 아래 UFW 규칙에 `22`·`443`으로 고정돼 있다.
-2. 보안 pocket만 받는 자동 업데이트를 설정하고(재부팅·메일·needrestart 자동 재시작 없음)
-   필수 package와 시간대를 설정하고 swap을 끈다.
+2. needrestart를 list-only로 둔 뒤 필수 package를 설치한다. 이어서 보안 pocket만 받는 자동 업데이트를
+   설정하고(재부팅·메일 없음) 유효 설정 검사를 통과한 뒤에만 apt timer를 켠다. 시간대를 설정하고 swap을 끈다.
 3. systemd journal 전체 크기를 `SystemMaxUse=1G`로 제한하고 Kubernetes kernel module과 sysctl을 적용한다.
 4. UFW 인바운드를 다음 상태로 수렴시킨다.
    - 인터넷에서 오는 `22/tcp`는 `limit`, `443/tcp`는 `allow`
@@ -37,7 +37,7 @@ DDoS 방어를 대신하지 않으며, 같은 NAT를 쓰는 팀원이 동시에 
 |---|---|
 | `defaults/main.yml` | 공통 package, 시간대, K3s 네트워크 기본값 |
 | `tasks/main.yml` | OS·Kubernetes host 설정과 방화벽 task 호출 |
-| `tasks/automatic_updates.yml` | unattended-upgrades 보안 전용 설정과 needrestart list-only |
+| `tasks/automatic_updates.yml` | unattended-upgrades 보안 전용 설정, 유효 설정 검사, apt timer 활성화 |
 | `files/` | apt·needrestart 설정 파일 |
 | `tasks/firewall.yml` | access-only playbook과 bootstrap이 공유하는 UFW 설정 |
 | `tasks/network_preflight.yml` | 관리자 PC에서 실행하는 Pod·Service CIDR 검사 |
