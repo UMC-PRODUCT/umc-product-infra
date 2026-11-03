@@ -112,18 +112,21 @@
         live = json.load(sys.stdin) or {}
         with open(sys.argv[1], encoding="utf-8") as stream:
             git = yaml.safe_load(stream) or {}
-        SECRET_WORDS = ("password", "secret", "token", "key")
+        # chart의 비밀 값 위치(configs.secret)와 password 이름의 키만 가린다. 넓게 가리면 일반 설정 차이도 사라진다.
+        def secret_path(path):
+            return path[:2] == ("configs", "secret") or "password" in path[-1].lower()
         def mask(value, path=()):
             if isinstance(value, dict):
                 return {k: mask(v, path + (str(k),)) for k, v in value.items()}
             if isinstance(value, list):
                 return [mask(v, path) for v in value]
-            if any(word in part.lower() for part in path for word in SECRET_WORDS):
-                return "<masked>"
-            return value
+            return "<masked>" if path and secret_path(path) else value
         def lines(values):
             return yaml.safe_dump(mask(values), sort_keys=True).splitlines(keepends=True)
-        sys.stdout.writelines(difflib.unified_diff(lines(live), lines(git), "live release", "git"))
+        diff = list(difflib.unified_diff(lines(live), lines(git), "live release", "git"))
+        sys.stdout.writelines(diff)
+        if not diff and live != git:
+            print("# 가려진 비밀 경로에만 차이가 있다. upgrade가 그 값을 Git 기준으로 맞춘다.")
       - "{{ role_path }}/files/argo-cd-values.yaml"
     stdin: "{{ argocd_live_values.stdout }}"
   delegate_to: localhost
