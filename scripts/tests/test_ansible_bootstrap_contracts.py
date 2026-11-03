@@ -470,6 +470,49 @@ class PublicSshBootstrapContractTests(unittest.TestCase):
                     condition = guard["ansible.builtin.assert"]["that"][0]
                     self.assertIs(templar.evaluate_conditional(trust_as_template(condition)), accepted)
 
+    def test_finalization_reports_legacy_root_keys_by_fingerprint_only(self) -> None:
+        try:
+            from ansible.parsing.dataloader import DataLoader
+            from ansible.template import Templar, trust_as_template
+        except ImportError:
+            self.skipTest("Install ansible/requirements.txt to verify the Ansible runtime")
+
+        root_keys = "/root/.ssh/authorized_keys"
+        tasks = load_tasks("ansible/roles/ssh_access/tasks/main.yml")
+        touching = [task for task in tasks if root_keys in yaml.safe_dump(task)]
+        self.assertEqual(
+            [next(key for key in task if key.startswith("ansible.builtin.")) for task in touching],
+            ["ansible.builtin.stat", "ansible.builtin.command", "ansible.builtin.debug"],
+        )
+        self.assertEqual(command_argv(touching[1]), ["/usr/bin/ssh-keygen", "-l", "-f", root_keys])
+        self.assertIs(touching[1]["changed_when"], False)
+        for task in touching:
+            self.assertTrue(str(task["when"]).startswith("ssh_access_finalize"), task["name"])
+
+        report = touching[2]
+        output = [
+            "256 SHA256:PIU7kEeV/eO59t8CMmQf/WCvXhy2b2xnBmdoCAdNVEI old-admin@example.com (ED25519)",
+            "3072 SHA256:68XPXYydcw02MAhzdQqGX46sIUWB4wQhjiPyRRGcBms provider-console (RSA)",
+        ]
+        for registered, expected in (
+            ({"stdout_lines": output}, ["SHA256:PIU7kEeV/eO59t8CMmQf/WCvXhy2b2xnBmdoCAdNVEI",
+                                        "SHA256:68XPXYydcw02MAhzdQqGX46sIUWB4wQhjiPyRRGcBms"]),
+            ({"skipped": True}, []),
+        ):
+            with self.subTest(registered=registered):
+                templar = Templar(loader=DataLoader(), variables={
+                    "ssh_access_root_key_fingerprints": registered,
+                })
+                fingerprints = templar.template(trust_as_template(report["vars"]["ssh_access_root_fingerprints"]))
+                self.assertEqual(fingerprints, expected)
+                templar = Templar(loader=DataLoader(), variables={"ssh_access_root_fingerprints": fingerprints})
+                message = templar.template(trust_as_template(report["ansible.builtin.debug"]["msg"]))
+                self.assertNotIn("example.com", message)
+                self.assertNotIn("provider-console", message)
+                for fingerprint in expected:
+                    self.assertIn(fingerprint, message)
+                self.assertEqual("No legacy keys" in message, not expected)
+
     def test_explicit_account_retirement_terminates_existing_tunnels(self) -> None:
         tasks = load_tasks("ansible/roles/ssh_access/tasks/revoke.yml")
         revoke_keys = next(task for task in tasks if "ansible.builtin.file" in task)

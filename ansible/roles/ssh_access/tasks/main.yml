@@ -274,3 +274,36 @@
     group: root
     mode: '0644'
   when: ssh_access_cloud_config.stat.isdir | default(false)
+
+# 최종 전환 뒤 root 홈에 남은 이전 공개키가 있는지 확인한다. 전환 후 sshd는 이 파일을 읽지 않는다.
+- name: Inspect legacy root authorized keys after finalization
+  ansible.builtin.stat:
+    path: /root/.ssh/authorized_keys
+  register: ssh_access_root_keys_file
+  when: ssh_access_finalize
+
+# fingerprint만 읽는다. 키 삭제는 복구 경로를 끊을 수 있어 운영자가 직접 판단한다.
+- name: Read legacy root key fingerprints without changing them
+  ansible.builtin.command:
+    argv: [/usr/bin/ssh-keygen, -l, -f, /root/.ssh/authorized_keys]
+  register: ssh_access_root_key_fingerprints
+  changed_when: false
+  failed_when: false
+  check_mode: false
+  when: ssh_access_finalize and ssh_access_root_keys_file.stat.exists and ssh_access_root_keys_file.stat.size > 0
+
+# 남은 키를 fingerprint로만 알린다. 주석의 이메일·호스트명은 출력하지 않는다.
+- name: Report legacy root keys left after finalization
+  ansible.builtin.debug:
+    msg: >-
+      {{ 'No legacy keys remain in /root/.ssh/authorized_keys.'
+         if ssh_access_root_fingerprints | length == 0 else
+         'Root SSH login is closed, but /root/.ssh/authorized_keys still holds '
+         ~ (ssh_access_root_fingerprints | length) ~ ' key(s): '
+         ~ (ssh_access_root_fingerprints | join(', '))
+         ~ '. Review and remove them manually; this role never deletes them.' }}
+  vars:
+    ssh_access_root_fingerprints: >-
+      {{ ssh_access_root_key_fingerprints.stdout_lines | default([])
+         | map('regex_search', 'SHA256:[A-Za-z0-9+/=]+') | select | list }}
+  when: ssh_access_finalize

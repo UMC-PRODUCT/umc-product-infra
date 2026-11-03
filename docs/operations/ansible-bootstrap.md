@@ -122,7 +122,9 @@ ansible-playbook -i "${NEW_SERVER_INVENTORY:?}" playbooks/ssh-access.yml
 ```
 
 이제 root 직접 SSH 로그인이 차단된다. 별도 개인 관리자 SSH 연결과 `sudo -n true`를 다시
-확인한 뒤 이전 관리자 세션을 종료한다. 실패하면 유지 중인 세션 또는 Cafe24 console에서
+확인한 뒤 이전 관리자 세션을 종료한다. 실행 결과의 `Report legacy root keys left after finalization`은
+`/root/.ssh/authorized_keys`에 남은 이전 키를 fingerprint로만 알린다. sshd는 전환 뒤 이 파일을 읽지 않으며
+Ansible도 지우지 않는다. 제공업체 console 복구에 필요한지 확인한 뒤 직접 정리한다. 실패하면 유지 중인 세션 또는 Cafe24 console에서
 SSH 설정·UFW를 복구한다. DB/PVC·K3s 초기화나 host key 검증 해제로 우회하지 않는다.
 
 ## 3. K3s·Argo CD 설치와 ESO 자격증명 준비
