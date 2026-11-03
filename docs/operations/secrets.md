@@ -106,6 +106,20 @@ CloudFormation은 access key와 Secrets Manager 값을 만들지 않는다. Temp
 스택 삭제 시 domain identity와 기본 configuration set은 함께 보존되지만 SNS 알림 리소스는
 삭제된다. 재구성 시 기존 보존 리소스 처리와 SNS 구독 확인을 다시 점검한다.
 
+같은 스택이 `_dmarc.university.neordinary.com` TXT(`p=none`)도 만든다. 메일을 막지 않고
+수신 서버의 집계 보고만 `FeedbackNotificationEmailAddress`로 받는다. 이 주소가
+`university.neordinary.com` 밖 도메인이면 그 도메인이 외부 보고 수신 허용 레코드를 두지 않는 한
+Gmail 등은 보고를 보내지 않는다. 보고로 SPF·DKIM 정렬 실패가 없음을 확인한 뒤 `p=quarantine`
+이상으로 올리는 것은 별도 변경으로 한다.
+
+### 앱 업로드 복구
+
+prod·dev 앱 버킷은 versioning을 켠다. 앱의 삭제는 삭제 마커만 남기고, 덮어쓰거나 지운 이전 버전은
+30일 동안 남는다. 앱 IAM 사용자에게는 `s3:DeleteObjectVersion`이 없다. 복구는 관리자 profile로
+`aws s3api list-object-versions --bucket <버킷> --prefix <키>`에서 대상 버전을 찾은 뒤, 삭제는
+해당 삭제 마커의 version을 지우고 덮어쓰기는 이전 버전을 같은 키로 복사한다. 30일이 지나면 복구할 수 없다.
+preview 버킷은 versioning 없이 30일 뒤 객체를 지운다.
+
 ### 최초 access key 발급
 
 ```bash

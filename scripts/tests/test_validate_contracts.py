@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -13,7 +14,15 @@ from unittest.mock import patch
 SCRIPTS_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(SCRIPTS_DIR))
 
-from validate_contracts import git_visible_files, validate_repository_identity
+from validate_contracts import (
+    git_visible_files,
+    validate_app_storage_contract,
+    validate_cloudformation_tags,
+    validate_repository_identity,
+    validate_ses_contract,
+)
+
+REPO_ROOT = SCRIPTS_DIR.parent
 
 
 # 오래된 루트 runbooks가 없어도 새 checkout이 통과하고 docs/runbooks 누락은 실패해야 한다.
@@ -82,6 +91,80 @@ class GitVisibleFilesTest(unittest.TestCase):
                     Path("untracked.txt"),
                 },
             )
+
+
+# 실제 template 사본 한 줄을 바꿔 복구성·메일 인증·태그 계약이 깨지면 검증이 실패해야 한다.
+class CloudFormationContractTest(unittest.TestCase):
+    def setUp(self) -> None:
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        self.root = Path(directory.name)
+        shutil.copytree(REPO_ROOT / "cloud" / "aws", self.root / "cloud" / "aws")
+        chart = self.root / "charts" / "umc-product-server"
+        chart.mkdir(parents=True)
+        for environment in ("prod", "dev", "preview"):
+            name = f"values-{environment}.yaml"
+            shutil.copy(REPO_ROOT / "charts" / "umc-product-server" / name, chart / name)
+
+    def edit(self, template: str, old: str, new: str) -> None:
+        path = self.root / "cloud" / "aws" / template
+        text = path.read_text(encoding="utf-8")
+        self.assertEqual(text.count(old), 1, f"fixture anchor not unique in {template}")
+        path.write_text(text.replace(old, new), encoding="utf-8")
+
+    def validate(self, validator) -> None:
+        with patch("validate_contracts.ROOT", self.root):
+            validator()
+
+    def test_repository_templates_pass(self) -> None:
+        for validator in (
+            validate_app_storage_contract,
+            validate_ses_contract,
+            validate_cloudformation_tags,
+        ):
+            self.validate(validator)
+
+    def test_rejects_unversioned_app_storage(self) -> None:
+        self.edit(
+            "app-storage-s3.yaml",
+            "        - Status: Enabled\n",
+            "        - Status: Suspended\n",
+        )
+        with self.assertRaisesRegex(SystemExit, "versioning must be enabled"):
+            self.validate(validate_app_storage_contract)
+
+    def test_rejects_app_permission_to_delete_versions(self) -> None:
+        self.edit(
+            "app-storage-s3.yaml",
+            "                  - s3:DeleteObject\n",
+            "                  - s3:DeleteObject\n                  - s3:DeleteObjectVersion\n",
+        )
+        with self.assertRaisesRegex(SystemExit, "must not delete object versions"):
+            self.validate(validate_app_storage_contract)
+
+    def test_rejects_changed_noncurrent_version_retention(self) -> None:
+        self.edit("app-storage-s3.yaml", "NoncurrentDays: 30", "NoncurrentDays: 3650")
+        with self.assertRaisesRegex(SystemExit, "noncurrent versions"):
+            self.validate(validate_app_storage_contract)
+
+    def test_rejects_missing_dmarc_record(self) -> None:
+        self.edit("ses-email.yaml", "  DmarcDnsRecord:\n", "  DmarcDnsRecordRemoved:\n")
+        with self.assertRaisesRegex(SystemExit, "SES Route53 record set"):
+            self.validate(validate_ses_contract)
+
+    def test_rejects_enforcing_dmarc_policy_change(self) -> None:
+        self.edit("ses-email.yaml", "v=DMARC1; p=none;", "v=DMARC1; p=reject;")
+        with self.assertRaisesRegex(SystemExit, "SES DMARC TXT record"):
+            self.validate(validate_ses_contract)
+
+    def test_rejects_untagged_iam_role(self) -> None:
+        self.edit(
+            "external-secrets-iam.yaml",
+            "          Value: external-secrets-prod\n",
+            "          Value: \"\"\n",
+        )
+        with self.assertRaisesRegex(SystemExit, "external-secrets-iam.yaml:ProdRole"):
+            self.validate(validate_cloudformation_tags)
 
 
 if __name__ == "__main__":

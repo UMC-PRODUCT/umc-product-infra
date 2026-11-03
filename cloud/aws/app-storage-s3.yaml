@@ -78,7 +78,7 @@ Resources:
               - x-amz-id-2
             MaxAge: 3600
       LifecycleConfiguration:
-        # prod·dev는 완료된 파일을 만료시키지 않고 중단된 multipart 업로드만 정리한다.
+        # prod·dev는 현재 파일을 만료시키지 않는다. 덮어쓰거나 지운 이전 버전만 30일 뒤 정리한다.
         # preview는 dev 파일을 복사하지 않고 PR 테스트 중 올린 파일만 담으므로 30일 뒤 지운다.
         Rules: !If
           - IsPreview
@@ -93,6 +93,12 @@ Resources:
               Status: Enabled
               AbortIncompleteMultipartUpload:
                 DaysAfterInitiation: 1
+            - Id: expire-noncurrent-versions
+              Status: Enabled
+              NoncurrentVersionExpiration:
+                NoncurrentDays: 30
+              # 이전 버전이 모두 정리되어 남은 빈 삭제 마커를 지운다.
+              ExpiredObjectDeleteMarker: true
       OwnershipControls:
         # 개별 객체 ACL 대신 버킷 소유권과 IAM 정책으로 접근을 관리한다.
         Rules:
@@ -103,6 +109,12 @@ Resources:
         BlockPublicPolicy: true
         IgnorePublicAcls: true
         RestrictPublicBuckets: true
+      VersioningConfiguration: !If
+        # prod·dev는 앱 버그나 오조작으로 지우거나 덮어쓴 업로드를 이전 버전으로 되살린다.
+        # preview는 30일 뒤 지우는 테스트 파일만 담으므로 버전을 남기지 않는다.
+        - IsPreview
+        - !Ref AWS::NoValue
+        - Status: Enabled
       Tags:
         - Key: managed-by
           Value: cloudformation
@@ -147,6 +159,7 @@ Resources:
                 Resource: !GetAtt AppStorageBucket.Arn
               - Sid: ReadWriteApplicationObjects
                 # 객체 읽기·쓰기·삭제는 앱이 사용하는 두 접두사로 한정한다.
+                # DeleteObject는 삭제 마커만 남긴다. 이전 버전을 지우는 DeleteObjectVersion은 주지 않는다.
                 Effect: Allow
                 Action:
                   - s3:GetObject

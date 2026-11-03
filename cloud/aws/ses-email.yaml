@@ -46,9 +46,9 @@ Parameters:
   Route53HostedZoneId:
     Type: String
     Description: Public Route 53 hosted zone ID that owns the SES identity and MAIL FROM records
-    MinLength: 1
+    MinLength: 3
     MaxLength: 32
-    AllowedPattern: "^[A-Z0-9]{1,32}$"
+    AllowedPattern: "^Z[A-Z0-9]+$"
 
 Conditions:
   HasNonprodTestRecipient: !Not [!Equals [!Ref NonprodTestRecipientEmailAddress, ""]]
@@ -216,6 +216,19 @@ Resources:
       TTL: "300"
       ResourceRecords:
         - '"v=spf1 include:amazonses.com ~all"'
+
+  DmarcDnsRecord:
+    # 수신 서버가 SPF·DKIM 정렬 결과를 집계해 보내게 한다. p=none은 메일을 막지 않고 보고만 받는다.
+    Type: AWS::Route53::RecordSet
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      HostedZoneId: !Ref Route53HostedZoneId
+      Name: !Sub "_dmarc.${SesDomainIdentity}"
+      Type: TXT
+      TTL: "300"
+      ResourceRecords:
+        - !Sub '"v=DMARC1; p=none; rua=mailto:${FeedbackNotificationEmailAddress}"'
 
   SesSenderUser:
     # 운영 발송은 지정한 From 주소로 제한한다. domain identity는 nonprod와 공유한다.
