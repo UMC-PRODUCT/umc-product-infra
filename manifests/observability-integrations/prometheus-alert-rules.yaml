@@ -402,3 +402,29 @@ spec:
           annotations:
             summary: "TLS 인증서가 1시간 넘게 Ready가 아니에요"
             description: "Certificate {{ $labels.exported_namespace }}/{{ $labels.name }} 이 1시간 이상 Ready=False예요. cert-manager log와 CertificateRequest·Order 이벤트를 확인해주세요."
+
+        # OOMKilled는 일반 재시작과 달리 memory limit이나 사용량을 바로 조정해야 한다.
+        # Preview PR 앱은 작은 상한에서 PR 코드 탓에 죽을 수 있어 warning으로만 알린다.
+        - alert: ContainerOOMKilled
+          expr: |
+            (increase(kube_pod_container_status_restarts_total{namespace!="preview"}[10m]) > 0)
+            and on (namespace, pod, container)
+            (kube_pod_container_status_last_terminated_reason{namespace!="preview", reason="OOMKilled"} == 1)
+          for: 0m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Container가 메모리 부족으로 재시작됐어요"
+            description: "{{ $labels.namespace }}/{{ $labels.pod }} 의 container={{ $labels.container }} 가 최근 10분 안에 OOMKilled로 재시작됐어요. memory limit과 사용량 증가 원인을 확인해주세요."
+
+        - alert: ContainerOOMKilled
+          expr: |
+            (increase(kube_pod_container_status_restarts_total{namespace="preview"}[10m]) > 0)
+            and on (namespace, pod, container)
+            (kube_pod_container_status_last_terminated_reason{namespace="preview", reason="OOMKilled"} == 1)
+          for: 0m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Preview container가 메모리 부족으로 재시작됐어요"
+            description: "{{ $labels.namespace }}/{{ $labels.pod }} 의 container={{ $labels.container }} 가 최근 10분 안에 OOMKilled로 재시작됐어요. PR 변경의 memory 사용량과 Preview 자원 상한을 확인해주세요."

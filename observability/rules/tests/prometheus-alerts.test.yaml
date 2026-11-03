@@ -69,3 +69,52 @@ tests:
             exp_annotations:
               summary: "운영 앱 metric이 10분째 들어오지 않아요"
               description: "application=prod-umc-product 의 process_uptime_milliseconds가 10분 동안 없어요. 앱 Pod 상태, OTEL_URL과 OTel Collector의 metric export를 확인해주세요."
+
+  - interval: 1m
+    input_series:
+      # 운영 앱은 5분에 OOM 재시작, Preview 앱도 5분에 OOM 재시작,
+      # Loki는 같은 시각 일반 오류로 재시작, Grafana는 예전 OOM 기록만 남아 있다.
+      - series: 'kube_pod_container_status_restarts_total{job="kube-state-metrics", namespace="app", pod="umc-product-server-0", container="app"}'
+        values: '0x4 1x25'
+      - series: 'kube_pod_container_status_last_terminated_reason{job="kube-state-metrics", namespace="app", pod="umc-product-server-0", container="app", reason="OOMKilled"}'
+        values: '0x4 1x25'
+      - series: 'kube_pod_container_status_restarts_total{job="kube-state-metrics", namespace="preview", pod="umc-product-server-pr-7-0", container="app"}'
+        values: '0x4 1x25'
+      - series: 'kube_pod_container_status_last_terminated_reason{job="kube-state-metrics", namespace="preview", pod="umc-product-server-pr-7-0", container="app", reason="OOMKilled"}'
+        values: '0x4 1x25'
+      - series: 'kube_pod_container_status_restarts_total{job="kube-state-metrics", namespace="monitoring", pod="loki-0", container="loki"}'
+        values: '0x4 1x25'
+      - series: 'kube_pod_container_status_last_terminated_reason{job="kube-state-metrics", namespace="monitoring", pod="loki-0", container="loki", reason="Error"}'
+        values: '0x4 1x25'
+      - series: 'kube_pod_container_status_restarts_total{job="kube-state-metrics", namespace="monitoring", pod="grafana-0", container="grafana"}'
+        values: '3x29'
+      - series: 'kube_pod_container_status_last_terminated_reason{job="kube-state-metrics", namespace="monitoring", pod="grafana-0", container="grafana", reason="OOMKilled"}'
+        values: '1x29'
+    alert_rule_test:
+      - eval_time: 4m
+        alertname: ContainerOOMKilled
+        exp_alerts: []
+      - eval_time: 7m
+        alertname: ContainerOOMKilled
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              job: kube-state-metrics
+              namespace: app
+              pod: umc-product-server-0
+              container: app
+            exp_annotations:
+              summary: "Container가 메모리 부족으로 재시작됐어요"
+              description: "app/umc-product-server-0 의 container=app 가 최근 10분 안에 OOMKilled로 재시작됐어요. memory limit과 사용량 증가 원인을 확인해주세요."
+          - exp_labels:
+              severity: warning
+              job: kube-state-metrics
+              namespace: preview
+              pod: umc-product-server-pr-7-0
+              container: app
+            exp_annotations:
+              summary: "Preview container가 메모리 부족으로 재시작됐어요"
+              description: "preview/umc-product-server-pr-7-0 의 container=app 가 최근 10분 안에 OOMKilled로 재시작됐어요. PR 변경의 memory 사용량과 Preview 자원 상한을 확인해주세요."
+      - eval_time: 25m
+        alertname: ContainerOOMKilled
+        exp_alerts: []
