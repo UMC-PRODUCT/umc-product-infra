@@ -4,7 +4,9 @@ K3s 위에 Argo CD core를 고정된 Helm 버전과 차트로 설치하고, GitO
 
 ## 하는 일
 
-1. `argocd` namespace를 만들고 Pod Security 경고·감사 정책을 설정한다.
+1. `argocd` namespace를 만들고 Pod Security `restricted` 경고·감사 label을 설정한다. 기준 버전은
+   `k3s_version`의 Kubernetes minor(`v1.36.3+k3s1` → `v1.36`)에서 `vars/main.yml`이 한 번만 만든다.
+   enforce는 두지 않는다.
 2. checksum으로 검증한 Helm 바이너리와 Argo CD 차트를 내려받는다.
 3. 검토된 `argo-cd-values.yaml`로 Helm release를 설치하거나 갱신한다. `argocd-cm`의 custom health 설정도 이 values의 `configs.cm`에 있다.
 4. root Application보다 먼저 AppProject를 적용한다.

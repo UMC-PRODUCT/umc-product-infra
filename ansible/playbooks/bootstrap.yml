@@ -15,7 +15,7 @@
   # 로컬 검사가 끝난 뒤에만 역할이 사용할 facts를 수집한다.
   # 최초 ssh-access.yml 완료 후 개인 관리자 계정으로만 전체 bootstrap을 실행한다.
   pre_tasks:
-    # 관리자 PC에서 대상·개인 관리자·승인 플래그·공개 포트를 검사한다.
+    # 관리자 PC에서 대상·개인 관리자·승인 플래그를 검사한다.
     # 미완성 예제나 root 계정으로 전체 설치를 시작하지 않도록 원격 접속 전에 중단한다.
     - name: Refuse an unreviewed or placeholder inventory
       ansible.builtin.assert:
@@ -26,17 +26,11 @@
           - "'CHANGE_ME' not in ansible_host"
           - ansible_user is defined
           - "'CHANGE_ME' not in ansible_user"
+          - ssh_access_public_host is defined
+          - "'CHANGE_ME' not in ssh_access_public_host"
           - ssh_access_finalize | default(false) | bool
           - ssh_access_confirm | default(false) | bool
           - ansible_user != 'root'
-          - >-
-            (common_public_tcp_ports | default([])
-            | select('integer') | list | length)
-            == (common_public_tcp_ports | length)
-          - common_public_tcp_ports | length > 0
-          - common_public_tcp_ports | min >= 1
-          - common_public_tcp_ports | max <= 65535
-          - common_public_tcp_ports == [22, 443]
         fail_msg: >-
           Copy inventories/idc-new/hosts.example.yml to hosts.yml, replace every
           CHANGE_ME value, complete playbooks/ssh-access.yml first, connect
@@ -47,40 +41,12 @@
       tags:
         - preflight
 
-    # 관리자 PC에서 Pod와 Service 주소 대역의 형식과 겹침을 검사한다.
-    # 잘못된 내부 주소를 K3s에 적용해 클러스터 통신이 깨지는 것을 방지한다.
-    - name: Require canonical non-overlapping K3s network CIDRs
-      ansible.builtin.command:
-        argv:
-          - python3
-          - -c
-          - |
-            import ipaddress
-            import sys
-
-            names = ("cluster", "service")
-            raw_networks = sys.argv[1:]
-            networks = []
-            for name, raw in zip(names, raw_networks, strict=True):
-                try:
-                    network = ipaddress.ip_network(raw, strict=True)
-                except ValueError as error:
-                    raise SystemExit(
-                        f"invalid K3s {name} CIDR {raw!r}: {error}"
-                    ) from error
-                if network.version != 4 or raw != network.with_prefixlen:
-                    raise SystemExit(
-                        f"K3s {name} CIDR must be canonical IPv4: {raw!r}"
-                    )
-                networks.append(network)
-            if networks[0].overlaps(networks[1]):
-                raise SystemExit("K3s cluster and service CIDRs overlap")
-          - "{{ k3s_cluster_cidr | default('10.42.0.0/16') }}"
-          - "{{ k3s_service_cidr | default('10.43.0.0/16') }}"
-      changed_when: false
-      check_mode: false
-      delegate_to: localhost
-      become: false
+    # 관리자 PC에서 Pod·Service 대역을 방화벽과 같은 검사기로 확인한다.
+    # 잘못된 내부 주소를 K3s에 적용해 클러스터 통신이 깨지는 것을 원격 접속 전에 막는다.
+    - name: Require canonical private non-overlapping K3s network CIDRs
+      ansible.builtin.import_role:
+        name: common
+        tasks_from: network_preflight.yml
       tags:
         - preflight
 

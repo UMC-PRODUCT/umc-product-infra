@@ -5,3 +5,9 @@
 - name: Apply Kubernetes kernel parameters
   ansible.builtin.command: sysctl --system
   changed_when: true
+
+# journald 크기 설정은 재시작해야 반영된다. 실행 중인 서비스의 stdout 연결은 journald가 보존한다.
+- name: Restart systemd-journald
+  ansible.builtin.systemd_service:
+    name: systemd-journald
+    state: restarted

@@ -5,9 +5,10 @@
 
 ## 하는 일
 
-1. 지원 OS와 공인 포트 계약을 검증한다.
-2. 필수 package와 시간대를 설정하고 swap을 끈다.
-3. Kubernetes kernel module과 sysctl을 적용한다.
+1. 지원 OS를 검증한다. 공인 포트는 변수가 아니라 아래 UFW 규칙에 `22`·`443`으로 고정돼 있다.
+2. needrestart를 list-only로 둔 뒤 필수 package를 설치한다. 이어서 보안 pocket만 받는 자동 업데이트를
+   설정하고(재부팅·메일 없음) 유효 설정 검사를 통과한 뒤에만 apt timer를 켠다. 시간대를 설정하고 swap을 끈다.
+3. systemd journal 전체 크기를 `SystemMaxUse=1G`로 제한하고 Kubernetes kernel module과 sysctl을 적용한다.
 4. UFW 인바운드를 다음 상태로 수렴시킨다.
    - 인터넷에서 오는 `22/tcp`는 `limit`, `443/tcp`는 `allow`
    - K3s Pod·Service CIDR 허용
@@ -23,21 +24,24 @@ DDoS 방어를 대신하지 않으며, 같은 NAT를 쓰는 팀원이 동시에 
 |---|---|---|
 | `common_timezone` | `Asia/Seoul` | 서버 시간대 |
 | `common_packages` | 공통 package 목록 | CA, curl, YAML, UFW 등 |
-| `common_public_tcp_ports` | `[22, 443]` | 이 두 포트만 허용하는 고정 계약 |
 | `ssh_access_finalize` | `false` | 최종 단계에서 공인 개인 관리자 SSH·sudo 검증을 요구 |
 | `ssh_access_public_verified` | 미설정 | `ssh_access`가 현재 공인 개인 관리자 접속을 검증한 결과 |
 
 `k3s_cluster_cidr`, `k3s_service_cidr`은 각각 `10.42.0.0/16`, `10.43.0.0/16`이 기본값이다.
 전체 bootstrap과 access-only playbook이 같은 값을 사용하며 실제 inventory가 우선한다.
+두 값은 `tasks/network_preflight.yml` 한 곳에서 검사한다. bootstrap은 원격 접속 전에, 방화벽은 규칙 변경 전에 이 파일을 실행한다.
 
 ## 파일 구성
 
 | 경로 | 역할 |
 |---|---|
-| `defaults/main.yml` | 공통 package, 시간대, 공인 port 기본값 |
+| `defaults/main.yml` | 공통 package, 시간대, K3s 네트워크 기본값 |
 | `tasks/main.yml` | OS·Kubernetes host 설정과 방화벽 task 호출 |
+| `tasks/automatic_updates.yml` | unattended-upgrades 보안 전용 설정, 유효 설정 검사, apt timer 활성화 |
+| `files/` | apt·needrestart 설정 파일 |
 | `tasks/firewall.yml` | access-only playbook과 bootstrap이 공유하는 UFW 설정 |
-| `handlers/main.yml` | sysctl 적용 |
+| `tasks/network_preflight.yml` | 관리자 PC에서 실행하는 Pod·Service CIDR 검사 |
+| `handlers/main.yml` | sysctl 적용, journald 재시작 |
 | `templates/k3s-modules.conf.j2` | 부팅 시 로드할 kernel module |
 | `templates/k3s-sysctl.conf.j2` | Kubernetes network sysctl |
 

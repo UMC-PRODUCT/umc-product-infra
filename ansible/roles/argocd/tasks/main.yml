@@ -5,10 +5,12 @@
     that:
       - argocd_namespace == 'argocd'
       - argocd_helm_release_name == 'argocd'
+      - argocd_pod_security_version is match('^v[0-9]+[.][0-9]+$')
     fail_msg: >-
       This repository's manifests and rollout checks require the argocd
-      namespace and Helm release name. Update every consumer together instead
-      of overriding these role defaults.
+      namespace and Helm release name, and Pod Security labels need a
+      Kubernetes minor derived from k3s_version. Update every consumer
+      together instead of overriding these role defaults.
 
 # 대상 서버에서 Namespace와 Pod Security 경고·감사 label의 차이를 확인한다.
 # diff 반환값 0은 동일, 1은 차이이며 둘 다 정상이다. 실제 반영은 다음 task에서 한다.
@@ -22,15 +24,7 @@
       - --field-manager=umc-ansible-bootstrap
       - -f
       - '-'
-    stdin: >-
-      {{ {'apiVersion': 'v1', 'kind': 'Namespace',
-          'metadata': {'name': argocd_namespace,
-                       'labels': {
-                         'pod-security.kubernetes.io/audit': 'restricted',
-                         'pod-security.kubernetes.io/audit-version': 'v1.36',
-                         'pod-security.kubernetes.io/warn': 'restricted',
-                         'pod-security.kubernetes.io/warn-version': 'v1.36'
-                       }}} | to_json }}
+    stdin: "{{ argocd_namespace_manifest | to_json }}"
   register: argocd_namespace_diff
   changed_when: false
   failed_when: argocd_namespace_diff.rc not in [0, 1]
@@ -47,15 +41,7 @@
       - --field-manager=umc-ansible-bootstrap
       - -f
       - '-'
-    stdin: >-
-      {{ {'apiVersion': 'v1', 'kind': 'Namespace',
-          'metadata': {'name': argocd_namespace,
-                       'labels': {
-                         'pod-security.kubernetes.io/audit': 'restricted',
-                         'pod-security.kubernetes.io/audit-version': 'v1.36',
-                         'pod-security.kubernetes.io/warn': 'restricted',
-                         'pod-security.kubernetes.io/warn-version': 'v1.36'
-                       }}} | to_json }}
+    stdin: "{{ argocd_namespace_manifest | to_json }}"
   when: argocd_namespace_diff.rc == 1
   changed_when: true
 
