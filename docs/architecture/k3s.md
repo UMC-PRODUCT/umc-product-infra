@@ -33,10 +33,10 @@
 | D14 | OTel Collector 단일 진입점 | 앱은 exporter backend를 몰라도 metrics/logs/traces 전송 | signal volume이 커지면 sampling/queue/storage 분리 |
 | D15 | Prometheus 14d, Tempo 7d, Loki 90d | 초기 진단 가치와 단일 노드 disk 비용의 균형 | disk pressure 또는 규정 요구에 따라 조정 |
 | D16 | 관측 PVC는 local-path | 가장 단순한 초기 구성 | telemetry 내구성이 중요해지면 object storage 이전 |
-| D17 | Ingress는 edge 준비 전 기본 off | host가 확정돼도 인증서와 접근 정책 검증 전 외부 노출 방지 | Certificate Ready와 Route 53·direct HTTPS gate 검증 후 환경별 활성화 |
+| D17 | Ingress는 chart 기본값 off. prod·dev는 values가, Preview는 ApplicationSet이 켠다 | host가 확정돼도 인증서와 접근 정책 검증 전 외부 노출 방지 | 새 환경이나 host는 Certificate Ready와 Route 53·direct HTTPS gate를 검증한 뒤 켠다 |
 | D18 | public GHCR을 익명 pull하고 prod/dev는 digest, Preview는 PR별 마지막 발행 성공 기록의 SHA tag·digest 고정 | credential 배포 없이 운영 불변성과 동적 PR image 선택을 함께 확보 | package를 private로 바꾸거나 registry admission을 도입할 때 재설계 |
-| D19 | prod backup CronJob은 2026-09-19부터 매일 실행하고 S3에 10일 보관. 노드 밖 restore 리허설은 아직 하지 않음 | 노드 소실 시 복구선을 먼저 확보하되, upload 성공을 복구 가능성으로 오인하지 않음 | 외부 restore와 RPO/RTO를 기록하면 이 행을 갱신하고, backup 장애 시 `suspend: true`로 되돌림 |
-| D20 | BE CI 연결 전 `deployment.enabled: false` | 아직 존재하지 않는 GHCR 계약으로 Pod가 반복 실패하지 않게 함 | trusted publish + digest PR 흐름 검증 후 환경별 활성화 |
+| D19 | prod backup CronJob은 2026-09-19부터 매일 실행하고 S3에 10일 보관. 노드 밖 restore 리허설은 아직 하지 않음 | 노드 소실 시 복구선을 먼저 확보하되, upload 성공을 복구 가능성으로 오인하지 않음 | 외부 restore와 RPO/RTO를 기록하면 이 행을 갱신. 실패하면 원인을 먼저 고치고, backup Job이 운영 DB·node를 해치거나 credential incident일 때만 `suspend: true`로 중지([backup runbook 7단계](../runbooks/backup-activation.md#7-예약-실행-유지와-중지)) |
+| D20 | 앱 Deployment는 chart 기본값 `deployment.enabled: false`. prod·dev는 values가, Preview는 ApplicationSet이 켠다 | 존재하지 않는 GHCR image로 Pod가 반복 실패하지 않게 함. BE CI의 trusted publish와 digest PR 흐름이 연결돼 prod·dev values를 갱신한다 | 새 환경을 추가할 때 image 발행 기록을 먼저 확인한 뒤 켠다 |
 | D21 | prod/dev/PR API와 운영 도구별 exact host | 모바일 직접 호출과 환경 식별이 명확한 host 계약 | API gateway 또는 별도 cluster 도입 시 재검토 |
 | D22 | `university.neordinary.com` child zone을 Route 53으로 위임하고 exact record는 ExternalDNS가 관리 | DNS 권한과 workload record lifecycle 분리; Terraform은 사용하지 않음 | 상위 DNS 운영 주체나 도메인 변경 시 재검토 |
 | D23 | Route 53 direct A record + cert-manager DNS-01; Preview는 `*.university.neordinary.com` Certificate와 `preview-wildcard-tls`를 공유 | 별도 proxy 없이 DNS·TLS 계층을 단순화하고 PR별 인증서 발급·갱신을 제거 | WAF·CDN·DDoS proxy가 실제로 필요해질 때 별도 edge 도입 |
@@ -95,5 +95,5 @@ local-path PVC는 노드 소실을 견디지 못한다. prod DB의 복구선은 
 - 앱은 known-good tag+digest PR로 되돌린다.
 - DB write가 시작된 뒤에는 DNS만 과거 DB로 돌리는 rollback을 금지한다.
 - secret rotation은 이전 AWS secret version → force-sync → role Job → 앱 restart 순으로 복구한다.
-- backup 장애 시 `suspend: true`로 되돌리되 기존 object는 삭제하지 않는다.
+- backup 장애 시 원인을 먼저 고친다. backup Job이 운영 DB·node를 해치거나 credential incident일 때만 Git PR로 `suspend: true`를 적용하고([backup runbook 7단계](../runbooks/backup-activation.md#7-예약-실행-유지와-중지)), 기존 object는 삭제하지 않는다.
 - root prune 활성화 전에는 자식 Application 삭제를 별도 승인 작업으로 수행한다.

@@ -43,7 +43,7 @@
 - [저장소 설명](repository-tour.md): 도구별 책임과 각 폴더의 역할.
 - [아키텍처와 설계 이유](architecture/k3s.md): 구성의 전제와 재검토 기준.
 - [인프라 다이어그램](../README.md#인프라-다이어그램): 요청·배포·Secret·Preview 흐름.
-- [Control Room](umc-infra-control-room.html): 구조·환경·gate를 한 화면에 모은 HTML 요약. 로컬 브라우저로 연다. 내용이 다르면 Markdown 문서와 코드가 기준이다.
+- [Control Room](umc-infra-control-room.html): 구조·환경·gate를 한 화면에 모은 HTML 요약. 로컬 브라우저로 연다. 내용이 서로 다르면 코드, Markdown 문서, Control Room 순으로 따른다.
 - 코드 옆 README: [Ansible](../ansible/README.md), [스크립트](../scripts/README.md), [관측 원본](../observability/README.md).
 
 ## 문서를 추가하거나 수정할 때

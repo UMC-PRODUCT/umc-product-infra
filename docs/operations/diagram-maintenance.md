@@ -46,7 +46,7 @@ Graphviz 속성을 가진다.
 
 - 앱 Ingress: Route 53 exact record와 host Certificate, direct HTTPS 검증 후 활성화
 - Grafana Ingress: production Certificate, 실제 IDC IP, login 필수 상태를 검증한 후 활성화
-- backup: 외부 restore rehearsal 후 `suspend: false`
+- backup: 2026-09-19부터 매일 실행(`suspend: false`). 노드 밖 restore 리허설은 아직 하지 않았다
 - 외부 uptime monitor: 클러스터 밖에서 별도 생성
 
 Preview 그림의 `preview` label은 trusted same-repository PR 검토가 끝났다는 승인이다. Preview는
