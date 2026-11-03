@@ -406,6 +406,34 @@ groups:
           summary: "Redis rejected connection을 확인해주세요"
           description: "instance={{ $labels.instance }} 의 Redis/Valkey에서 최근 5분 안에 rejected connection이 있었어요. maxclients와 client 재시도를 확인해주세요."
 
+      # HikariCP는 앱 한 개의 pool만 본다. 서버 전체 연결 수는 운영 DB exporter로 따로 본다.
+      - alert: PostgresConnectionsHigh
+        expr: sum by (job, environment) (pg_stat_activity_count{job="postgres-exporter"}) / on (job, environment) max by (job, environment) (pg_settings_max_connections{job="postgres-exporter"}) > 0.8
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "PostgreSQL 연결 수가 max_connections의 80%를 넘었어요"
+          description: "environment={{ $labels.environment }} 의 PostgreSQL 연결이 5분 이상 max_connections의 {{ $value | humanizePercentage }}예요. idle 연결, 앱 pool 크기와 사람용 접속을 확인해주세요."
+
+      - alert: PostgresConnectionsHigh
+        expr: sum by (job, environment) (pg_stat_activity_count{job="postgres-exporter"}) / on (job, environment) max by (job, environment) (pg_settings_max_connections{job="postgres-exporter"}) > 0.95
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "PostgreSQL 연결 수가 max_connections의 95%를 넘었어요"
+          description: "environment={{ $labels.environment }} 의 PostgreSQL 연결이 5분 이상 max_connections의 {{ $value | humanizePercentage }}예요. 새 연결이 곧 거부되니 idle 연결과 앱 pool을 먼저 확인해주세요."
+
+      - alert: PostgresDeadlocks
+        expr: sum by (job, environment, datname) (increase(pg_stat_database_deadlocks{job="postgres-exporter"}[10m])) > 0
+        for: 0m
+        labels:
+          severity: warning
+        annotations:
+          summary: "PostgreSQL deadlock이 발생했어요"
+          description: "environment={{ $labels.environment }}, datname={{ $labels.datname }} 에서 최근 10분 동안 deadlock이 있었어요. PostgreSQL log의 deadlock detail과 같은 시각 API error log를 확인해주세요."
+
   - name: umc-product.observability
     rules:
       # 100% sampling 정책과 실제 전달 성공은 다르다. Collector가 span을 거부하거나
