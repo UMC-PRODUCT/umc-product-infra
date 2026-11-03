@@ -11,6 +11,8 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+import yaml
+
 SCRIPTS_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(SCRIPTS_DIR))
 
@@ -21,6 +23,7 @@ from validate_contracts import (
     validate_cloudformation_tags,
     validate_external_dns_record_names,
     validate_repository_identity,
+    validate_route53_contract,
     validate_ses_contract,
 )
 
@@ -231,6 +234,8 @@ ALLOWED_PATTERNS = [
     f"_external-dns.a-mail-pr-*.{ZONE}",
 ]
 RENDERED_HOSTS = {f"api.{ZONE}", f"api-pr-42.{ZONE}", f"mail-pr-42.{ZONE}"}
+OPT_IN_FILTER = "external-dns.kubernetes.io/managed-by=umc-infra"
+OPT_IN_ANNOTATIONS = {"external-dns.kubernetes.io/managed-by": "umc-infra"}
 
 
 # ExternalDNS가 만들 A·소유권 TXT 이름은 모두 IAM이 허용하고, IAM 패턴은 렌더된 이름보다 넓지 않아야 한다.
@@ -266,13 +271,12 @@ class ExternalDnsRecordNameTest(unittest.TestCase):
             self.validate([*ALLOWED_PATTERNS, f"grafana.{ZONE}"], RENDERED_HOSTS)
 
     def test_collects_only_opted_in_ingress_hosts(self) -> None:
-        opted_in = {"external-dns.kubernetes.io/managed-by": "umc-infra"}
         documents = [
             {
                 "kind": "Ingress",
                 "metadata": {
                     "annotations": {
-                        **opted_in,
+                        **OPT_IN_ANNOTATIONS,
                         "external-dns.kubernetes.io/hostname": f"extra.{ZONE}, alias.{ZONE}",
                     }
                 },
@@ -286,13 +290,39 @@ class ExternalDnsRecordNameTest(unittest.TestCase):
                 "metadata": {"annotations": {}},
                 "spec": {"rules": [{"host": f"unmanaged.{ZONE}"}]},
             },
-            {"kind": "Service", "metadata": {"annotations": opted_in}},
+            {"kind": "Service", "metadata": {"annotations": OPT_IN_ANNOTATIONS}},
         ]
 
         self.assertEqual(
-            external_dns_hosts(documents),
+            external_dns_hosts(documents, OPT_IN_FILTER),
             {f"api.{ZONE}", f"tls-only.{ZONE}", f"extra.{ZONE}", f"alias.{ZONE}"},
         )
+
+    def test_rejects_annotation_filter_it_cannot_evaluate(self) -> None:
+        for annotation_filter in (
+            "external-dns.kubernetes.io/managed-by in (umc-infra)",
+            "external-dns.kubernetes.io/managed-by!=other",
+            f"{OPT_IN_FILTER},team=infra",
+        ):
+            with self.subTest(annotation_filter=annotation_filter), self.assertRaisesRegex(
+                SystemExit, "annotationFilter must be a single key=value"
+            ):
+                external_dns_hosts([], annotation_filter)
+
+    # ApplicationSet 렌더의 Preview host가 바뀌면 커밋된 Route 53 IAM 허용 목록과 대조해 실패해야 한다.
+    def test_rejects_applicationset_host_missing_from_committed_iam(self) -> None:
+        ingress = {
+            "kind": "Ingress",
+            "metadata": {"annotations": OPT_IN_ANNOTATIONS},
+            "spec": {"rules": [{"host": f"inbox-pr-42.{ZONE}"}]},
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            render = Path(directory, "preview-pr-42-desired-state.yaml")
+            render.write_text(yaml.safe_dump(ingress), encoding="utf-8")
+            with self.assertRaisesRegex(
+                SystemExit, "does not allow record name: .*inbox-pr-42"
+            ):
+                validate_route53_contract([render])
 
 
 if __name__ == "__main__":

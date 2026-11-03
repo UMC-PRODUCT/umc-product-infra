@@ -32,8 +32,6 @@ APP_IMAGE = (
 )
 PREVIEW_APP_IMAGE = APP_IMAGE
 TEST_NET_EDGE_TARGET = "203.0.113.10"
-EXTERNAL_DNS_OPT_IN_ANNOTATION = "external-dns.kubernetes.io/managed-by"
-EXTERNAL_DNS_OPT_IN_VALUE = "umc-infra"
 # validate.sh가 Preview 렌더 견본으로 쓰는 PR 번호다.
 PREVIEW_SAMPLE_PR_NUMBER = "42"
 CERTIFICATE_ISSUERS = {"letsencrypt-staging", "letsencrypt-production"}
@@ -120,13 +118,19 @@ def external_dns_registry_config() -> dict:
 
 
 # ExternalDNS ingress source는 rules·tls host와 hostname annotation을 모두 record로 만든다.
-def external_dns_hosts(documents: list[dict]) -> set[str]:
+# annotationFilter는 key=value 한 쌍만 지원한다. 다른 selector 문법이면 수집 범위를 판단하지 않고 실패한다.
+def external_dns_hosts(documents: list[dict], annotation_filter: str) -> set[str]:
+    require(
+        re.fullmatch(r"[^=!,()\s]+=[^=!,()\s]+", annotation_filter) is not None,
+        f"ExternalDNS annotationFilter must be a single key=value: {annotation_filter}",
+    )
+    opt_in_key, opt_in_value = annotation_filter.split("=")
     hosts: set[str] = set()
     for document in documents:
         if not isinstance(document, dict) or document.get("kind") != "Ingress":
             continue
         annotations = document.get("metadata", {}).get("annotations") or {}
-        if annotations.get(EXTERNAL_DNS_OPT_IN_ANNOTATION) != EXTERNAL_DNS_OPT_IN_VALUE:
+        if annotations.get(opt_in_key) != opt_in_value:
             continue
         spec = document.get("spec", {})
         hosts.update(rule["host"] for rule in spec.get("rules", []) if rule.get("host"))
@@ -134,30 +138,6 @@ def external_dns_hosts(documents: list[dict]) -> set[str]:
         hostname = annotations.get("external-dns.kubernetes.io/hostname", "")
         hosts.update(name.strip() for name in hostname.split(",") if name.strip())
     return hosts
-
-
-# Grafana Ingress는 Argo CD Application의 inline Helm values가 원본이다.
-def grafana_external_dns_hosts() -> set[str]:
-    application = yaml.safe_load(
-        (
-            ROOT / "argocd" / "applications" / "platform" / "observability" / "grafana.yaml"
-        ).read_text(encoding="utf-8")
-    )
-    ingress = application["spec"]["source"]["helm"]["valuesObject"].get("ingress", {})
-    if ingress.get("enabled") is not True:
-        return set()
-    return external_dns_hosts(
-        [
-            {
-                "kind": "Ingress",
-                "metadata": {"annotations": ingress.get("annotations")},
-                "spec": {
-                    "rules": [{"host": host} for host in ingress.get("hosts", [])],
-                    "tls": ingress.get("tls", []),
-                },
-            }
-        ]
-    )
 
 
 def iam_string_like(pattern: str, value: str) -> bool:
@@ -198,15 +178,15 @@ def validate_external_dns_record_names(
         )
 
 
-# 앱 렌더, 정적 manifest와 Grafana values에서 ExternalDNS가 관리할 host를 모은다.
-def external_dns_desired_hosts(render_paths: list[Path]) -> set[str]:
+# 앱·ApplicationSet·Grafana 렌더와 정적 manifest에서 ExternalDNS가 관리할 host를 모은다.
+def external_dns_desired_hosts(render_paths: list[Path], annotation_filter: str) -> set[str]:
     documents = [document for path in render_paths for document in yaml_documents(path)]
     documents += [
         document
         for path in sorted((ROOT / "manifests").rglob("*.yaml"))
         for document in yaml_documents(path)
     ]
-    return external_dns_hosts(documents) | grafana_external_dns_hosts()
+    return external_dns_hosts(documents, annotation_filter)
 
 
 # 기존 위임 zone을 재생성하지 않고 인증서용 TXT와 앱용 DNS 변경 권한을 분리하는지 확인한다.
@@ -387,7 +367,7 @@ def validate_route53_contract(render_paths: list[Path]) -> None:
     zone = template["Parameters"]["DnsZoneName"]["Default"]
     validate_external_dns_record_names(
         [pattern.replace("${DnsZoneName}", zone) for pattern in external_dns_name_patterns],
-        external_dns_desired_hosts(render_paths),
+        external_dns_desired_hosts(render_paths, external_dns_config["annotationFilter"]),
         txt_prefix=external_dns_config["txtPrefix"],
         record_types=external_dns_config["managedRecordTypes"],
     )
@@ -2126,15 +2106,14 @@ def validate_repository_identity() -> None:
 
 # 정적 원본 계약을 먼저 검사한 뒤 환경별 렌더와 합성 공개 경로의 교차 검증을 수행한다.
 def main() -> int:
-    if len(sys.argv) != 7:
+    if len(sys.argv) != 9:
         raise SystemExit(
             "usage: validate_contracts.py PROD_RENDER DEV_RENDER PREVIEW_RENDER "
-            "SECRETS_RENDER ACTIVE_EDGE_FIXTURE ACTIVE_PREVIEW_EDGE_FIXTURE"
+            "SECRETS_RENDER ACTIVE_EDGE_FIXTURE ACTIVE_PREVIEW_EDGE_FIXTURE "
+            "PREVIEW_APPLICATIONSET_RENDER GRAFANA_RENDER"
         )
     validate_repository_identity()
-    validate_route53_contract(
-        [Path(filename) for filename in (*sys.argv[1:4], *sys.argv[5:7])]
-    )
+    validate_route53_contract([Path(filename) for filename in sys.argv[1:]])
     validate_app_storage_contract()
     validate_ses_contract()
     validate_cloudformation_tags()

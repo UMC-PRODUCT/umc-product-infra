@@ -97,7 +97,9 @@ ExternalDNS IAM은 아래 이름의 A record와 ownership TXT만 변경할 수 �
 `txtPrefix: _external-dns.`와 record type `a-`를 host 앞에 붙인 형태다. `*`는 Preview PR 번호
 자리에만 쓴다. Ingress host를 추가하면 `cloud/aws/route53-dns.yaml`의 허용 목록과 이 표를 함께
 바꾸고 stack을 갱신한다. `scripts/validate_contracts.py`는 렌더된 Ingress host가 허용 목록에
-없거나 허용 목록이 렌더된 host보다 넓으면 실패한다.
+없거나 허용 목록이 렌더된 host보다 넓으면 실패한다. Preview host는 ApplicationSet parameter로
+렌더한 PR 42 결과, Grafana host는 Argo CD values로 렌더한 chart 결과에서 읽는다. 대상 Ingress는
+ExternalDNS `annotationFilter`와 같은 annotation을 가진 것만이다.
 
 | Host | A record | Ownership TXT |
 |---|---|---|
