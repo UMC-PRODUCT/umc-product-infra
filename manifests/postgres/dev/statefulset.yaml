@@ -57,6 +57,11 @@ spec:
                 secretKeyRef: { name: postgres-secrets, key: POSTGRES_PASSWORD }
             - name: POSTGRES_DB
               value: umc_product_dev
+            # 빈 데이터 디렉터리의 initdb에만 적용된다. 기존 클러스터의 locale은 바뀌지 않는다.
+            # 한글 정렬은 ICU ko-KR이 맡고, ICU에서도 initdb가 요구하는 libc LC_COLLATE·LC_CTYPE은
+            # image LANG(en_US.utf8)에 기대지 않고 C.UTF-8로 고정한다.
+            - name: POSTGRES_INITDB_ARGS
+              value: "--encoding=UTF8 --locale=C.UTF-8 --locale-provider=icu --icu-locale=ko-KR"
           resources:
             requests:
               cpu: 250m

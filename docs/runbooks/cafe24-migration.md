@@ -108,6 +108,21 @@ ansible-playbook -i "${TARGET_INVENTORY:?새 서버 inventory 절대 경로 필�
 `root-app-prepare.yaml`은 prod/dev API Application, Preview ApplicationSet, ExternalDNS를
 제외한다. DB·SecretStore·ExternalSecret·관측 구성이 준비되고 이 네 대상이 생성되지 않았는지
 확인한다. 새 DB에 업무 데이터가 이미 있으면 복원을 중단한다. backup CronJob도 정지 상태를 확인한다.
+
+복원 전에 새 DB 세 대가 ICU `ko-KR` 기본 collation으로 초기화됐는지 확인한다. `POSTGRES_INITDB_ARGS`는
+빈 PVC의 최초 initdb에만 적용되고, 이미 데이터가 있는 PVC나 기존 서버의 locale은 바꾸지 않는다.
+
+```bash
+for target in db/postgres dev-db/postgres preview/postgres-preview; do
+  sudo k3s kubectl exec -n "${target%%/*}" "statefulset/${target#*/}" -c postgres -- sh -ec \
+    'psql -X -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "SELECT datname, datlocprovider, datlocale, datcollate, datctype FROM pg_database ORDER BY datname"'
+done
+```
+
+모든 행이 `datlocprovider = i`, `datlocale = ko-KR`, `datcollate`·`datctype = C.UTF-8`이어야 한다.
+PostgreSQL 17부터 ICU locale 열 이름은 `daticulocale`이 아니라 `datlocale`이다. `c`(libc)나
+`en_US.utf8`이 보이면 빈 PVC가 아니었던 것이므로 복원을 중단하고 PVC 출처를 확인한다.
+
 ExternalDNS 보류가 모든 외부 부작용을 막지는 않는다. Prepare에서도 cert-manager의 DNS-01 TXT
 쓰기와 새 Alertmanager의 중복 Discord 알림이 가능하므로 기존·신규 인증서/알림 동작을 조율한다.
 

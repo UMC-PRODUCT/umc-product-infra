@@ -1315,6 +1315,12 @@ def validate_postgres() -> None:
             environment_values["POSTGRES_DB"] == expected_database,
             f"{environment}: database name",
         )
+        # 새 데이터 디렉터리는 한글 정렬을 위해 ICU ko-KR로 만든다. libc locale도 image LANG에 기대지 않는다.
+        require(
+            environment_values.get("POSTGRES_INITDB_ARGS")
+            == "--encoding=UTF8 --locale=C.UTF-8 --locale-provider=icu --icu-locale=ko-KR",
+            f"{environment}: initdb must use the ICU ko-KR default collation",
+        )
         if environment == "preview":
             require(
                 "max_connections=40" in container.get("args", []),
