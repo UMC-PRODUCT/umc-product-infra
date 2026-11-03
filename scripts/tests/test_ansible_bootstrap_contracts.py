@@ -11,8 +11,39 @@ from urllib.parse import quote
 
 import yaml
 
+try:
+    from ansible.parsing.dataloader import DataLoader
+    from ansible.template import Templar, trust_as_template
+except ImportError:
+    Templar = None
+
 
 ROOT = Path(__file__).resolve().parents[2]
+
+requires_ansible = unittest.skipIf(
+    Templar is None, "Install ansible/requirements.txt to verify the Ansible runtime"
+)
+
+
+def trusted(value: object) -> object:
+    # Ansible은 role 파일의 문자열을 template으로 신뢰한다. YAML 직접 로드 값도 같게 맞춘다.
+    if isinstance(value, dict):
+        return {key: trusted(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [trusted(item) for item in value]
+    return trust_as_template(value) if isinstance(value, str) else value
+
+
+def render(template: object, variables: dict[str, object]) -> object:
+    return Templar(loader=DataLoader(), variables=variables).template(trusted(template))
+
+
+def passes(conditions: str | list[str], variables: dict[str, object]) -> bool:
+    """Evaluate an assert `that` list or a `failed_when` expression the way Ansible does."""
+    templar = Templar(loader=DataLoader(), variables=variables)
+    if isinstance(conditions, str):
+        conditions = [conditions]
+    return all(templar.evaluate_conditional(trust_as_template(condition)) for condition in conditions)
 
 
 def load_tasks(relative_path: str) -> list[dict[str, object]]:
@@ -31,6 +62,20 @@ def command_argv(task: dict[str, object]) -> list[str]:
     return argv if isinstance(argv, list) else []
 
 
+def leaf_tasks(tasks: list[dict[str, object]], no_log: bool | None = None) -> list[dict[str, object]]:
+    """Tasks inside block/rescue/always, flattened. A block's no_log applies to its children."""
+    found: list[dict[str, object]] = []
+    for task in tasks:
+        sections = [section for section in ("block", "rescue", "always") if section in task]
+        if not sections:
+            found.append(task if no_log is None or "no_log" in task else {**task, "no_log": no_log})
+            continue
+        inherited = task.get("no_log", no_log)
+        for section in sections:
+            found += leaf_tasks(task[section], inherited)
+    return found
+
+
 def all_tasks() -> list[tuple[str, dict[str, object]]]:
     """Every task and handler in the roles and playbooks, with its source path."""
     found: list[tuple[str, dict[str, object]]] = []
@@ -38,12 +83,12 @@ def all_tasks() -> list[tuple[str, dict[str, object]]]:
     paths += sorted((ROOT / "ansible" / "roles").glob("*/handlers/*.yml"))
     for path in paths:
         relative = str(path.relative_to(ROOT))
-        found += [(relative, task) for task in load_tasks(relative)]
+        found += [(relative, task) for task in leaf_tasks(load_tasks(relative))]
     for path in sorted((ROOT / "ansible" / "playbooks").glob("*.yml")):
         relative = str(path.relative_to(ROOT))
         for play in yaml.safe_load(path.read_text(encoding="utf-8")):
             for section in ("pre_tasks", "tasks", "post_tasks", "handlers"):
-                found += [(relative, task) for task in play.get(section, [])]
+                found += [(relative, task) for task in leaf_tasks(play.get(section, []))]
     return found
 
 
@@ -91,13 +136,8 @@ class K3sInstallerContractTests(unittest.TestCase):
         )
         self.assertRegex(defaults["k3s_binary_checksum"], r"^[0-9a-f]{64}$")
 
+    @requires_ansible
     def test_installer_and_binary_checksums_fail_closed(self) -> None:
-        try:
-            from ansible.parsing.dataloader import DataLoader
-            from ansible.template import Templar, trust_as_template
-        except ImportError:
-            self.skipTest("Install ansible/requirements.txt to verify the Ansible runtime")
-
         tasks = load_tasks("ansible/roles/k3s/tasks/main.yml")
         names = [task["name"] for task in tasks]
         pin_guard = tasks[names.index("Require pinned SHA-256 values for the K3s installer and binary")]
@@ -123,21 +163,15 @@ class K3sInstallerContractTests(unittest.TestCase):
             (pinned.upper(), "b" * 64, False),
         ):
             with self.subTest(installer=installer, binary=binary):
-                templar = Templar(loader=DataLoader(), variables={
+                self.assertIs(passes(pin_guard["ansible.builtin.assert"]["that"], {
                     "k3s_install_script_checksum": installer, "k3s_binary_checksum": binary,
-                })
-                results = [templar.evaluate_conditional(trust_as_template(condition))
-                           for condition in pin_guard["ansible.builtin.assert"]["that"]]
-                self.assertIs(all(results), accepted)
+                }), accepted)
 
         for checksum, accepted in (("b" * 64, True), ("c" * 64, False)):
-            templar = Templar(loader=DataLoader(), variables={
+            self.assertIs(passes(binary_guard["ansible.builtin.assert"]["that"], {
                 "k3s_binary": {"stat": {"exists": True, "checksum": checksum}},
                 "k3s_binary_checksum": "b" * 64,
-            })
-            results = [templar.evaluate_conditional(trust_as_template(condition))
-                       for condition in binary_guard["ansible.builtin.assert"]["that"]]
-            self.assertIs(all(results), accepted)
+            }), accepted)
 
 
 # Traefik 생성 → rollout → Service 검증 순서와 유한한 대기를 유지한다.
@@ -223,13 +257,8 @@ class KubernetesApplyContractTests(unittest.TestCase):
             for task in namespace_applies:
                 self.assertIn("--server-side=true", command_argv(task), task["name"])
 
+    @requires_ansible
     def test_argocd_namespace_psa_version_follows_k3s_and_never_enforces(self) -> None:
-        try:
-            from ansible.parsing.dataloader import DataLoader
-            from ansible.template import Templar, trust_as_template
-        except ImportError:
-            self.skipTest("Install ansible/requirements.txt to verify the Ansible runtime")
-
         tasks = load_tasks("ansible/roles/argocd/tasks/main.yml")
         namespace_tasks = [task for task in tasks if "namespace" in task["name"].lower()
                            and command_argv(task)[2:3] in (["diff"], ["apply"])]
@@ -239,12 +268,6 @@ class KubernetesApplyContractTests(unittest.TestCase):
         )
         self.assertNotIn("v1.36", (ROOT / "ansible/roles/argocd/tasks/main.yml").read_text(encoding="utf-8"))
 
-        def trusted(value: object) -> object:
-            # Ansible은 role 파일의 문자열을 template으로 신뢰한다. YAML 직접 로드 값도 같게 맞춘다.
-            if isinstance(value, dict):
-                return {key: trusted(item) for key, item in value.items()}
-            return trust_as_template(value) if isinstance(value, str) else value
-
         role_vars = trusted(yaml.safe_load((ROOT / "ansible/roles/argocd/vars/main.yml").read_text(encoding="utf-8")))
         k3s_version = yaml.safe_load(
             (ROOT / "ansible/roles/k3s/defaults/main.yml").read_text(encoding="utf-8")
@@ -252,10 +275,9 @@ class KubernetesApplyContractTests(unittest.TestCase):
         expected_minor = ".".join(k3s_version.split(".")[:2])
         for version, minor in ((k3s_version, expected_minor), ("v1.37.0+k3s1", "v1.37")):
             with self.subTest(version=version):
-                templar = Templar(loader=DataLoader(), variables={
+                manifest = render("{{ argocd_namespace_manifest }}", {
                     **role_vars, "k3s_version": version, "argocd_namespace": "argocd",
                 })
-                manifest = templar.template(trust_as_template("{{ argocd_namespace_manifest }}"))
                 labels = manifest["metadata"]["labels"]
                 self.assertEqual(manifest["metadata"]["name"], "argocd")
                 self.assertEqual(labels, {
@@ -429,13 +451,8 @@ class PublicSshBootstrapContractTests(unittest.TestCase):
         self.assertLess(tasks.index(sudo), tasks.index(mark))
         self.assertEqual(mark["when"], "ssh_access_finalize")
 
+    @requires_ansible
     def test_tunnel_accounts_get_nologin_and_the_stored_shell_is_asserted(self) -> None:
-        try:
-            from ansible.parsing.dataloader import DataLoader
-            from ansible.template import Templar, trust_as_template
-        except ImportError:
-            self.skipTest("Install ansible/requirements.txt to verify the Ansible runtime")
-
         role_vars = yaml.safe_load(
             (ROOT / "ansible/roles/ssh_access/vars/main.yml").read_text(encoding="utf-8")
         )
@@ -459,24 +476,16 @@ class PublicSshBootstrapContractTests(unittest.TestCase):
         ):
             with self.subTest(role=role):
                 item = {"name": "member", "role": role}
-                templar = Templar(loader=DataLoader(), variables={**role_vars, "item": item})
-                self.assertEqual(templar.template(trust_as_template(user["shell"])), shell)
-                self.assertEqual(templar.template(trust_as_template(user["groups"])), group)
+                self.assertEqual(render(user["shell"], {**role_vars, "item": item}), shell)
+                self.assertEqual(render(user["groups"], {**role_vars, "item": item}), group)
                 for stored, accepted in ((shell, True), ("/bin/sh", False)):
                     passwd = {"member": ["x", "1001", "1001", "", "/home/member", stored]}
-                    templar = Templar(loader=DataLoader(), variables={
+                    self.assertIs(passes(guard["ansible.builtin.assert"]["that"], {
                         **role_vars, "item": item, "ansible_facts": {"getent_passwd": passwd},
-                    })
-                    condition = guard["ansible.builtin.assert"]["that"][0]
-                    self.assertIs(templar.evaluate_conditional(trust_as_template(condition)), accepted)
+                    }), accepted)
 
+    @requires_ansible
     def test_finalization_reports_legacy_root_keys_by_fingerprint_only(self) -> None:
-        try:
-            from ansible.parsing.dataloader import DataLoader
-            from ansible.template import Templar, trust_as_template
-        except ImportError:
-            self.skipTest("Install ansible/requirements.txt to verify the Ansible runtime")
-
         root_keys = "/root/.ssh/authorized_keys"
         tasks = load_tasks("ansible/roles/ssh_access/tasks/main.yml")
         touching = [task for task in tasks if root_keys in yaml.safe_dump(task)]
@@ -500,13 +509,13 @@ class PublicSshBootstrapContractTests(unittest.TestCase):
             ({"skipped": True}, []),
         ):
             with self.subTest(registered=registered):
-                templar = Templar(loader=DataLoader(), variables={
+                fingerprints = render(report["vars"]["ssh_access_root_fingerprints"], {
                     "ssh_access_root_key_fingerprints": registered,
                 })
-                fingerprints = templar.template(trust_as_template(report["vars"]["ssh_access_root_fingerprints"]))
                 self.assertEqual(fingerprints, expected)
-                templar = Templar(loader=DataLoader(), variables={"ssh_access_root_fingerprints": fingerprints})
-                message = templar.template(trust_as_template(report["ansible.builtin.debug"]["msg"]))
+                message = render(report["ansible.builtin.debug"]["msg"], {
+                    "ssh_access_root_fingerprints": fingerprints,
+                })
                 self.assertNotIn("example.com", message)
                 self.assertNotIn("provider-console", message)
                 for fingerprint in expected:
@@ -561,13 +570,8 @@ class PublicSshBootstrapContractTests(unittest.TestCase):
             for task in common
         ))
 
+    @requires_ansible
     def test_firewall_cleanup_renders_real_ansible_loop_and_delete_argv(self) -> None:
-        try:
-            from ansible.parsing.dataloader import DataLoader
-            from ansible.template import Templar, trust_as_template
-        except ImportError:
-            self.skipTest("Install ansible/requirements.txt to verify the Ansible runtime")
-
         tasks = load_tasks("ansible/roles/common/tasks/firewall.yml")
         cleanup = next(task for task in tasks
                        if task.get("when") == "item not in common_expected_inbound_ufw_rules")
@@ -578,14 +582,11 @@ class PublicSshBootstrapContractTests(unittest.TestCase):
         combine = next(task for task in tasks if task.get("name")
                        == "Combine the desired inbound UFW rules")
         for finalize in (False, True):
-            templar = Templar(loader=DataLoader(), variables={
+            declared = render(combine["ansible.builtin.set_fact"]["common_expected_inbound_ufw_rules"], {
                 "common_expected_public_ufw_rules": expected[:2],
                 "common_expected_internal_ufw_rules": expected[2:],
                 "ssh_access_finalize": finalize,
             })
-            declared = templar.template(trust_as_template(
-                combine["ansible.builtin.set_fact"]["common_expected_inbound_ufw_rules"]
-            ))
             self.assertEqual(declared, expected)
         stale = ["ufw allow 5432/tcp", "ufw allow 22/tcp"]
         configured = [rule + " comment 'managed rule'" for rule in stale + expected]
@@ -595,15 +596,13 @@ class PublicSshBootstrapContractTests(unittest.TestCase):
             "common_configured_ufw_rules_before_cleanup": {"stdout_lines": configured},
             "common_expected_inbound_ufw_rules": expected,
         }
-        templar = Templar(loader=DataLoader(), variables=variables)
-        loop = templar.template(trust_as_template(cleanup["loop"]))
+        loop = render(cleanup["loop"], variables)
         self.assertEqual(loop, stale + expected)
         self.assertEqual([rule for rule in loop if rule not in expected], stale)
 
         for rule in stale:
             with self.subTest(rule=rule):
-                templar = Templar(loader=DataLoader(), variables={**variables, "item": rule})
-                argv = templar.template(trust_as_template(cleanup["ansible.builtin.command"]["argv"]))
+                argv = render(cleanup["ansible.builtin.command"]["argv"], {**variables, "item": rule})
                 self.assertEqual(argv, ["ufw", "--force", "delete"] + rule.split()[1:])
 
     def test_one_cidr_validator_runs_before_remote_contact_and_firewall_mutation(self) -> None:
@@ -758,13 +757,8 @@ class AutomaticUpdateContractTests(unittest.TestCase):
         self.assertGreater(Path(copy["dest"]).name, "50unattended-upgrades")
         self.assertEqual(copy["validate"], "/usr/bin/apt-config -c %s dump")
 
+    @requires_ansible
     def test_effective_configuration_guard_rejects_wider_origins_reboot_or_mail(self) -> None:
-        try:
-            from ansible.parsing.dataloader import DataLoader
-            from ansible.template import Templar, trust_as_template
-        except ImportError:
-            self.skipTest("Install ansible/requirements.txt to verify the Ansible runtime")
-
         tasks = load_tasks("ansible/roles/common/tasks/automatic_updates.yml")
         guard = next(task for task in tasks if "ansible.builtin.assert" in task)
         self.assertEqual(guard["when"], "not ansible_check_mode")
@@ -784,17 +778,11 @@ class AutomaticUpdateContractTests(unittest.TestCase):
             ([line for line in effective if "Allowed-Origins::" not in line], False),
         ):
             with self.subTest(lines=lines):
-                templar = Templar(loader=DataLoader(), variables={
-                    "common_apt_config": {"stdout_lines": lines},
-                })
-                origins = templar.template(trust_as_template(guard["vars"]["common_unattended_origins"]))
-                templar = Templar(loader=DataLoader(), variables={
-                    "common_apt_config": {"stdout_lines": lines},
-                    "common_unattended_origins": origins,
-                })
-                results = [templar.evaluate_conditional(trust_as_template(condition))
-                           for condition in guard["ansible.builtin.assert"]["that"]]
-                self.assertIs(all(results), accepted)
+                registered = {"common_apt_config": {"stdout_lines": lines}}
+                origins = render(guard["vars"]["common_unattended_origins"], registered)
+                self.assertIs(passes(guard["ansible.builtin.assert"]["that"], {
+                    **registered, "common_unattended_origins": origins,
+                }), accepted)
 
     def test_k3s_is_not_an_apt_package(self) -> None:
         for path in sorted((ROOT / "ansible/roles/k3s/tasks").glob("*.yml")):
@@ -822,6 +810,17 @@ class JournaldContractTests(unittest.TestCase):
 
 # 자격증명·sudo·SSH 인증·K3s 보호 경계를 지키는 task가 리팩터링 중 빠지지 않게 한다.
 class SecurityCriticalTaskContractTests(unittest.TestCase):
+    def test_task_walk_reaches_block_rescue_and_always_children(self) -> None:
+        nested = [{"name": "outer", "no_log": True, "block": [
+            {"name": "body", "ansible.builtin.command": "true"},
+            {"name": "inner", "block": [{"name": "deep", "no_log": False}],
+             "rescue": [{"name": "recover"}], "always": [{"name": "cleanup"}]},
+        ]}, {"name": "plain"}]
+        self.assertEqual(
+            [(task["name"], task.get("no_log")) for task in leaf_tasks(nested)],
+            [("body", True), ("deep", False), ("recover", True), ("cleanup", True), ("plain", None)],
+        )
+
     def test_every_task_touching_effective_credentials_hides_its_output(self) -> None:
         credential = re.compile(r"\b\w*_effective_\w*(?:key|secret|token|password)\w*\b")
         touching = [(path, task) for path, task in all_tasks()
@@ -844,6 +843,7 @@ class SecurityCriticalTaskContractTests(unittest.TestCase):
                 self.assertEqual(arguments["validate"], "/usr/sbin/visudo -cf %s")
                 self.assertEqual(arguments["mode"], "0440")
 
+    @requires_ansible
     def test_shadowed_ssh_policy_is_rejected_before_reload(self) -> None:
         tasks = load_tasks("ansible/roles/ssh_access/tasks/main.yml")
         names = [task.get("name") for task in tasks]
@@ -855,31 +855,66 @@ class SecurityCriticalTaskContractTests(unittest.TestCase):
         self.assertEqual(guard["loop"], "{{ ssh_access_effective.results }}")
         self.assertEqual(guard["when"], "not ansible_check_mode")
         self.assertEqual(command_argv(effective)[:3], ["/usr/sbin/sshd", "-T", "-C"])
-        self.assertEqual(guard["ansible.builtin.assert"]["that"], [
-            "'passwordauthentication no' in item.stdout_lines",
-            "'kbdinteractiveauthentication no' in item.stdout_lines",
-            "'authenticationmethods publickey' in item.stdout_lines",
-            "'authorizedkeysfile /etc/ssh/authorized_keys/%u' in item.stdout_lines",
-            "not ssh_access_finalize or 'permitrootlogin no' in item.stdout_lines",
-            "'clientaliveinterval 60' in item.stdout_lines",
-            "'clientalivecountmax 3' in item.stdout_lines",
-            "item.item.role != 'db_tunnel' or 'maxsessions 0' in item.stdout_lines",
-            "item.item.role != 'db_tunnel' or 'allowtcpforwarding local' in item.stdout_lines",
-            "item.item.role != 'db_tunnel' or ('permitopen ' ~ (item.item.permit_open | join(' '))) in item.stdout_lines",
-        ])
 
+        role_vars = yaml.safe_load(
+            (ROOT / "ansible/roles/ssh_access/vars/main.yml").read_text(encoding="utf-8")
+        )
+        shared = [
+            "passwordauthentication no", "kbdinteractiveauthentication no",
+            "authenticationmethods publickey", "authorizedkeysfile /etc/ssh/authorized_keys/%u",
+            "permitrootlogin no", "clientaliveinterval 60", "clientalivecountmax 3",
+        ]
+        admin = {"name": "admin1", "role": "admin"}
+        tunnel = {"name": "backend1", "role": "db_tunnel", "permit_open": ["10.43.0.10:5432"]}
+        tunnel_lines = shared + ["allowtcpforwarding local", "maxsessions 0", "permitopen 10.43.0.10:5432"]
+        cases = [
+            (admin, shared + ["maxsessions 10", "permitopen any"], True, True),
+            (tunnel, tunnel_lines, True, True),
+            (admin, [line for line in shared if line != "permitrootlogin no"], False, True),
+            (tunnel, [line.replace("maxsessions 0", "maxsessions 10") for line in tunnel_lines], True, False),
+            (tunnel, [line.replace("10.43.0.10", "any") for line in tunnel_lines], True, False),
+        ]
+        # 유효 정책에서 필수 줄이 하나라도 빠지면 거부해야 한다.
+        cases += [(admin, [line for line in shared if line != missing], True, False) for missing in shared]
+        cases += [(tunnel, [line for line in tunnel_lines if line != missing], True, False)
+                  for missing in tunnel_lines]
+        for account, lines, finalize, accepted in cases:
+            with self.subTest(role=account["role"], finalize=finalize, lines=lines):
+                self.assertIs(passes(guard["ansible.builtin.assert"]["that"], {
+                    **role_vars, "ssh_access_finalize": finalize,
+                    "item": {"item": account, "stdout_lines": lines},
+                }), accepted)
+
+    @requires_ansible
     def test_k3s_secret_encryption_and_root_only_kubeconfig_are_enforced(self) -> None:
         tasks = load_tasks("ansible/roles/k3s/tasks/main.yml")
         encryption = next(task for task in tasks
                           if task.get("ansible.builtin.command") == "/usr/local/bin/k3s secrets-encrypt status")
-        condition = " ".join(encryption["failed_when"].split())
-        self.assertEqual(condition, "k3s_encryption_status.rc != 0 or 'Enabled' not in k3s_encryption_status.stdout")
+        self.assertEqual(encryption["register"], "k3s_encryption_status")
+        for rc, stdout, failed in (
+            (0, "Encryption Status: Enabled\nCurrent Rotation Stage: start", False),
+            (0, "Encryption Status: Disabled", True),
+            (1, "Encryption Status: Enabled", True),
+            (0, "", True),
+        ):
+            with self.subTest(rc=rc, stdout=stdout):
+                self.assertIs(passes(encryption["failed_when"], {
+                    "k3s_encryption_status": {"rc": rc, "stdout": stdout},
+                }), failed)
+
         kubeconfig = next(task for task in tasks if task.get("name") == "Require a root-only administrator kubeconfig")
-        self.assertEqual(kubeconfig["ansible.builtin.assert"]["that"], [
-            "k3s_kubeconfig.stat.exists",
-            "k3s_kubeconfig.stat.pw_name == 'root'",
-            "k3s_kubeconfig.stat.mode == '0600'",
-        ])
+        root_only = {"exists": True, "pw_name": "root", "mode": "0600"}
+        for stat, accepted in (
+            (root_only, True),
+            ({**root_only, "exists": False}, False),
+            ({**root_only, "pw_name": "ubuntu"}, False),
+            ({**root_only, "mode": "0644"}, False),
+            ({**root_only, "mode": "0640"}, False),
+        ):
+            with self.subTest(stat=stat):
+                self.assertIs(passes(kubeconfig["ansible.builtin.assert"]["that"], {
+                    "k3s_kubeconfig": {"stat": stat},
+                }), accepted)
         config = (ROOT / "ansible/roles/k3s/templates/config.yaml.j2").read_text(encoding="utf-8")
         self.assertIn("write-kubeconfig-mode: '0600'", config)
         self.assertIn("secrets-encryption: true", config)
