@@ -1,0 +1,16 @@
+---
+# PSA 기준 버전은 설치한 K3s의 Kubernetes minor에서 한 번만 만든다. v1.36.3+k3s1 → v1.36
+argocd_pod_security_version: "{{ k3s_version | regex_search('^v[0-9]+[.][0-9]+') }}"
+
+# Argo CD Pod는 chart 기본 securityContext로 restricted를 만족하지만 enforce는 하지 않는다.
+# warn·audit만 두어 chart 변경으로 위반이 생기면 설치를 막지 않고 경고와 감사 기록으로 알린다.
+argocd_namespace_manifest:
+  apiVersion: v1
+  kind: Namespace
+  metadata:
+    name: "{{ argocd_namespace }}"
+    labels:
+      pod-security.kubernetes.io/audit: restricted
+      pod-security.kubernetes.io/audit-version: "{{ argocd_pod_security_version }}"
+      pod-security.kubernetes.io/warn: restricted
+      pod-security.kubernetes.io/warn-version: "{{ argocd_pod_security_version }}"

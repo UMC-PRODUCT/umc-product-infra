@@ -213,6 +213,48 @@ class KubernetesApplyContractTests(unittest.TestCase):
             for task in namespace_applies:
                 self.assertIn("--server-side=true", command_argv(task), task["name"])
 
+    def test_argocd_namespace_psa_version_follows_k3s_and_never_enforces(self) -> None:
+        try:
+            from ansible.parsing.dataloader import DataLoader
+            from ansible.template import Templar, trust_as_template
+        except ImportError:
+            self.skipTest("Install ansible/requirements.txt to verify the Ansible runtime")
+
+        tasks = load_tasks("ansible/roles/argocd/tasks/main.yml")
+        namespace_tasks = [task for task in tasks if "namespace" in task["name"].lower()
+                           and command_argv(task)[2:3] in (["diff"], ["apply"])]
+        self.assertEqual(
+            [task["ansible.builtin.command"]["stdin"] for task in namespace_tasks],
+            ["{{ argocd_namespace_manifest | to_json }}"] * 2,
+        )
+        self.assertNotIn("v1.36", (ROOT / "ansible/roles/argocd/tasks/main.yml").read_text(encoding="utf-8"))
+
+        def trusted(value: object) -> object:
+            # Ansible은 role 파일의 문자열을 template으로 신뢰한다. YAML 직접 로드 값도 같게 맞춘다.
+            if isinstance(value, dict):
+                return {key: trusted(item) for key, item in value.items()}
+            return trust_as_template(value) if isinstance(value, str) else value
+
+        role_vars = trusted(yaml.safe_load((ROOT / "ansible/roles/argocd/vars/main.yml").read_text(encoding="utf-8")))
+        k3s_version = yaml.safe_load(
+            (ROOT / "ansible/roles/k3s/defaults/main.yml").read_text(encoding="utf-8")
+        )["k3s_version"]
+        expected_minor = ".".join(k3s_version.split(".")[:2])
+        for version, minor in ((k3s_version, expected_minor), ("v1.37.0+k3s1", "v1.37")):
+            with self.subTest(version=version):
+                templar = Templar(loader=DataLoader(), variables={
+                    **role_vars, "k3s_version": version, "argocd_namespace": "argocd",
+                })
+                manifest = templar.template(trust_as_template("{{ argocd_namespace_manifest }}"))
+                labels = manifest["metadata"]["labels"]
+                self.assertEqual(manifest["metadata"]["name"], "argocd")
+                self.assertEqual(labels, {
+                    "pod-security.kubernetes.io/audit": "restricted",
+                    "pod-security.kubernetes.io/audit-version": minor,
+                    "pod-security.kubernetes.io/warn": "restricted",
+                    "pod-security.kubernetes.io/warn-version": minor,
+                })
+
     def test_git_fixed_bootstrap_names_are_asserted(self) -> None:
         argocd_assert = load_tasks(
             "ansible/roles/argocd/tasks/main.yml"
