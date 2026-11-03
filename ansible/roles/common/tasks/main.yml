@@ -10,13 +10,19 @@
       - ansible_facts.architecture in ['x86_64', 'amd64']
     fail_msg: This bootstrap supports only x86_64 Ubuntu 22.04 or 24.04 hosts.
 
+# 패키지 설치 전에 needrestart와 자동 보안 업데이트 범위를 정한다.
+- name: Configure security-only automatic updates
+  ansible.builtin.import_tasks: automatic_updates.yml
+
 # HTTPS 다운로드·Helm values 처리·방화벽 관리에 필요한 패키지를 서버에 설치한다.
+# 자동 업데이트가 dpkg lock을 잡고 있으면 끝날 때까지 기다린다.
 - name: Install host prerequisites
   ansible.builtin.apt:
     name: "{{ common_packages }}"
     state: present
     update_cache: true
     cache_valid_time: 3600
+    lock_timeout: 600
 
 # 서버의 시간대 파일을 지정한 지역으로 연결해 운영 로그의 시간 해석을 일관되게 한다.
 - name: Link the host timezone data

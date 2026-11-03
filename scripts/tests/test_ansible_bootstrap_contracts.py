@@ -569,6 +569,80 @@ class PublicSshBootstrapContractTests(unittest.TestCase):
         self.assertEqual(probe["delegate_to"], "localhost")
 
 
+# 자동 업데이트는 보안 pocket만 받고 재부팅·메일·서비스 자동 재시작을 하지 않는다.
+class AutomaticUpdateContractTests(unittest.TestCase):
+    def test_apt_configuration_clears_defaults_and_allows_only_security(self) -> None:
+        config = (ROOT / "ansible/roles/common/files/unattended-upgrades.conf").read_text(encoding="utf-8")
+        self.assertIn("#clear Unattended-Upgrade::Allowed-Origins;", config)
+        self.assertIn("#clear Unattended-Upgrade::Origins-Pattern;", config)
+        origins = re.search(r"Unattended-Upgrade::Allowed-Origins \{(.*?)\};", config, re.S).group(1)
+        entries = re.findall(r'"([^"]+)";', origins)
+        self.assertTrue(entries)
+        self.assertTrue(all(entry.endswith("-security") for entry in entries), entries)
+        self.assertIn('Unattended-Upgrade::Automatic-Reboot "false";', config)
+        self.assertIn('Unattended-Upgrade::Mail "";', config)
+        needrestart = (ROOT / "ansible/roles/common/files/needrestart-list-only.conf").read_text(encoding="utf-8")
+        self.assertIn("$nrconf{restart} = 'l';", needrestart)
+
+    def test_configuration_precedes_package_installation_and_is_validated(self) -> None:
+        main = load_tasks("ansible/roles/common/tasks/main.yml")
+        imported = next(index for index, task in enumerate(main)
+                        if task.get("ansible.builtin.import_tasks") == "automatic_updates.yml")
+        install = next(index for index, task in enumerate(main) if "ansible.builtin.apt" in task)
+        self.assertLess(imported, install)
+        defaults = yaml.safe_load((ROOT / "ansible/roles/common/defaults/main.yml").read_text(encoding="utf-8"))
+        self.assertIn("unattended-upgrades", defaults["common_packages"])
+        tasks = load_tasks("ansible/roles/common/tasks/automatic_updates.yml")
+        apt_conf = next(task["ansible.builtin.copy"] for task in tasks
+                        if task.get("ansible.builtin.copy", {}).get("src") == "unattended-upgrades.conf")
+        # 50unattended-upgrades보다 뒤에 읽혀야 #clear가 기본 목록을 지운다.
+        self.assertGreater(Path(apt_conf["dest"]).name, "50unattended-upgrades")
+        self.assertEqual(apt_conf["validate"], "/usr/bin/apt-config -c %s dump")
+
+    def test_effective_configuration_guard_rejects_wider_origins_reboot_or_mail(self) -> None:
+        try:
+            from ansible.parsing.dataloader import DataLoader
+            from ansible.template import Templar, trust_as_template
+        except ImportError:
+            self.skipTest("Install ansible/requirements.txt to verify the Ansible runtime")
+
+        tasks = load_tasks("ansible/roles/common/tasks/automatic_updates.yml")
+        guard = next(task for task in tasks if "ansible.builtin.assert" in task)
+        self.assertEqual(guard["when"], "not ansible_check_mode")
+        effective = [
+            'APT::Periodic::Unattended-Upgrade "1";',
+            'Unattended-Upgrade::Allowed-Origins "";',
+            'Unattended-Upgrade::Allowed-Origins:: "${distro_id}:${distro_codename}-security";',
+            'Unattended-Upgrade::Automatic-Reboot "false";',
+            'Unattended-Upgrade::Mail "";',
+        ]
+        for lines, accepted in (
+            (effective, True),
+            (effective + ['Unattended-Upgrade::Allowed-Origins:: "${distro_id}:${distro_codename}-updates";'], False),
+            (effective + ['Unattended-Upgrade::Origins-Pattern:: "origin=Debian,codename=${distro_codename}";'], False),
+            ([line.replace('"false"', '"true"') for line in effective], False),
+            ([line.replace('Mail ""', 'Mail "root"') for line in effective], False),
+            ([line for line in effective if "Allowed-Origins::" not in line], False),
+        ):
+            with self.subTest(lines=lines):
+                templar = Templar(loader=DataLoader(), variables={
+                    "common_apt_config": {"stdout_lines": lines},
+                })
+                origins = templar.template(trust_as_template(guard["vars"]["common_unattended_origins"]))
+                templar = Templar(loader=DataLoader(), variables={
+                    "common_apt_config": {"stdout_lines": lines},
+                    "common_unattended_origins": origins,
+                })
+                results = [templar.evaluate_conditional(trust_as_template(condition))
+                           for condition in guard["ansible.builtin.assert"]["that"]]
+                self.assertIs(all(results), accepted)
+
+    def test_k3s_is_not_an_apt_package(self) -> None:
+        for path in sorted((ROOT / "ansible/roles/k3s/tasks").glob("*.yml")):
+            tasks = load_tasks(str(path.relative_to(ROOT)))
+            self.assertFalse(any("ansible.builtin.apt" in task for task in tasks), path)
+
+
 # 서버 상태를 바꾸는 kubectl 명령이 재실행 결과에서 변경 없음으로 숨지 않게 한다.
 class ChangeReportingContractTests(unittest.TestCase):
     def test_mutating_kubectl_commands_never_report_unchanged(self) -> None:

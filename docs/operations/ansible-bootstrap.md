@@ -233,8 +233,24 @@ UFW 기본 정책은 inbound deny, outbound allow다. `common`은 필요한 규�
 선언 밖 인바운드 `allow`·`limit` 규칙을 제거한다. 자동 해석하기 위험한 inbound deny/reject,
 route allow/limit, quoted application profile은 변경 전에 중단한다.
 
-공개키 인증은 개인 키 유출·OpenSSH 취약점·접속 폭주를 모두 해결하지 않는다. 보안 업데이트와
-SSH 인증 로그를 점검하고 계정 회수를 검증한다. 연결 제한이나 서버 UFW는 회선에 도달한 공격
+공개키 인증은 개인 키 유출·OpenSSH 취약점·접속 폭주를 모두 해결하지 않는다. SSH 인증 로그를
+점검하고 계정 회수를 검증한다.
+
+### 자동 보안 업데이트
+
+`common`은 `unattended-upgrades`가 Ubuntu 보안 pocket만 자동 설치하도록 설정한다. 자동 재부팅과
+메일은 끈다. K3s와 Helm은 apt 패키지가 아닌 고정 binary라 자동 업데이트 대상이 아니다.
+needrestart가 있으면 list-only로 두어 업데이트 뒤 서비스를 자동 재시작하지 않는다.
+OpenSSH 패키지 자체의 보안 업데이트는 패키지 스크립트가 sshd를 재시작하지만 기존 SSH 세션은 유지된다.
+
+커널·라이브러리 업데이트는 재부팅이나 서비스 재시작 전까지 반영되지 않는다. 정기 점검 때
+개인 관리자 SSH에서 다음을 확인하고, 필요하면 점검 시간에 직접 재부팅한다.
+
+```bash
+cat /var/run/reboot-required 2>/dev/null || echo "재부팅 필요 없음"
+sudo -n needrestart -r l -b
+sudo -n tail -n 20 /var/log/unattended-upgrades/unattended-upgrades.log
+``` 연결 제한이나 서버 UFW는 회선에 도달한 공격
 트래픽을 없애지 않으므로 대규모 DDoS·초과 과금 대응은 제공업체 정책과 별도로 검토한다.
 
 Route 53은 DNS만 제공하며 proxy나 방화벽이 아니다. public `80/tcp`는 DNS-01 인증에 필요하지

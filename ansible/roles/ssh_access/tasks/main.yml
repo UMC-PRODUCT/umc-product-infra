@@ -113,6 +113,7 @@
   ansible.builtin.apt:
     name: [openssh-server, sudo, ufw]
     state: present
+    lock_timeout: 600
 
 # 관리자와 DB 터널 계정의 권한을 구분할 Linux 그룹을 준비한다.
 - name: Create personal access groups
