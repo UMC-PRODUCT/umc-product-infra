@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate local worksheets and create the 30 AWS Secrets Manager sources."""
+"""Validate local worksheets and create the 33 AWS Secrets Manager sources."""
 
 from __future__ import annotations
 

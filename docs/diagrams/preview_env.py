@@ -42,16 +42,21 @@ def build(theme: dict) -> None:
 
         with Cluster("umc-product-server", graph_attr=ca):
             pr = Github("same-repo trusted PR #42\ndevelop 대상 · preview 라벨", fontcolor=fg)
-            build = GithubActions("선행 구현: trusted PR image CI\nauthor + head repo 검증", fontcolor=fg)
+            build = GithubActions("publish-preview CI\nauthor + head repo 검증\n라벨 시 admit: 최대 2", fontcolor=fg)
 
         image = Docker(
             "public GHCR\numc-product/umc-product-server\n:<PR head SHA 12자리>",
             fontcolor=fg,
         )
 
+        release = Github(
+            "umc-infra main\npreview-releases/pr-42.json\n마지막 성공 SHA · digest",
+            fontcolor=fg,
+        )
+
         with Cluster("선행 설치 · PR마다 반복하지 않음", graph_attr=ca):
             appset = Argocd(
-                "ApplicationSet\nPR label + targetBranch 필터\n120초 polling · CI 성공 필터 없음",
+                "ApplicationSet\nPR label + targetBranch 필터\n× 성공 기록 JSON · 120초 polling",
                 fontcolor=fg,
             )
             shared_secrets = Secret(
@@ -64,24 +69,24 @@ def build(theme: dict) -> None:
 
         with Cluster("k3s · namespace preview", graph_attr=ca):
             quota = Quota(
-                "preview-budget\nDeployment 최대 3 · Service 최대 5\n공용 Certificate 1",
+                "preview-budget\nDeployment 최대 2 · Service 최대 4\n공용 Certificate 1",
                 fontcolor=fg,
             )
             certificate = Secret(
                 "공용 wildcard Certificate\n*.university.neordinary.com\nPR 삭제 후에도 유지",
                 fontcolor=fg,
             )
-            with Cluster("활성화 후 PR별 리소스 · 현재 Deployment/Ingress gate: false", graph_attr=ca):
+            with Cluster("PR별 리소스 · ApplicationSet이 Deployment/Ingress 활성화", graph_attr=ca):
                 service = Service("umc-product-server-pr-42\nService quota로 자리 확보", fontcolor=fg)
                 ingress = Ingress(
                     "api-pr-42.university.neordinary.com\nExternalDNS exact record",
                     fontcolor=fg,
                 )
                 app = Deployment(
-                    "umc-product-server-pr-42\n1Gi · preview-lowest",
+                    "umc-product-server-pr-42\n2Gi request · 3Gi limit\npreview-lowest · Mailpit sidecar",
                     fontcolor=fg,
                 )
-                create_db = Job("createdb Job\numc_product_pr42", fontcolor=fg)
+                create_db = Job("createdb Job\numc_product_pr42 · dev 복사", fontcolor=fg)
                 delete_db = Job("PostDelete dropdb\nexact umc_product_pr42", fontcolor=fg)
 
             postgres = StatefulSet(
@@ -99,10 +104,9 @@ def build(theme: dict) -> None:
             color=MANUAL,
             fontcolor=MANUAL,
         ) >> pr
-        pr >> Edge(label="② 구현 필요: trusted build", color=RISK, fontcolor=RISK,
-                   style="dashed") >> build
-        build >> Edge(label="PR SHA tag 게시", color=RISK, fontcolor=RISK,
-                      style="dashed") >> image
+        pr >> Edge(label="② trusted build", color=AUTO, fontcolor=AUTO) >> build
+        build >> Edge(label="PR SHA tag 게시", color=AUTO, fontcolor=AUTO) >> image
+        build >> Edge(label="익명 pull 검증 후 기록", color=AUTO, fontcolor=AUTO) >> release
 
         appset >> Edge(
             label="③ PR 감지",
@@ -110,7 +114,13 @@ def build(theme: dict) -> None:
             fontcolor=AUTO,
             style="dashed",
         ) >> pr
-        appset >> Edge(label="④ Application 생성", color=AUTO, fontcolor=AUTO) >> application
+        appset >> Edge(
+            label="성공 기록 조회",
+            color=AUTO,
+            fontcolor=AUTO,
+            style="dashed",
+        ) >> release
+        appset >> Edge(label="④ 기록 있는 PR만\nApplication 생성", color=AUTO, fontcolor=AUTO) >> application
 
         application >> Edge(label="wave -2", color=AUTO, fontcolor=AUTO) >> service
         certificate >> Edge(label="preview-wildcard-tls", color=AUTO, fontcolor=AUTO) >> ingress

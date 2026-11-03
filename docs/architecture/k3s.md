@@ -1,6 +1,6 @@
 # 단일 IDC k3s 아키텍처 결정 기록
 
-상태: bootstrap 전.
+상태: 운영 중.
 
 이 문서는 왜 이 구조를 선택했는지와 재검토 조건을 기록한다. 실행 절차는 [문서 목차](../README.md), 위험 작업은 [runbooks](../runbooks/)에서 찾는다.
 
@@ -34,8 +34,8 @@
 | D15 | Prometheus 14d, Tempo 7d, Loki 90d | 초기 진단 가치와 단일 노드 disk 비용의 균형 | disk pressure 또는 규정 요구에 따라 조정 |
 | D16 | 관측 PVC는 local-path | 가장 단순한 초기 구성 | telemetry 내구성이 중요해지면 object storage 이전 |
 | D17 | Ingress는 edge 준비 전 기본 off | host가 확정돼도 인증서와 접근 정책 검증 전 외부 노출 방지 | Certificate Ready와 Route 53·direct HTTPS gate 검증 후 환경별 활성화 |
-| D18 | public GHCR을 익명 pull하고 prod/dev는 digest, Preview는 write-once head-SHA tag 고정 | credential 배포 없이 운영 불변성과 동적 PR image 선택을 함께 확보 | package를 private로 바꾸거나 registry admission을 도입할 때 재설계 |
-| D19 | backup CronJob은 restore 전 suspended | upload 성공을 복구 가능성으로 오인하지 않음 | 외부 restore와 RPO/RTO 기록 후 활성화 |
+| D18 | public GHCR을 익명 pull하고 prod/dev는 digest, Preview는 PR별 마지막 발행 성공 기록의 SHA tag·digest 고정 | credential 배포 없이 운영 불변성과 동적 PR image 선택을 함께 확보 | package를 private로 바꾸거나 registry admission을 도입할 때 재설계 |
+| D19 | prod backup CronJob은 2026-09-19부터 매일 실행하고 S3에 10일 보관. 노드 밖 restore 리허설은 아직 하지 않음 | 노드 소실 시 복구선을 먼저 확보하되, upload 성공을 복구 가능성으로 오인하지 않음 | 외부 restore와 RPO/RTO를 기록하면 이 행을 갱신하고, backup 장애 시 `suspend: true`로 되돌림 |
 | D20 | BE CI 연결 전 `deployment.enabled: false` | 아직 존재하지 않는 GHCR 계약으로 Pod가 반복 실패하지 않게 함 | trusted publish + digest PR 흐름 검증 후 환경별 활성화 |
 | D21 | prod/dev/PR API와 운영 도구별 exact host | 모바일 직접 호출과 환경 식별이 명확한 host 계약 | API gateway 또는 별도 cluster 도입 시 재검토 |
 | D22 | `university.neordinary.com` child zone을 Route 53으로 위임하고 exact record는 ExternalDNS가 관리 | DNS 권한과 workload record lifecycle 분리; Terraform은 사용하지 않음 | 상위 DNS 운영 주체나 도메인 변경 시 재검토 |
