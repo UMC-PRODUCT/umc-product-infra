@@ -665,8 +665,8 @@ def validate_target_gate(
 
 # 이전 generation의 Ready 상태를 재사용해 새 인증서 요청이 준비됐다고 판단하지 않게 한다.
 def validate_certificate_health_gate() -> None:
-    config = documents(ROOT / "manifests" / "cluster" / "argocd-health.yaml")[0]
-    health = config["data"]["resource.customizations.health.cert-manager.io_Certificate"]
+    values = documents(ROOT / "ansible" / "roles" / "argocd" / "files" / "argo-cd-values.yaml")[0]
+    health = values["configs"]["cm"]["resource.customizations.health.cert-manager.io_Certificate"]
     generation_guard = health.find(
         "condition.observedGeneration ~= obj.metadata.generation"
     )

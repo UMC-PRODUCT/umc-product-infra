@@ -31,7 +31,7 @@
 | D12 | 사용자 namespace default-deny + PSA restricted | lateral movement와 과도한 Pod 권한 축소 | FQDN egress 통제가 필요하면 Cilium/egress proxy 검토 |
 | D13 | management 9090은 cluster 내부 전용 | health 상세 endpoint 외부 노출 방지 | 별도 authenticated management plane 도입 시 변경 |
 | D14 | OTel Collector 단일 진입점 | 앱은 exporter backend를 몰라도 metrics/logs/traces 전송 | signal volume이 커지면 sampling/queue/storage 분리 |
-| D15 | Prometheus 14d, Tempo 7d, Loki 90d | 초기 진단 가치와 단일 노드 disk 비용의 균형 | disk pressure 또는 규정 요구에 따라 조정 |
+| D15 | Prometheus 14d, Tempo 7d, Loki 90d(dev 30d, Preview 7d) | 초기 진단 가치와 단일 노드 disk 비용의 균형 | disk pressure 또는 규정 요구에 따라 조정 |
 | D16 | 관측 PVC는 local-path | 가장 단순한 초기 구성 | telemetry 내구성이 중요해지면 object storage 이전 |
 | D17 | Ingress는 edge 준비 전 기본 off | host가 확정돼도 인증서와 접근 정책 검증 전 외부 노출 방지 | Certificate Ready와 Route 53·direct HTTPS gate 검증 후 환경별 활성화 |
 | D18 | public GHCR을 익명 pull하고 prod/dev는 digest, Preview는 write-once head-SHA tag 고정 | credential 배포 없이 운영 불변성과 동적 PR image 선택을 함께 확보 | package를 private로 바꾸거나 registry admission을 도입할 때 재설계 |

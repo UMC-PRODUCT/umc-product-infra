@@ -39,16 +39,54 @@ spec:
                   prefix: index_
                   period: 24h
           limits_config:
-            # 768Mi 단일 바이너리에서 장기간 집계의 분할 작업이 한꺼번에 실행되지 않게 한다.
+            # 1.5Gi 단일 바이너리에서 장기간 집계의 분할 작업이 한꺼번에 실행되지 않게 한다.
             max_query_parallelism: 2
             tsdb_max_query_parallelism: 2
             # 운영 로그 보유기간은 90일로 제한한다. local-path PVC 요청량은
             # 용량 상한이 아니므로 노드 디스크 사용량도 별도로 감시한다.
             retention_period: 2160h
+            # PR 로그는 PR이 닫히면 볼 일이 없고 dev는 재현 확인용이라 운영보다 짧게 둔다.
+            # selector는 OTLP service.name이 바뀐 stream label service_name이다.
+            retention_stream:
+              - selector: '{service_name=~"preview-umc-product-pr[0-9]+"}'
+                priority: 1
+                period: 168h
+              - selector: '{service_name="dev-umc-product"}'
+                priority: 1
+                period: 720h
             reject_old_samples: true
             reject_old_samples_max_age: 168h
             # OTLP logs의 resource attribute를 structured metadata로 받기 위해 필수
             allow_structured_metadata: true
+            # 9월 OOM 당시에도 tenant 상한은 Loki 기본값 4MB/s였다. 이 값을 올리지 않고 명시해
+            # chart·Loki 업그레이드로 상한이 조용히 바뀌지 않게 한다.
+            # 5Gi·90일 예산은 압축 후 하루 약 57MiB, 압축 전 평균 수 KB/s다. 아래 상한은 그
+            # 천 배 안팎이라 평상시 로그는 막지 않는다. 묶는 것은 ingester 유입 속도뿐이다.
+            # 4MB/s가 이어지면 디스크는 계속 차고, 보존기간은 오래된 데이터만 지운다.
+            # 4MB/s는 모든 환경을 합친 실제 상한이다. distributor는 push 하나를 통째로 검사해
+            # 429로 거부하는데 Collector는 모든 환경의 로그를 한 push에 섞어 보낸다. 그래서
+            # Preview가 폭주하면 운영 로그도 함께 거부될 수 있다. Preview 격리는 Collector에서
+            # 파이프라인을 나누거나 샘플링해야 한다.
+            # 초과분은 loki_discarded_samples_total로 남아 LokiDiscardedSamples 알림이 잡는다.
+            ingestion_rate_mb: 4
+            # push 하나가 burst보다 크면 통째로 거부된다. Collector batch에는
+            # send_batch_max_size가 없어 push 크기 상한이 없으므로 여유를 둔다.
+            ingestion_burst_size_mb: 16
+            # 1536KB/s를 넘는 stream은 shard_streams 기본값으로 자동 분할되고 이 상한은 shard마다
+            # 걸린다. 한 환경을 tenant 상한 아래로 묶지 못하고 shard 하나의 유입 속도만 제한한다.
+            per_stream_rate_limit: 2MB
+            per_stream_rate_limit_burst: 6MB
+            max_line_size: 64KB
+            max_line_size_truncate: true
+            # OTel appender는 exception.stacktrace를 structured metadata로 보낸다. 초과하면
+            # 줄 전체가 버려지므로 Spring stack trace가 들어가는 기본값 64KB를 유지한다.
+            max_structured_metadata_size: 64KB
+            max_global_streams_per_user: 2000
+          ingester:
+            wal:
+              # 기본 4GB는 container limit보다 커서 OOM 뒤 WAL 재생 중 다시 OOM이 날 수 있다.
+              # GOMEMLIMIT보다 낮게 두어 재생 중 이 크기에 닿으면 먼저 flush한다.
+              replay_memory_ceiling: 768MB
           querier:
             max_concurrent: 2
           compactor:
@@ -66,9 +104,10 @@ spec:
         singleBinary:
           replicas: 1
           extraEnv:
-            # Go heap 밖의 메모리 여유를 둔다. 강제 상한은 아래 container limit이다.
+            # limit의 약 80%에서 GC를 강하게 돌려 cgroup OOM kill 전에 heap을 줄인다.
+            # 나머지 약 20%는 Go heap 밖 메모리 여유다. 강제 상한은 아래 container limit이다.
             - name: GOMEMLIMIT
-              value: 512MiB
+              value: 1200MiB
           resources:
             requests: { cpu: 100m, memory: 512Mi }
             # 9/16 OOM 인시던트 임시 완화책으로 768Mi -> 1.5Gi 상향.

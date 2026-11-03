@@ -90,7 +90,7 @@ Git에 복구할 이미지를 반영하는 작업과 DB 복원은 따로 판단�
   2. Application이 없거나 삭제 실패(`DeletionError`) 상태인지 → PostDelete `dropdb` Job 로그를 보고 원인을 해결한 뒤 삭제를 재시도한다.
   3. 둘 다 아니면 PR이 닫혔는지 확인하고, 필요한 데이터가 없음을 확인한 뒤에만 이름을 다시 검증해 해당 DB 하나만 지운다.
 - Preview 버킷(`umc-product-preview-app-storage-*`)은 객체를 30일 뒤 Lifecycle로 지운다. dev 파일은 복사하지 않으므로
-  여기 있는 것은 PR 테스트 중 올린 파일뿐이다. prod·dev 버킷에는 만료 규칙이 없다.
+  여기 있는 것은 PR 테스트 중 올린 파일뿐이다. prod·dev 버킷은 현재 파일을 만료하지 않고, versioning으로 남긴 이전 버전만 30일 뒤 지운다.
   CloudFormation 변경은 preview 스택(`umc-product-preview-app-storage-s3`)에만 적용되도록 스택별로 확인한다.
 
 ### 메일 수집 (Mailpit)

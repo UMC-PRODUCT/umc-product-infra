@@ -10,11 +10,8 @@ common_packages:
   # kubernetes.core.helm이 대상 서버에서 values를 처리할 때 사용한다.
   - python3-yaml
   - ufw
-
-# 공인 SSH는 연결 빈도를 제한하고 HTTPS는 Traefik이 직접 수신한다.
-common_public_tcp_ports:
-  - 22
-  - 443
+  # 공인 SSH 서버의 보안 업데이트를 자동 설치한다. 범위는 tasks/automatic_updates.yml이 정한다.
+  - unattended-upgrades
 
 # access-only playbook은 k3s role을 로드하지 않아 공유 network 기본값도 필요하다.
 # 실제 inventory가 선언한 CIDR은 이 role default보다 우선한다.

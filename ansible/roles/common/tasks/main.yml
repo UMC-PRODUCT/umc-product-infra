@@ -10,27 +10,36 @@
       - ansible_facts.architecture in ['x86_64', 'amd64']
     fail_msg: This bootstrap supports only x86_64 Ubuntu 22.04 or 24.04 hosts.
 
-# 관리자 PC에서 공개 포트 선언이 22·443만 포함하는지 확인한다. 실제 방화벽 적용은 마지막에 한다.
-# 인증서 발급에 쓰는 DNS-01은 80/tcp가 필요하지 않아 공인 SSH와 HTTPS만 허용한다.
-- name: Require the public SSH and HTTPS contract before host mutation
-  ansible.builtin.assert:
-    that:
-      - common_public_tcp_ports == [22, 443]
-    fail_msg: >-
-      Only key-authenticated SSH on 22/tcp and direct HTTPS on 443/tcp are
-      allowed; 80, 5432, 6443, and every other public port must remain closed.
-  delegate_to: localhost
-  become: false
-  tags:
-    - preflight
+# needrestart가 설치된 서버에서만 설정 디렉터리를 찾는다. 없으면 자동 재시작 위험도 없다.
+- name: Inspect the needrestart configuration directory
+  ansible.builtin.stat:
+    path: /etc/needrestart/conf.d
+  register: common_needrestart_config
+
+# 아래 패키지 설치와 이후 자동 업데이트가 서비스를 재시작하지 않고 목록만 남기게 한다.
+# 패키지 설치보다 먼저 두어 이번 실행의 apt 작업에도 적용한다.
+- name: Keep needrestart in list-only mode
+  ansible.builtin.copy:
+    src: needrestart-list-only.conf
+    dest: /etc/needrestart/conf.d/99-umc-list-only.conf
+    owner: root
+    group: root
+    mode: '0644'
+  when: common_needrestart_config.stat.isdir | default(false)
 
 # HTTPS 다운로드·Helm values 처리·방화벽 관리에 필요한 패키지를 서버에 설치한다.
+# 자동 업데이트가 dpkg lock을 잡고 있으면 끝날 때까지 기다린다.
 - name: Install host prerequisites
   ansible.builtin.apt:
     name: "{{ common_packages }}"
     state: present
     update_cache: true
     cache_valid_time: 3600
+    lock_timeout: 600
+
+# unattended-upgrades 설치 뒤 보안 전용 범위를 설정·검증하고 마지막에 timer를 켠다.
+- name: Configure security-only automatic updates
+  ansible.builtin.import_tasks: automatic_updates.yml
 
 # 서버의 시간대 파일을 지정한 지역으로 연결해 운영 로그의 시간 해석을 일관되게 한다.
 - name: Link the host timezone data
@@ -50,6 +59,25 @@
     owner: root
     group: root
     mode: '0644'
+
+# journald drop-in 디렉터리를 준비한다. 기본 journald.conf는 수정하지 않는다.
+- name: Ensure the journald drop-in directory exists
+  ansible.builtin.file:
+    path: /etc/systemd/journald.conf.d
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+
+# 호스트 journal 전체를 1G로 제한한다. 컨테이너 로그 회전은 K3s kubelet 설정이 따로 맡는다.
+- name: Limit the persistent systemd journal size
+  ansible.builtin.copy:
+    src: journald-size.conf
+    dest: /etc/systemd/journald.conf.d/50-umc-size.conf
+    owner: root
+    group: root
+    mode: '0644'
+  notify: Restart systemd-journald
 
 # 현재 켜진 스왑을 조회한다. 이 구성은 스왑 없이 K3s를 운영하므로 켜져 있을 때만 해제한다.
 - name: Inspect active swap devices

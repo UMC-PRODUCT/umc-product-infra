@@ -5,10 +5,12 @@
     that:
       - argocd_namespace == 'argocd'
       - argocd_helm_release_name == 'argocd'
+      - argocd_pod_security_version is match('^v[0-9]+[.][0-9]+$')
     fail_msg: >-
       This repository's manifests and rollout checks require the argocd
-      namespace and Helm release name. Update every consumer together instead
-      of overriding these role defaults.
+      namespace and Helm release name, and Pod Security labels need a
+      Kubernetes minor derived from k3s_version. Update every consumer
+      together instead of overriding these role defaults.
 
 # 대상 서버에서 Namespace와 Pod Security 경고·감사 label의 차이를 확인한다.
 # diff 반환값 0은 동일, 1은 차이이며 둘 다 정상이다. 실제 반영은 다음 task에서 한다.
@@ -22,15 +24,7 @@
       - --field-manager=umc-ansible-bootstrap
       - -f
       - '-'
-    stdin: >-
-      {{ {'apiVersion': 'v1', 'kind': 'Namespace',
-          'metadata': {'name': argocd_namespace,
-                       'labels': {
-                         'pod-security.kubernetes.io/audit': 'restricted',
-                         'pod-security.kubernetes.io/audit-version': 'v1.36',
-                         'pod-security.kubernetes.io/warn': 'restricted',
-                         'pod-security.kubernetes.io/warn-version': 'v1.36'
-                       }}} | to_json }}
+    stdin: "{{ argocd_namespace_manifest | to_json }}"
   register: argocd_namespace_diff
   changed_when: false
   failed_when: argocd_namespace_diff.rc not in [0, 1]
@@ -47,15 +41,7 @@
       - --field-manager=umc-ansible-bootstrap
       - -f
       - '-'
-    stdin: >-
-      {{ {'apiVersion': 'v1', 'kind': 'Namespace',
-          'metadata': {'name': argocd_namespace,
-                       'labels': {
-                         'pod-security.kubernetes.io/audit': 'restricted',
-                         'pod-security.kubernetes.io/audit-version': 'v1.36',
-                         'pod-security.kubernetes.io/warn': 'restricted',
-                         'pod-security.kubernetes.io/warn-version': 'v1.36'
-                       }}} | to_json }}
+    stdin: "{{ argocd_namespace_manifest | to_json }}"
   when: argocd_namespace_diff.rc == 1
   changed_when: true
 
@@ -210,6 +196,8 @@
     release_state: present
     reset_values: true
     server_side: "true"
+    # 이 release의 객체는 Helm values만 소유한다. 다른 field manager가 같은 필드를 가져도 항상 values로 덮어쓴다.
+    force_conflicts: true
     atomic: true
     wait: true
     timeout: "{{ argocd_helm_release_timeout }}"
@@ -263,44 +251,6 @@
       - '-'
     stdin: "{{ lookup('ansible.builtin.file', argocd_projects_manifest_path) }}"
   when: argocd_projects_manifest_diff.rc == 1
-  changed_when: true
-
-# 제어 노드의 사용자 정의 health gate와 서버 상태를 비교한다. diff 0=동일, 1=차이만 정상이다.
-# 이 설정은 child Application과 Secret 준비 상태를 root의 Healthy 판정에 전달한다.
-- name: Compare the Argo CD health gates with Git
-  ansible.builtin.command:
-    argv:
-      - /usr/local/bin/k3s
-      - kubectl
-      - diff
-      - --server-side=true
-      - --force-conflicts
-      - --field-manager=umc-ansible-argocd-health
-      - -n
-      - "{{ argocd_namespace }}"
-      - -f
-      - '-'
-    stdin: "{{ lookup('ansible.builtin.file', argocd_health_manifest_path) }}"
-  register: argocd_health_manifest_diff
-  changed_when: false
-  failed_when: argocd_health_manifest_diff.rc not in [0, 1]
-
-# 차이가 있으면 root를 만들기 전에 health gate를 적용해 하위 리소스가 미준비인데 Healthy가 되는 것을 막는다.
-- name: Reconcile the Argo CD health gates before the root Application
-  ansible.builtin.command:
-    argv:
-      - /usr/local/bin/k3s
-      - kubectl
-      - apply
-      - --server-side=true
-      - --force-conflicts
-      - --field-manager=umc-ansible-argocd-health
-      - -n
-      - "{{ argocd_namespace }}"
-      - -f
-      - '-'
-    stdin: "{{ lookup('ansible.builtin.file', argocd_health_manifest_path) }}"
-  when: argocd_health_manifest_diff.rc == 1
   changed_when: true
 
 # ApplicationSet controller·repo server·API server의 rollout 완료를 확인해 core 기동 실패를 잡는다.
