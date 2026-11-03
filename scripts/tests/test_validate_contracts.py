@@ -24,6 +24,7 @@ from validate_contracts import (
     pod_resource_totals,
     preview_cert_manager_resources,
     validate_app_storage_contract,
+    validate_backup_role,
     validate_cloudformation_tags,
     validate_edge_protection,
     validate_external_dns_record_names,
@@ -653,3 +654,54 @@ class ExternalDnsRecordNameTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+# backup role에 추가 권한·다른 dump 옵션·예약 실행·앞선 wave 차단이 다시 들어오면 실패해야 한다.
+class BackupRoleContractTest(unittest.TestCase):
+    def setUp(self) -> None:
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        self.prod = Path(directory.name) / "prod"
+        shutil.copytree(REPOSITORY_ROOT / "manifests/postgres/prod", self.prod)
+
+    def replace(self, filename: str, old: str, new: str) -> None:
+        path = self.prod / filename
+        text = path.read_text(encoding="utf-8")
+        self.assertEqual(text.count(old), 1, old)
+        path.write_text(text.replace(old, new), encoding="utf-8")
+
+    def assert_rejected(self, message: str) -> None:
+        with self.assertRaisesRegex(SystemExit, message):
+            validate_backup_role(self.prod)
+
+    def test_accepts_repository_manifests(self) -> None:
+        validate_backup_role(self.prod)
+
+    def test_rejects_extra_privilege_for_backup_role(self) -> None:
+        self.replace(
+            "postgres-backup-role-job.yaml",
+            "GRANT pg_read_all_data TO umc_product_backup;",
+            "GRANT pg_read_all_data TO umc_product_backup;\n"
+            "              GRANT pg_write_all_data TO umc_product_backup;",
+        )
+        self.assert_rejected("backup role must be read-only")
+
+    def test_rejects_check_with_different_pg_dump_options(self) -> None:
+        self.replace(
+            "backup-role-check-cronjob.yaml",
+            'pg_dump -Fc --lock-wait-timeout=5min -f "$backup_file"',
+            'pg_dump -Fc --no-owner --lock-wait-timeout=5min -f "$backup_file"',
+        )
+        self.assert_rejected("same image and pg_dump options")
+
+    def test_rejects_scheduled_check(self) -> None:
+        self.replace("backup-role-check-cronjob.yaml", "suspend: true", "suspend: false")
+        self.assert_rejected("manual Job")
+
+    def test_rejects_role_job_that_can_block_a_later_wave(self) -> None:
+        self.replace(
+            "postgres-backup-role-job.yaml",
+            'argocd.argoproj.io/sync-wave: "5"',
+            'argocd.argoproj.io/sync-wave: "3"',
+        )
+        self.assert_rejected("must sync last")
