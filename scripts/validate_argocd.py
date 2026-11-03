@@ -32,6 +32,46 @@ EXPECTED_CRDS = {
 PUBLIC_HOST = "argo.university.neordinary.com"
 PUBLIC_TARGET = "1.255.226.166"
 ACCESS_DIR = ROOT / "manifests" / "argocd-access"
+GITOPS_DIRS = ("bootstrap", "argocd", "manifests")
+EXPECTED_HEALTH_KEYS = {
+    f"resource.customizations.health.{group_kind}"
+    for group_kind in (
+        "argoproj.io_Application",
+        "monitoring.coreos.com_Alertmanager",
+        "external-secrets.io_SecretStore",
+        "external-secrets.io_ExternalSecret",
+        "cert-manager.io_Certificate",
+        "cert-manager.io_ClusterIssuer",
+    )
+}
+
+
+def gitops_documents() -> list[dict]:
+    return [
+        item
+        for directory in GITOPS_DIRS
+        for path in sorted((ROOT / directory).rglob("*.yaml"))
+        for item in yaml.safe_load_all(path.read_text(encoding="utf-8"))
+        if isinstance(item, dict)
+    ]
+
+
+# argocd-cm은 Helm release만 소유한다. GitOps가 같은 ConfigMap을 다시 선언하면 두 적용 방식이 경쟁한다.
+def validate_config_owner(documents: list[dict], gitops: list[dict]) -> None:
+    config = next(
+        item.get("data", {}) for item in documents
+        if item.get("kind") == "ConfigMap" and item["metadata"]["name"] == "argocd-cm"
+    )
+    health = {key for key, value in config.items() if key.startswith("resource.customizations.health.") and value}
+    require(
+        health == EXPECTED_HEALTH_KEYS,
+        f"Helm argocd-cm must carry exactly the reviewed health gates, diff {sorted(health ^ EXPECTED_HEALTH_KEYS)}",
+    )
+    owners = [
+        item for item in gitops
+        if item.get("kind") == "ConfigMap" and item.get("metadata", {}).get("name") == "argocd-cm"
+    ]
+    require(not owners, "argocd-cm must be owned only by the Ansible Helm release, not GitOps manifests")
 
 
 # 인증서와 격리 정책이 Ingress보다 먼저 적용되고, 허용한 출발지·포트만 열리는지 검사한다.
@@ -287,6 +327,7 @@ def main(output_dir: Path) -> None:
         ]
     validate_access_release(documents)
     validate_access_source()
+    validate_config_owner(documents, gitops_documents())
     require(
         "argocd.example.com" not in rendered_path.read_text(encoding="utf-8"),
         "chart example domain leaked into rendered resources",

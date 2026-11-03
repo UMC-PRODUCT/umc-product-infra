@@ -6,8 +6,8 @@ K3s 위에 Argo CD core를 고정된 Helm 버전과 차트로 설치하고, GitO
 
 1. `argocd` namespace를 만들고 Pod Security 경고·감사 정책을 설정한다.
 2. checksum으로 검증한 Helm 바이너리와 Argo CD 차트를 내려받는다.
-3. 검토된 `argo-cd-values.yaml`로 Helm release를 설치하거나 갱신한다.
-4. root Application보다 먼저 AppProject와 custom health 설정을 적용한다.
+3. 검토된 `argo-cd-values.yaml`로 Helm release를 설치하거나 갱신한다. `argocd-cm`의 custom health 설정도 이 values의 `configs.cm`에 있다.
+4. root Application보다 먼저 AppProject를 적용한다.
 5. Argo CD의 주요 Deployment와 application controller가 준비될 때까지 기다린다.
 
 `tasks/root_app.yml`은 일반 작업과 분리되어 있다. `external_secrets_bootstrap`이 secret-zero를 만든 뒤 `bootstrap.yml`의 post-task에서 실행되며, root Application이 `Synced`와 `Healthy`가 될 때까지 기다린다.
@@ -47,5 +47,6 @@ URL, checksum, 다운로드 경로와 Git manifest 경로는 `defaults/main.yml`
 - 이 역할은 `k3s`와 root 전용 kubeconfig에 의존하며 제어 노드에는 `kubernetes.core` collection이 필요하다.
 - namespace와 release 이름은 Git manifest와 rollout 대상 이름에도 쓰이므로 이 역할에서만 override할 수 없다.
 - Helm, 차트, Argo CD 버전과 checksum, values는 호환성을 확인해 한 묶음으로 갱신한다.
+- `argocd-cm`은 이 Helm release만 소유한다. health 규칙을 바꾸면 Git merge만으로 반영되지 않으므로 `bootstrap.yml`을 다시 실행한다. `manifests/`에 `argocd-cm`을 두면 `validate_argocd.py`가 실패한다.
 - core values는 Argo CD의 canonical HTTPS URL과 내부 HTTP backend를 설정한다. 공개 Certificate·Ingress·server NetworkPolicy는 별도 `argocd-access` Application이 관리하며, [공개 접속 순서](../../../docs/operations/domains-tls.md#argo-cd-공개-https)에 따라 적용한다.
 - 기존 raw manifest 설치를 Helm이 바로 인수하는 마이그레이션은 다루지 않는다. 새 클러스터 bootstrap을 전제로 한다.

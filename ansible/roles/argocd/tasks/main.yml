@@ -210,6 +210,8 @@
     release_state: present
     reset_values: true
     server_side: "true"
+    # argocd-cm health 설정을 예전에 적용한 field manager가 남아 있어도 values를 기준으로 덮어쓴다.
+    force_conflicts: true
     atomic: true
     wait: true
     timeout: "{{ argocd_helm_release_timeout }}"
@@ -263,44 +265,6 @@
       - '-'
     stdin: "{{ lookup('ansible.builtin.file', argocd_projects_manifest_path) }}"
   when: argocd_projects_manifest_diff.rc == 1
-  changed_when: true
-
-# 제어 노드의 사용자 정의 health gate와 서버 상태를 비교한다. diff 0=동일, 1=차이만 정상이다.
-# 이 설정은 child Application과 Secret 준비 상태를 root의 Healthy 판정에 전달한다.
-- name: Compare the Argo CD health gates with Git
-  ansible.builtin.command:
-    argv:
-      - /usr/local/bin/k3s
-      - kubectl
-      - diff
-      - --server-side=true
-      - --force-conflicts
-      - --field-manager=umc-ansible-argocd-health
-      - -n
-      - "{{ argocd_namespace }}"
-      - -f
-      - '-'
-    stdin: "{{ lookup('ansible.builtin.file', argocd_health_manifest_path) }}"
-  register: argocd_health_manifest_diff
-  changed_when: false
-  failed_when: argocd_health_manifest_diff.rc not in [0, 1]
-
-# 차이가 있으면 root를 만들기 전에 health gate를 적용해 하위 리소스가 미준비인데 Healthy가 되는 것을 막는다.
-- name: Reconcile the Argo CD health gates before the root Application
-  ansible.builtin.command:
-    argv:
-      - /usr/local/bin/k3s
-      - kubectl
-      - apply
-      - --server-side=true
-      - --force-conflicts
-      - --field-manager=umc-ansible-argocd-health
-      - -n
-      - "{{ argocd_namespace }}"
-      - -f
-      - '-'
-    stdin: "{{ lookup('ansible.builtin.file', argocd_health_manifest_path) }}"
-  when: argocd_health_manifest_diff.rc == 1
   changed_when: true
 
 # ApplicationSet controller·repo server·API server의 rollout 완료를 확인해 core 기동 실패를 잡는다.

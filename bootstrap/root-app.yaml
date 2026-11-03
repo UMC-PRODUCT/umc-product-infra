@@ -1,7 +1,7 @@
 # app-of-apps 루트 — Ansible이 AppProject를 먼저 적용한 뒤 생성한다.
 # root만 단독 apply하면 bootstrap project가 없어 sync할 수 없다.
 # 이후 argocd/ 아래 AppProject와 Application들이 자동 생성·동기화된다.
-# 자식의 sync-wave 순서는 manifests/cluster/argocd-health.yaml의 health 전달과 함께 동작한다.
+# 자식의 sync-wave 순서는 Argo CD Helm values(configs.cm)의 health 전달과 함께 동작한다.
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:

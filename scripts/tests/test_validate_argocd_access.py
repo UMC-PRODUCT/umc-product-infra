@@ -11,7 +11,10 @@ import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from validate_argocd import ACCESS_DIR, PUBLIC_HOST, validate_access_manifests, validate_access_release
+from validate_argocd import (
+    ACCESS_DIR, EXPECTED_HEALTH_KEYS, PUBLIC_HOST, VALUES_PATH,
+    validate_access_manifests, validate_access_release, validate_config_owner,
+)
 
 
 # 공개 경로를 변형해 TLS·적용 순서·NetworkPolicy 출발지 제한의 우회를 거부하는지 확인한다.
@@ -123,6 +126,30 @@ class AccessReleaseTest(unittest.TestCase):
         self.template["spec"]["hostNetwork"] = True
         with self.assertRaisesRegex(SystemExit, "without host networking"):
             validate_access_release(self.documents)
+
+
+# health gate가 Helm values에서 빠지거나 GitOps manifest가 argocd-cm을 다시 소유하면 거부한다.
+class ConfigOwnerTest(unittest.TestCase):
+    def setUp(self) -> None:
+        values = yaml.safe_load(VALUES_PATH.read_text(encoding="utf-8"))
+        data = {key: str(value) for key, value in values["configs"]["cm"].items()}
+        self.documents = [{"kind": "ConfigMap", "metadata": {"name": "argocd-cm"}, "data": data}]
+
+    def test_reviewed_values_are_valid(self) -> None:
+        validate_config_owner(self.documents, [])
+
+    def test_missing_health_gate_is_rejected(self) -> None:
+        for key in sorted(EXPECTED_HEALTH_KEYS):
+            with self.subTest(key=key):
+                original = self.documents[0]["data"].pop(key)
+                with self.assertRaisesRegex(SystemExit, "reviewed health gates"):
+                    validate_config_owner(self.documents, [])
+                self.documents[0]["data"][key] = original
+
+    def test_gitops_argocd_cm_is_rejected(self) -> None:
+        gitops = [{"kind": "ConfigMap", "metadata": {"name": "argocd-cm", "namespace": "argocd"}}]
+        with self.assertRaisesRegex(SystemExit, "owned only by the Ansible Helm release"):
+            validate_config_owner(self.documents, gitops)
 
 
 if __name__ == "__main__":
