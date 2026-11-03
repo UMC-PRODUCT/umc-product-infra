@@ -3,14 +3,17 @@
 
 from __future__ import annotations
 
+import shutil
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from validate_edge_platform import validate_target_gate
+import validate_edge_platform
+from validate_edge_platform import validate_preview_wildcard_certificate, validate_target_gate
 
 
 # 단일 공인 IDC 주소만 DNS 필터와 Grafana에 함께 허용하고 넓은 CIDR·사설·테스트 주소는 거부한다.
@@ -65,6 +68,51 @@ class TargetGateTest(unittest.TestCase):
                 SystemExit, "IDC target must be a public IPv4"
             ):
                 self.validate(f"{target}/32")
+
+
+# 공개 CA Certificate는 중앙 wildcard 하나뿐이다. namespaced ACME Issuer로 두 번째 공개 인증서를 만들 수 없어야 한다.
+class PreviewCertificateSetTest(unittest.TestCase):
+    def setUp(self) -> None:
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.root = Path(temporary.name)
+        shutil.copytree(
+            validate_edge_platform.ROOT / "manifests" / "cert-manager",
+            self.root / "manifests" / "cert-manager",
+        )
+
+    def validate(self, extra: str = "") -> None:
+        (self.root / "manifests" / "cert-manager" / "extra.yaml").write_text(extra)
+        with patch("validate_edge_platform.ROOT", self.root):
+            validate_preview_wildcard_certificate()
+
+    def test_accepts_repository_certificates(self) -> None:
+        self.validate()
+
+    def test_rejects_namespaced_acme_issuer(self) -> None:
+        with self.assertRaisesRegex(SystemExit, "namespaced Issuers must be selfSigned"):
+            self.validate("""
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata: {name: acme, namespace: preview}
+spec:
+  acme:
+    server: https://acme-v02.api.letsencrypt.org/directory
+    privateKeySecretRef: {name: acme-account}
+    solvers: [{http01: {ingress: {}}}]
+""")
+
+    def test_rejects_extra_certificate_from_namespaced_issuer(self) -> None:
+        with self.assertRaisesRegex(SystemExit, "only the wildcard and Mailpit loopback"):
+            self.validate("""
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata: {name: preview-api, namespace: preview}
+spec:
+  secretName: preview-api-tls
+  dnsNames: [api.university.neordinary.com]
+  issuerRef: {group: cert-manager.io, kind: Issuer, name: preview-selfsigned}
+""")
 
 
 if __name__ == "__main__":

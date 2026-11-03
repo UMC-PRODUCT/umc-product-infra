@@ -503,15 +503,29 @@ def validate_preview_wildcard_certificate() -> str:
         item for item in documents(certificate_path) if item.get("kind") == "Certificate"
     ]
     require(len(file_certificates) == 1, "preview: one wildcard Certificate in manifest")
-    all_certificates = [
+    cert_manager_resources = [
         item
         for path in sorted((ROOT / "manifests" / "cert-manager").glob("*.yaml"))
         for item in documents(path)
-        if item.get("kind") == "Certificate"
     ]
+    # 공개 CA 발급은 ClusterIssuer로만 한다. namespaced Issuer는 Mailpit loopback용 자체 서명뿐이다.
     require(
-        len(all_certificates) == 1,
-        "preview: cert-manager manifests must own one central Certificate",
+        all(
+            item.get("spec") == {"selfSigned": {}}
+            for item in cert_manager_resources
+            if item.get("kind") == "Issuer"
+        ),
+        "preview: namespaced Issuers must be selfSigned",
+    )
+    # loopback Certificate의 내용은 validate_contracts.py가 검사한다.
+    require(
+        sorted(
+            item.get("metadata", {}).get("name")
+            for item in cert_manager_resources
+            if item.get("kind") == "Certificate"
+        )
+        == ["preview-mail-capture-loopback", "preview-wildcard"],
+        "preview: cert-manager manifests must own only the wildcard and Mailpit loopback Certificates",
     )
 
     certificate = file_certificates[0]
@@ -693,6 +707,7 @@ def validate_project_boundaries() -> None:
             ("apps", "Deployment"),
             ("batch", "Job"),
             ("cert-manager.io", "Certificate"),
+            ("cert-manager.io", "Issuer"),
             ("rbac.authorization.k8s.io", "Role"),
             ("rbac.authorization.k8s.io", "RoleBinding"),
         },

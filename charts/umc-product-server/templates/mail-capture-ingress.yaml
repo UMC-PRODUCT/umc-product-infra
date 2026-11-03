@@ -11,6 +11,10 @@ Preview 메일 수집함(Mailpit) UI를 PR별 host로 연다. 문서·test API�
 {{- fail "mailCapture.uiHost는 공용 wildcard 인증서가 덮는 *.university.neordinary.com이어야 함" }}
 {{- end }}
 {{- $secretName := required "mailCapture.ui.basicAuth.existingSecret이 필수" .Values.mailCapture.ui.basicAuth.existingSecret }}
+{{- if ne (len .Values.ingress.tls) 1 }}
+{{- fail "mailCapture.enabled=true이면 공용 wildcard Secret을 담은 ingress.tls 항목이 정확히 하나여야 함" }}
+{{- end }}
+{{- $tlsSecretName := required "mailCapture.enabled=true이면 ingress.tls[0].secretName이 필수" (index .Values.ingress.tls 0).secretName }}
 {{- $middlewareName := printf "%s-mail-basic-auth" (include "umc-product-server.fullname" .) }}
 ---
 apiVersion: traefik.io/v1alpha1
@@ -53,5 +57,6 @@ spec:
                   name: mail-ui
   tls:
     - hosts: [{{ $host | quote }}]
-      secretName: {{ .Values.mailCapture.tlsSecret | quote }}
+      # API·문서 Ingress와 같은 공용 wildcard Secret이다. Mailpit SMTP 인증서와 분리한다.
+      secretName: {{ $tlsSecretName | quote }}
 {{- end }}

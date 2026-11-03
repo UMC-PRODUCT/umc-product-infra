@@ -9,6 +9,7 @@ import re
 import subprocess
 import sys
 from pathlib import Path
+from typing import NamedTuple
 
 import yaml
 
@@ -48,6 +49,12 @@ FCM_REQUIRED_SECRETS = [*BASE_REQUIRED_SECRETS, "app-fcm"]
 BASE_RELOADER_SECRETS = ["app-oauth", "app-storage", "app-email"]
 FCM_RELOADER_SECRETS = [*BASE_RELOADER_SECRETS, "app-fcm"]
 RELOADER_TRIGGER_ANNOTATION = "secret.reloader.stakater.com/reload"
+MAIL_CAPTURE_SMTP_HOST = "smtp-capture.university.neordinary.com"
+MAIL_CAPTURE_TLS_SECRET = "preview-mail-capture-loopback-tls"
+MAIL_CAPTURE_JAVA_TOOL_OPTIONS = (
+    "-Djavax.net.ssl.trustStore=/truststore/cacerts "
+    "-Djavax.net.ssl.trustStorePassword=changeit"
+)
 RELOADER_RUNTIME_POINTER = (
     "/spec/template/metadata/annotations/"
     "reloader.stakater.com~1last-reloaded-from"
@@ -842,6 +849,147 @@ def resource(resources: list[dict], kind: str) -> dict:
     return matches[0]
 
 
+class SecretReference(NamedTuple):
+    # None이면 어떤 container도 마운트하지 않은 Pod volume이다.
+    container: str | None
+    secret: str
+    # None이면 Secret의 모든 key를 받는다.
+    keys: frozenset[str] | None
+
+
+def secret_items(source: dict) -> frozenset[str] | None:
+    items = source.get("items")
+    return frozenset(item["key"] for item in items) if items else None
+
+
+def volume_secrets(volume: dict) -> list[tuple[str, frozenset[str] | None]]:
+    if "secret" in volume:
+        return [(volume["secret"]["secretName"], secret_items(volume["secret"]))]
+    return [
+        (source["secret"]["name"], secret_items(source["secret"]))
+        for source in volume.get("projected", {}).get("sources", [])
+        if "secret" in source
+    ]
+
+
+def pod_secret_references(pod: dict) -> list[SecretReference]:
+    containers = [*pod.get("initContainers", []), *pod["containers"]]
+    references = []
+    for volume in pod.get("volumes", []):
+        readers = [
+            container["name"]
+            for container in containers
+            if any(mount["name"] == volume["name"] for mount in container.get("volumeMounts", []))
+        ] or [None]
+        references += [
+            SecretReference(reader, secret, keys)
+            for reader in readers
+            for secret, keys in volume_secrets(volume)
+        ]
+    for container in containers:
+        for source in container.get("envFrom", []):
+            if "secretRef" in source:
+                references.append(
+                    SecretReference(container["name"], source["secretRef"]["name"], None)
+                )
+        for item in container.get("env", []):
+            reference = item.get("valueFrom", {}).get("secretKeyRef")
+            if reference:
+                references.append(SecretReference(
+                    container["name"], reference["name"], frozenset({reference["key"]})
+                ))
+    return references
+
+
+def preview_cert_manager_resources() -> list[dict]:
+    return [
+        item
+        for path in sorted((ROOT / "manifests" / "cert-manager").glob("*.yaml"))
+        for item in yaml_documents(path)
+        if item.get("metadata", {}).get("namespace") == "preview"
+    ]
+
+
+# 공개 wildcard 키는 Traefik만 읽는다. PR Pod에는 loopback 이름만 담은 자체 서명 키를 Mailpit에만 준다.
+def validate_preview_mail_capture_tls(
+    resources: list[dict], cert_manager_resources: list[dict]
+) -> None:
+    pod = resource(resources, "Deployment")["spec"]["template"]["spec"]
+    certificates = [item for item in cert_manager_resources if item["kind"] == "Certificate"]
+    wildcard_secrets = {
+        item["spec"]["secretName"]
+        for item in certificates
+        if any(name.startswith("*.") for name in item["spec"]["dnsNames"])
+    }
+    require(bool(wildcard_secrets), "preview: shared wildcard Certificate must exist")
+    references = pod_secret_references(pod)
+    leaked = {item.secret for item in references} & wildcard_secrets
+    require(
+        not leaked,
+        f"preview: Deployment must not reference wildcard TLS Secret {sorted(leaked)}",
+    )
+
+    loopback = [
+        item for item in certificates if item["spec"]["dnsNames"] == [MAIL_CAPTURE_SMTP_HOST]
+    ]
+    require(len(loopback) == 1, "preview: exactly one Mailpit loopback Certificate")
+    spec = loopback[0]["spec"]
+    issuer_ref = spec["issuerRef"]
+    issuers = {
+        item["metadata"]["name"]: item
+        for item in cert_manager_resources
+        if item["kind"] == "Issuer"
+    }
+    require(
+        issuer_ref.get("group") == "cert-manager.io"
+        and issuer_ref.get("kind") == "Issuer"
+        and issuers.get(issuer_ref.get("name"), {}).get("spec") == {"selfSigned": {}},
+        "preview: Mailpit Certificate must use the namespaced self-signed Issuer",
+    )
+    # 자체 서명 인증서의 issuer DN은 subject와 같고, Java는 빈 issuer DN을 거부한다.
+    require(
+        spec.get("commonName") == MAIL_CAPTURE_SMTP_HOST
+        and spec.get("isCA") is False
+        and spec["secretName"] == MAIL_CAPTURE_TLS_SECRET,
+        "preview: Mailpit Certificate subject, CA flag and Secret",
+    )
+
+    loopback_references = [
+        item for item in references if item.secret == MAIL_CAPTURE_TLS_SECRET
+    ]
+    require(
+        [item.keys for item in loopback_references if item.container == "mail-capture-truststore"]
+        == [frozenset({"tls.crt"})],
+        "preview: truststore builder must receive only the public certificate",
+    )
+    key_readers = {
+        item.container
+        for item in loopback_references
+        if item.keys is None or "tls.key" in item.keys
+    }
+    require(
+        key_readers == {"mailpit"},
+        "preview: only Mailpit may read the loopback private key",
+    )
+    builder = next(
+        (item for item in pod.get("initContainers", []) if item["name"] == "mail-capture-truststore"),
+        {},
+    )
+    app = pod["containers"][0]
+    require(
+        builder.get("image") == app["image"]
+        and builder.get("securityContext", {}).get("readOnlyRootFilesystem") is True
+        and builder["securityContext"].get("allowPrivilegeEscalation") is False
+        and builder["securityContext"].get("capabilities") == {"drop": ["ALL"]},
+        "preview: truststore builder must use the app image under the restricted profile",
+    )
+    app_env = {item["name"]: item.get("value") for item in app["env"]}
+    require(
+        app_env.get("JAVA_TOOL_OPTIONS") == MAIL_CAPTURE_JAVA_TOOL_OPTIONS,
+        "preview: app must trust the Mailpit certificate through the built truststore",
+    )
+
+
 def edge_expectation(environment: str) -> tuple[str, str, str]:
     return {
         "prod": (
@@ -1131,7 +1279,7 @@ def validate_render(
     expected_reloader_secrets = (
         FCM_RELOADER_SECRETS
         if environment in {"prod", "dev"}
-        else BASE_RELOADER_SECRETS
+        else [*BASE_RELOADER_SECRETS, MAIL_CAPTURE_TLS_SECRET]
     )
     actual_reloader_secrets = deployment["metadata"].get("annotations", {}).get(
         RELOADER_TRIGGER_ANNOTATION
@@ -1273,6 +1421,7 @@ def validate_render(
     certificate_issuer: str | None = None
     if environment == "preview":
         require(not certificates, "preview: per-PR Certificate must be disabled")
+        validate_preview_mail_capture_tls(resources, preview_cert_manager_resources())
         require(
             service["metadata"].get("annotations", {}).get(
                 "argocd.argoproj.io/sync-wave"
@@ -2075,7 +2224,7 @@ def validate_preview_budget() -> None:
         computed <= hard.keys()
         and {key: value for key, value in hard.items() if key not in computed}
         == {
-            "count/certificates.cert-manager.io": "1",
+            "count/certificates.cert-manager.io": "2",
             "count/services": "4",
             "count/deployments.apps": "2",
             "count/persistentvolumeclaims": "1",
