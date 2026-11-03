@@ -329,6 +329,7 @@ def validate_app_storage_contract() -> None:
         "https://university.neordinary.com",
         "https://admin.university.neordinary.com",
         "https://tech.university.neordinary.com",
+        "https://activity.university.neordinary.com",
     ]
     expected_nonprod_origins = [
         *expected_prod_origins,

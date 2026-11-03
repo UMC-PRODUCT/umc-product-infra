@@ -64,9 +64,11 @@ Resources:
               - - https://university.neordinary.com
                 - https://admin.university.neordinary.com
                 - https://tech.university.neordinary.com
+                - https://activity.university.neordinary.com
               - - https://university.neordinary.com
                 - https://admin.university.neordinary.com
                 - https://tech.university.neordinary.com
+                - https://activity.university.neordinary.com
                 - http://localhost:5173
                 - https://dev.activity.university.neordinary.com
             ExposedHeaders:
