@@ -22,7 +22,7 @@ jobs:
 
     steps:
       # 깨끗한 체크아웃을 사용해 로컬의 미추적 파일이 검증 누락을 가리지 않게 한다.
-      # chart version guard가 PR base와의 merge base를 계산하도록 전체 이력을 받는다.
+      # chart version guard가 origin/<base>와의 merge base를 계산하도록 전체 이력과 원격 branch를 받는다.
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -97,8 +97,8 @@ jobs:
         env:
           VALIDATION_OUTPUT_DIR: ${{ runner.temp }}/umc-infra-rendered
           VALIDATE_STRICT: "1"
-          # PR이면 base branch와 비교해 chart version bump를 확인하고, main push는 비교하지 않는다.
-          VALIDATE_BASE_REF: ${{ github.base_ref && format('origin/{0}', github.base_ref) || '' }}
+          # main push는 merge base가 HEAD라 비교할 chart 변경이 없어 그대로 통과한다.
+          VALIDATE_BASE_REF: origin/${{ github.base_ref || 'main' }}
         run: ./scripts/validate.sh
 
       # Ansible lint는 validate.sh에 포함되어 workflow 문법만 별도로 확인한다.

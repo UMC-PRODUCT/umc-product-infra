@@ -40,14 +40,19 @@ common_args=(
 # 원본/생성물 불일치와 Python 회귀를 먼저 잡아 뒤의 chart 렌더 실패와 구분한다.
 python3 scripts/gen-configmaps.py --check
 python3 scripts/validate_preview_releases.py
-python3 scripts/validate_gitops_sources.py
+# 비교할 base가 없는 clone에서는 chart version guard를 건너뛴 검사로 남긴다.
+chart_base_ref="${VALIDATE_BASE_REF:-origin/main}"
+if optional_check "chart version bump guard" git rev-parse --verify --quiet "$chart_base_ref^{commit}"; then
+  python3 scripts/validate_gitops_sources.py --base-ref "$chart_base_ref"
+else
+  python3 scripts/validate_gitops_sources.py
+fi
 PYTHONPYCACHEPREFIX="$validation_dir/pycache" python3 -m py_compile scripts/*.py
 PYTHONPYCACHEPREFIX="$validation_dir/pycache" \
   python3 -m unittest discover -s scripts/tests -p 'test_*.py'
 
-# chart 렌더 전에 Helm 버전을 확인해 버전이 다른 로컬 Helm이 렌더를 다 돈 뒤에야
-# 실패하지 않게 한다. bootstrap chart의 checksum과 appVersion을 확인하고 실제 values 결과를 검사한다.
-python3 scripts/validate_argocd.py "$validation_dir"
+# 버전이 다른 로컬 Helm이 렌더를 다 돈 뒤에야 실패하지 않게 첫 chart 렌더 전에 확인한다.
+python3 scripts/validate_argocd.py --helm-version-only
 
 # Base는 안전하게 빈 workload를 렌더하고, 각 환경은 gate를 연 상태까지 검증한다.
 helm lint charts/umc-product-server --strict
@@ -368,6 +373,9 @@ helm template umc-secrets charts/umc-secrets \
   --namespace external-secrets "${secrets_args[@]}" \
   >"$validation_dir/secrets.yaml"
 
+# bootstrap chart의 checksum과 appVersion을 확인하고 실제 values 결과를 검사한다.
+python3 scripts/validate_argocd.py "$validation_dir"
+
 # Argo CD에 인라인으로 둔 valuesObject를 그대로 사용해 외부 관측 chart도 렌더한다.
 # chart 기본값 deep-merge나 label 변경이 운영에서 처음 드러나지 않게 CI에서 고정한다.
 python3 scripts/validate_edge_platform.py "$validation_dir"
@@ -397,12 +405,12 @@ for script in scripts/*.sh; do
   bash -n "$script"
 done
 
-if tool_available cfn-lint "CloudFormation lint"; then
+if optional_check "CloudFormation lint" command -v cfn-lint; then
   cfn-lint cloud/aws/*.yaml
 fi
 
 # 실제 inventory 대신 공개 예제로 구문만 검사하며 서버 접속이나 적용은 수행하지 않는다.
-if tool_available ansible-playbook "Ansible syntax check"; then
+if optional_check "Ansible syntax check" command -v ansible-playbook; then
   (
     cd ansible
     for playbook in playbooks/ssh-access.yml playbooks/bootstrap.yml; do
@@ -411,11 +419,11 @@ if tool_available ansible-playbook "Ansible syntax check"; then
     done
   )
 fi
-if tool_available ansible-lint "Ansible lint"; then
+if optional_check "Ansible lint" command -v ansible-lint; then
   (cd ansible && ansible-lint playbooks/ssh-access.yml playbooks/bootstrap.yml)
 fi
 
-if tool_available kubeconform "Kubernetes schema validation"; then
+if optional_check "Kubernetes schema validation" command -v kubeconform; then
   find manifests bootstrap argocd -type f -name '*.yaml' -print0 \
     | xargs -0 kubeconform \
       -strict -summary -ignore-missing-schemas -kubernetes-version 1.36.0
@@ -434,7 +442,7 @@ if tool_available kubeconform "Kubernetes schema validation"; then
     "$validation_dir/monitoring-resources.yaml"
 fi
 
-if tool_available promtool "Prometheus rule validation"; then
+if optional_check "Prometheus rule validation" command -v promtool; then
   promtool check rules --lint-fatal observability/rules/prometheus-alerts.yaml
   # Operator가 런타임에 조립할 설정 대신 chart 기본값을 포함한 모든 렌더 규칙을 검사한다.
   for rule_file in "$validation_dir"/prometheus-rules-*.yaml; do
@@ -450,7 +458,7 @@ fi
 
 # 실제 배포 image로 backend config를 검증한다. Alertmanager config는 Operator가
 # 생성하므로 native CRD schema와 live reconcile/readiness로 별도 확인한다.
-if tool_available docker "observability runtime config validation" docker info; then
+if optional_check "observability runtime config validation" docker info; then
   docker run --rm --network none \
     -v "$validation_dir:/validation:ro" \
     --entrypoint /usr/bin/loki \

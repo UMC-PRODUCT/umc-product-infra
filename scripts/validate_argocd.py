@@ -223,14 +223,7 @@ def check_helm_version(actual: str, pinned: str, *, strict: bool) -> str | None:
     return f"warning: Helm {actual} differs from pinned {pinned} in patch version; {required} to match CI"
 
 
-# 고정된 chart를 실제 bootstrap values로 렌더해 접속 경계·계정 권한·workload 설정을 검사한다.
-def main(output_dir: Path) -> None:
-    output_dir.mkdir(parents=True, exist_ok=True)
-    defaults = yaml.safe_load(DEFAULTS_PATH.read_text(encoding="utf-8"))
-    values = yaml.safe_load(VALUES_PATH.read_text(encoding="utf-8"))
-
-    chart_version = str(defaults["argocd_helm_chart_version"])
-    app_version = str(defaults["argocd_version"])
+def verify_helm_version(defaults: dict) -> None:
     warning = check_helm_version(
         run(["helm", "version", "--short"]).stdout.strip(),
         str(defaults["argocd_helm_version"]),
@@ -238,6 +231,21 @@ def main(output_dir: Path) -> None:
     )
     if warning:
         print(warning, file=sys.stderr)
+
+
+def load_defaults() -> dict:
+    return yaml.safe_load(DEFAULTS_PATH.read_text(encoding="utf-8"))
+
+
+# 고정된 chart를 실제 bootstrap values로 렌더해 접속 경계·계정 권한·workload 설정을 검사한다.
+def main(output_dir: Path) -> None:
+    output_dir.mkdir(parents=True, exist_ok=True)
+    defaults = load_defaults()
+    values = yaml.safe_load(VALUES_PATH.read_text(encoding="utf-8"))
+
+    chart_version = str(defaults["argocd_helm_chart_version"])
+    app_version = str(defaults["argocd_version"])
+    verify_helm_version(defaults)
     expected_checksum = str(defaults["argocd_helm_chart_checksum"]).removeprefix(
         "sha256:"
     )
@@ -396,5 +404,8 @@ def main(output_dir: Path) -> None:
 
 
 if __name__ == "__main__":
-    require(len(sys.argv) == 2, "usage: validate_argocd.py OUTPUT_DIR")
-    main(Path(sys.argv[1]))
+    require(len(sys.argv) == 2, "usage: validate_argocd.py --helm-version-only | OUTPUT_DIR")
+    if sys.argv[1] == "--helm-version-only":
+        verify_helm_version(load_defaults())
+    else:
+        main(Path(sys.argv[1]))

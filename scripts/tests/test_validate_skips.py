@@ -1,60 +1,75 @@
 from __future__ import annotations
 
+import os
+import shutil
 import subprocess
 import tempfile
 import unittest
 from pathlib import Path
 
-SKIPS = Path(__file__).resolve().parents[1] / "validate-skips.sh"
+SCRIPTS = Path(__file__).resolve().parents[1]
+SKIPS = SCRIPTS / "validate-skips.sh"
+BASH = shutil.which("bash") or "/bin/bash"
+
+
+def run_bash(script: str, *, path: str, strict: bool) -> subprocess.CompletedProcess:
+    environment = {"PATH": path}
+    if strict:
+        environment["VALIDATE_STRICT"] = "1"
+    return subprocess.run(
+        [BASH, "-c", "\n".join(["set -euo pipefail", f"source '{SKIPS}'", script, "finish_validation"])],
+        cwd=SCRIPTS.parent, env=environment, capture_output=True, text=True,
+    )
 
 
 class ValidationSkipTests(unittest.TestCase):
-    def run_checks(self, *, strict: bool, missing: tuple[str, ...]) -> subprocess.CompletedProcess:
-        with tempfile.TemporaryDirectory() as directory:
-            fake = Path(directory) / "umc-fake-present"
-            fake.write_text("#!/bin/sh\n")
-            fake.chmod(0o755)
-            checks = ["if tool_available umc-fake-present 'present check'; then echo 'present check ran'; fi"]
-            checks += [f"if tool_available umc-fake-{tool} '{tool} check'; then exit 9; fi" for tool in missing]
-            script = "\n".join(["set -euo pipefail", f"source '{SKIPS}'", *checks, "finish_validation"])
-            environment = {"PATH": f"{directory}:/usr/bin:/bin"}
-            if strict:
-                environment["VALIDATE_STRICT"] = "1"
-            return subprocess.run(["bash", "-c", script], env=environment, capture_output=True, text=True)
-
-    def test_도구가_모두_있으면_skip_없이_통과(self) -> None:
+    def test_전제가_모두_통과하면_skip_없이_통과(self) -> None:
         for strict in (False, True):
             with self.subTest(strict=strict):
-                result = self.run_checks(strict=strict, missing=())
+                result = run_bash(
+                    "if optional_check 'present check' true; then echo 'present check ran'; fi",
+                    path="/usr/bin:/bin", strict=strict,
+                )
                 self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertEqual(result.stdout.splitlines(), ["present check ran", "umc-infra validation passed"])
 
     def test_건너뛴_검사를_마지막_줄에_모두_표시(self) -> None:
-        result = self.run_checks(strict=False, missing=("cfn", "docker"))
-        self.assertEqual(result.returncode, 0, result.stderr)
-        lines = result.stdout.splitlines()
-        self.assertIn("umc-fake-cfn not installed; cfn check skipped", lines)
-        self.assertEqual(lines[-1], "umc-infra validation passed (skipped: cfn check, docker check)")
-
-    def test_확인_명령이_실패하면_skip으로_기록(self) -> None:
-        result = subprocess.run(
-            ["bash", "-c", f"set -euo pipefail; source '{SKIPS}'; "
-             "if tool_available bash 'docker check' false; then exit 9; fi; finish_validation"],
-            env={"PATH": "/usr/bin:/bin"}, capture_output=True, text=True,
+        result = run_bash(
+            "if optional_check 'cfn check' command -v umc-fake-cfn; then exit 9; fi\n"
+            "if optional_check 'docker check' false; then exit 9; fi",
+            path="/usr/bin:/bin", strict=False,
         )
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(result.stdout.splitlines()[-1], "umc-infra validation passed (skipped: docker check)")
+        lines = result.stdout.splitlines()
+        self.assertIn("cfn check skipped: 'command -v umc-fake-cfn' failed", lines)
+        self.assertEqual(lines[-1], "umc-infra validation passed (skipped: cfn check, docker check)")
 
     def test_strict_모드는_skip이_하나라도_있으면_실패(self) -> None:
-        result = self.run_checks(strict=True, missing=("promtool",))
+        result = run_bash("if optional_check 'promtool check' false; then exit 9; fi", path="/usr/bin:/bin", strict=True)
         self.assertNotEqual(result.returncode, 0)
         self.assertNotIn("validation passed", result.stdout)
         self.assertIn("skipped: promtool check", result.stderr)
 
-    def test_validate_sh의_선택_도구는_모두_skip_기록을_거침(self) -> None:
-        script = (SKIPS.parent / "validate.sh").read_text(encoding="utf-8")
-        self.assertEqual(script.count("command -v"), 1, "필수 helm 외 선택 도구는 tool_available로만 확인")
-        self.assertTrue(script.rstrip().endswith("finish_validation"))
+    # validate.sh 전체는 chart 렌더와 네트워크가 필요하므로 선택 도구 구간만 잘라 도구 없는 PATH로 실행한다.
+    def test_validate_sh의_선택_도구_skip은_모두_요약에_남음(self) -> None:
+        script = (SCRIPTS / "validate.sh").read_text(encoding="utf-8")
+        start = script.index("for script in scripts/*.sh; do")
+        end = script.rindex("finish_validation")
+        section = script[start:end]
+        with tempfile.TemporaryDirectory() as directory:
+            os.symlink(BASH, Path(directory) / "bash")
+            section = f"validation_dir='{directory}'\n{section}"
+            result = run_bash(section, path=directory, strict=False)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            lines = result.stdout.splitlines()
+            reported = [line for line in lines[:-1] if "skipped" in line]
+            self.assertTrue(lines[-1].startswith("umc-infra validation passed (skipped: "), lines[-1])
+            summary = lines[-1].removeprefix("umc-infra validation passed (skipped: ").removesuffix(")").split(", ")
+            self.assertEqual(len(reported), len(summary), "요약에 빠진 skip 출력이 있음")
+            self.assertGreaterEqual(len(summary), 6)
+            strict = run_bash(section, path=directory, strict=True)
+            self.assertNotEqual(strict.returncode, 0)
+            self.assertNotIn("validation passed", strict.stdout)
 
 
 if __name__ == "__main__":

@@ -3,7 +3,8 @@
 
 from __future__ import annotations
 
-import os
+import argparse
+import fnmatch
 import subprocess
 import sys
 from pathlib import Path
@@ -11,10 +12,9 @@ from pathlib import Path
 import yaml
 
 ROOT = Path(__file__).resolve().parent.parent
-ARGOCD_DIR = "argocd"
-# 파일명 규칙은 validate_preview_releases.py가 검사한다.
-PREVIEW_RELEASES_DIR = "argocd/preview-releases/"
+ROOT_APP_PATH = "bootstrap/root-app.yaml"
 CHART_DIR = "charts/umc-product-server"
+CHART_FILE = f"{CHART_DIR}/Chart.yaml"
 
 
 def require(condition: bool, message: str) -> None:
@@ -35,38 +35,40 @@ def repository_files(root: Path, directory: str) -> list[str]:
     return sorted({name for name in listed.stdout.splitlines() if (root / name).is_file()})
 
 
-# root Application은 argocd/ 전체를 recurse로 읽으므로 manifest가 아닌 파일이 섞이면 sync가 깨진다.
+# root Application이 실제로 읽는 경로와 exclude를 그대로 쓴다. Argo CD는 {a,b} 형태로 여러 pattern을 받는다.
+def root_app_source(root: Path) -> tuple[str, list[str]]:
+    source = yaml.safe_load((root / ROOT_APP_PATH).read_text(encoding="utf-8"))["spec"]["source"]
+    exclude = str(source.get("directory", {}).get("exclude", ""))
+    if exclude.startswith("{") and exclude.endswith("}"):
+        exclude = exclude[1:-1]
+    return str(source["path"]), [pattern for pattern in exclude.split(",") if pattern]
+
+
+# root Application은 path 전체를 recurse로 읽으므로 manifest가 아닌 파일이 섞이면 sync가 깨진다.
+# exclude된 preview-releases/의 파일명 규칙은 validate_preview_releases.py가 검사한다.
 def validate_argocd_tree(root: Path) -> int:
+    directory, excludes = root_app_source(root)
     count = 0
-    for name in repository_files(root, ARGOCD_DIR):
-        if name.startswith(PREVIEW_RELEASES_DIR) or Path(name).name == "README.md":
+    for name in repository_files(root, directory):
+        relative = Path(name).relative_to(directory).as_posix()
+        if any(fnmatch.fnmatchcase(relative, pattern) for pattern in excludes) or Path(name).name == "README.md":
             continue
-        require(name.endswith(".yaml"), f"argocd/에는 .yaml manifest만 둘 수 있음: {name}")
+        require(name.endswith(".yaml"), f"{directory}/에는 .yaml manifest만 둘 수 있음: {name}")
         documents = [item for item in yaml.safe_load_all((root / name).read_text(encoding="utf-8")) if item is not None]
         require(
             bool(documents) and all(isinstance(item, dict) and item.get("kind") and item.get("apiVersion")
                                     for item in documents),
-            f"argocd/의 YAML은 kind·apiVersion이 있는 Kubernetes manifest여야 함: {name}",
+            f"{directory}/의 YAML은 kind·apiVersion이 있는 Kubernetes manifest여야 함: {name}",
         )
         count += 1
     return count
-
-
-def chart_inputs_changed(paths: list[str]) -> list[str]:
-    prefixes = (f"{CHART_DIR}/templates/", f"{CHART_DIR}/files/")
-    return [
-        path for path in paths
-        if path.startswith(prefixes)
-        or (Path(path).parent.as_posix() == CHART_DIR and Path(path).name.startswith("values")
-            and path.endswith(".yaml"))
-    ]
 
 
 def chart_version(text: str) -> str:
     return str(yaml.safe_load(text)["version"])
 
 
-# chart 입력이 바뀌었는데 version이 그대로면 Argo CD가 같은 chart version으로 다른 내용을 배포한다.
+# Chart.yaml 밖의 chart 파일이 바뀌었는데 version이 그대로면 Argo CD가 같은 chart version으로 다른 내용을 배포한다.
 # 여러 PR이 동시에 bump하므로 고정 숫자 대신 merge base의 version과 비교한다.
 def validate_chart_version_bump(root: Path, base_ref: str) -> str:
     merge_base = git(root, "merge-base", base_ref, "HEAD")
@@ -75,44 +77,32 @@ def validate_chart_version_bump(root: Path, base_ref: str) -> str:
     diff = git(root, "diff", "--name-only", base, "--", CHART_DIR)
     require(diff.returncode == 0, f"git diff failed: {diff.stderr.strip()}")
     untracked = git(root, "ls-files", "--others", "--exclude-standard", "--", CHART_DIR)
-    changed = chart_inputs_changed(sorted(set(diff.stdout.splitlines() + untracked.stdout.splitlines())))
+    changed = sorted(set(diff.stdout.splitlines() + untracked.stdout.splitlines()) - {CHART_FILE})
     if not changed:
-        return f"chart inputs unchanged since {base_ref}"
-    base_chart = git(root, "show", f"{base}:{CHART_DIR}/Chart.yaml")
+        return f"chart files unchanged since {base_ref}"
+    base_chart = git(root, "show", f"{base}:{CHART_FILE}")
     if base_chart.returncode != 0:
         return f"{CHART_DIR} is new since {base_ref}"
     before = chart_version(base_chart.stdout)
-    after = chart_version((root / CHART_DIR / "Chart.yaml").read_text(encoding="utf-8"))
+    after = chart_version((root / CHART_FILE).read_text(encoding="utf-8"))
     require(
         before != after,
-        f"{CHART_DIR}/Chart.yaml version {after}를 올려야 함 ({base_ref} 이후 변경: {', '.join(changed)})",
+        f"{CHART_FILE} version {after}를 올려야 함 ({base_ref} 이후 변경: {', '.join(changed)})",
     )
-    return f"chart version {before} -> {after} covers {len(changed)} changed chart inputs"
+    return f"chart version {before} -> {after} covers {len(changed)} changed chart files"
 
 
-# CI PR은 VALIDATE_BASE_REF로 base를 넘긴다. main push와 base가 없는 로컬 clone은 건너뛴다.
-def resolve_base_ref(root: Path, environ: dict[str, str]) -> str | None:
-    explicit = environ.get("VALIDATE_BASE_REF", "")
-    if explicit:
-        return explicit
-    if environ.get("GITHUB_ACTIONS") == "true":
-        return None
-    fallback = "origin/main"
-    if git(root, "rev-parse", "--verify", "--quiet", f"{fallback}^{{commit}}").returncode != 0:
-        return None
-    return fallback
-
-
+# base ref가 있는지는 validate.sh가 확인하고, 없으면 건너뛴 검사로 기록한다.
 def main() -> None:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--base-ref", help="chart version bump를 비교할 Git ref")
+    args = parser.parse_args()
     inside = git(ROOT, "rev-parse", "--is-inside-work-tree")
     require(inside.returncode == 0, "Git 작업 트리에서 실행해야 함")
     count = validate_argocd_tree(ROOT)
-    print(f"argocd/ holds only Kubernetes manifests ({count} files) outside preview-releases/")
-    base_ref = resolve_base_ref(ROOT, dict(os.environ))
-    if base_ref is None:
-        print("chart version guard: no base ref (main push or no origin/main); not compared")
-        return
-    print(validate_chart_version_bump(ROOT, base_ref))
+    print(f"root Application source holds only Kubernetes manifests ({count} files) outside its excludes")
+    if args.base_ref:
+        print(validate_chart_version_bump(ROOT, args.base_ref))
 
 
 if __name__ == "__main__":
