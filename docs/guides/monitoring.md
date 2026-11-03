@@ -57,10 +57,12 @@ Grafana에서 앱·DB·서버 지표와 로그·trace를 보고, Argo CD에서 �
 | `prod-umc-product` | prod |
 | `dev-umc-product` | dev |
 | `local-umc-product` | local |
+| `preview-umc-product-pr<번호>` | Preview PR 앱 |
 
-Service 목록은 앱 signal이 비어도 유지된다. `local-umc-product`가 보인다고 현재 클러스터에
-로컬 앱이 배포됐다는 뜻은 아니다. Overview는 prod/dev만 비교한다. preview는 고정 선택지에
-없으므로 필요하면 Service의 custom value에 정확한 `application` 이름을 입력한다.
+prod·dev·local 선택지는 앱 signal이 비어도 유지된다. `local-umc-product`가 보인다고 현재
+클러스터에 로컬 앱이 배포됐다는 뜻은 아니다. Preview PR 앱은 대시보드 시간 범위 안에
+`process_uptime_milliseconds`를 보낸 PR만 목록에 나타난다. 닫힌 PR은 시간 범위를 지나면 사라진다.
+Overview는 prod/dev만 비교한다. Preview 앱의 알림은 Discord로 보내지 않는다.
 
 ### Kubernetes 폴더 — 클러스터와 Pod 자원
 

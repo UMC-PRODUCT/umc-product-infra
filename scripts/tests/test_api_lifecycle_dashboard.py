@@ -106,5 +106,25 @@ class ApiLifecycleDashboardTest(unittest.TestCase):
             self.assertNotIn(sensitive, query["expr"])
 
 
+class ServiceVariableTest(unittest.TestCase):
+    def test_살아있는_preview_앱을_고르되_기본값_밖_서비스는_숨긴다(self) -> None:
+        for name in ("api-lifecycle.json", "server-default.json"):
+            dashboard = json.loads((ROOT / "observability/dashboards" / name).read_text(encoding="utf-8"))
+            service = next(v["spec"] for v in dashboard["spec"]["variables"]
+                           if v["spec"]["name"] == "service")
+            with self.subTest(dashboard=name):
+                # fallback은 앱 signal이 비어도 prod/dev/local을 유지하고, uptime은 지금 떠 있는 PR 앱을 더한다.
+                self.assertEqual(service["query"]["spec"]["query"], service["definition"])
+                self.assertIn("umc_product_service_fallback_info", service["definition"])
+                self.assertIn("process_uptime_milliseconds", service["definition"])
+                pattern = re.compile(service["regex"].strip("/"))
+                for value in ("prod-umc-product", "dev-umc-product", "local-umc-product",
+                              "preview-umc-product-pr1494"):
+                    self.assertRegex(value, pattern)
+                for value in ("x-umc-product", "preview-umc-product-bootstrap-required",
+                              "prod-umc-product-old"):
+                    self.assertNotRegex(value, pattern)
+
+
 if __name__ == "__main__":
     unittest.main()
