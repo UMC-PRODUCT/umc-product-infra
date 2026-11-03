@@ -1,0 +1,34 @@
+---
+
+# 관리자 PC에서 Pod·Service 주소 대역이 서로 겹치지 않는 사설 IPv4인지 검사한다.
+# 내부 통신 허용에 쓰일 값이므로 /0 같은 잘못된 입력으로 접근 범위가 넓어지는 것을 막는다.
+- name: Validate private non-overlapping K3s network CIDRs
+  ansible.builtin.command:
+    argv:
+      - "{{ ansible_playbook_python }}"
+      - -c
+      - |
+        import ipaddress
+        import sys
+
+        private_ranges = tuple(ipaddress.ip_network(value) for value in
+                               ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"))
+        networks = []
+        for name, raw in zip(("cluster", "service"), sys.argv[1:], strict=True):
+            try:
+                network = ipaddress.ip_network(raw, strict=True)
+            except ValueError as error:
+                raise SystemExit(f"Invalid K3s {name} CIDR: {error}") from error
+            if network.version != 4 or raw != network.with_prefixlen:
+                raise SystemExit(f"K3s {name} CIDR must be canonical IPv4")
+            if not any(network.subnet_of(private) for private in private_ranges):
+                raise SystemExit(f"K3s {name} CIDR must stay within an RFC1918 range")
+            networks.append(network)
+        if networks[0].overlaps(networks[1]):
+            raise SystemExit("K3s cluster and service CIDRs must not overlap")
+      - "{{ k3s_cluster_cidr }}"
+      - "{{ k3s_service_cidr }}"
+  changed_when: false
+  check_mode: false
+  delegate_to: localhost
+  become: false

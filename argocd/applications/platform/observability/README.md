@@ -13,7 +13,8 @@ Dashboard와 alert 원본을 수정하려면 [원본 관리 README](../../../../
 애플리케이션
   → OTel Collector : OTLP metrics·logs·traces
       ├─ metrics → Prometheus → alert rule → Alertmanager → Discord
-      ├─ logs    → Loki
+      ├─ logs    ┬ 운영·dev → Loki
+      │          └ Preview  → WARN 이상 약 10% 표본 → Loki (push·queue 분리)
       └─ traces  → Tempo
 
 Grafana
@@ -22,8 +23,21 @@ Grafana
   └─ Tempo 조회
 ```
 
-Collector에는 별도 sampler를 두지 않는다. 애플리케이션이 보낸 세 신호를 각 저장소로 전달하는
-중앙 gateway 역할만 한다.
+Collector는 애플리케이션이 보낸 세 신호를 각 저장소로 전달하는 중앙 gateway다. metrics·traces와
+운영·dev 로그에는 sampler를 두지 않는다.
+
+Preview 로그는 운영·dev와 다른 경로로 보낸다. Loki는 모든 환경이 한 tenant의 수집 상한을 함께 쓰고,
+상한을 넘는 push를 통째로 429로 거부한다. 그래서 Collector는 `service.name`이 `preview-umc-product-pr<번호>`인
+로그를 `routing/logs` connector로 `logs/preview` pipeline에 보낸다. 이 pipeline은 자기 batch와 32MiB queue를
+가진 `otlphttp/loki-preview` exporter로 보내므로 Preview push에는 운영·dev 로그가 들어가지 않는다. 이 push
+분리가 운영 로그를 지키는 주된 장치다.
+
+Preview 로그는 양도 줄인다. INFO는 버리고 WARN 이상만 trace 단위로 약 10% 남긴다. 상한이 아니라 비율이므로
+폭주량에 비례해 줄 뿐이다. Loki가 stream별 상한으로 Preview push 일부를 거부할 때 재시도 양을 줄이는 역할이다.
+trace가 없는 로그(기동 실패 등)는 표본 추출 없이 보낸다. Preview의 요청별 원인은 Tempo trace에 전부 남는다.
+
+이 때문에 Grafana에서 Preview 앱을 고르면 Loki의 `api_request_completed`(INFO 줄)를 세는 API 사용량 패널은
+실제보다 적게 나온다. Preview의 요청 수와 지연은 Tempo trace와 Prometheus metric으로 본다.
 
 ## 파일을 읽는 순서
 
@@ -71,7 +85,7 @@ SecretKeySelector로 읽어 runtime 설정을 생성한다. `useExistingSecret: 
 | `monitoring-integrations` | UMC ServiceMonitor·PrometheusRule | 해당 없음 |
 | `otel-collector` | 중앙 OTLP gateway | 저장하지 않음 |
 | `prometheus` | Operator·CRD, metrics, Alertmanager, node-exporter, kube-state-metrics | 14일 / 4GB 중 먼저 도달하는 조건 |
-| `loki` | logs와 Loki ruler | 90일 (`2160h`) |
+| `loki` | logs와 Loki ruler | 운영 90일 (`2160h`), dev 30일, Preview 7일 |
 | `tempo` | traces | 7일 (`168h`) |
 | `grafana` | datasource와 dashboard 조회 | Git에서 dashboard 복원 |
 
@@ -86,7 +100,13 @@ SecretKeySelector로 읽어 runtime 설정을 생성한다. `useExistingSecret: 
 | Grafana | 1Gi | local user와 Grafana 내부 DB |
 
 `local-path`는 PVC 요청량을 실제 disk quota로 강제하지 않으므로 Prometheus는 별도 4GB retention
-상한을 둔다. 모든 PVC는 단일 노드의 `local-path`를 사용한다. Node나 disk를 잃으면 telemetry와 Grafana local
+상한을 둔다. Loki는 디스크 크기가 아니라 수집 속도를 묶는다. 모든 환경을 합쳐 4MB/s(burst 16MB)를
+넘는 push는 429로 통째로 거부되고 `LokiDiscardedSamples` 알림이 뜬다. Collector가 모든 환경의 로그를
+한 push로 보내므로 Preview 폭주만으로 운영 로그도 거부될 수 있다. Preview를 격리하려면 Collector에서
+파이프라인을 나누거나 샘플링해야 한다. stream 상한 2MB/s는 1536KB/s를 넘으면 자동 분할되는 shard마다
+걸리므로 환경별 상한이 아니다. 4MB/s가 이어지면 디스크는 계속 차고 보존기간은 오래된 데이터만 지우므로
+노드 디스크 사용량은 따로 감시한다. 64KB를 넘는 줄은 잘라서 저장한다.
+모든 PVC는 단일 노드의 `local-path`를 사용한다. Node나 disk를 잃으면 telemetry와 Grafana local
 user 상태를 잃을 수 있다. Dashboard와 datasource는 Git에서 복원하지만 이 저장소는 PostgreSQL
 backup을 대신하지 않는다.
 

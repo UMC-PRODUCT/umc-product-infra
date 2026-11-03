@@ -32,6 +32,8 @@ APP_IMAGE = (
 )
 PREVIEW_APP_IMAGE = APP_IMAGE
 TEST_NET_EDGE_TARGET = "203.0.113.10"
+# validate.sh가 Preview 렌더 견본으로 쓰는 PR 번호다.
+PREVIEW_SAMPLE_PR_NUMBER = "42"
 CERTIFICATE_ISSUERS = {"letsencrypt-staging", "letsencrypt-production"}
 KAKAO_JAVASCRIPT_KEY = "4e79ba06223b60e13ad76bb6aec8f2b9"
 GOOGLE_CLIENT_ID_LIST = (
@@ -106,8 +108,89 @@ def git_visible_files(root: Path) -> list[Path]:
     )
 
 
+def external_dns_registry_config() -> dict:
+    application = yaml.safe_load(
+        (ROOT / "argocd" / "applications" / "platform" / "external-dns.yaml").read_text(
+            encoding="utf-8"
+        )
+    )
+    return application["spec"]["source"]["helm"]["valuesObject"]
+
+
+# ExternalDNS ingress source는 rules·tls host와 hostname annotation을 모두 record로 만든다.
+# annotationFilter는 key=value 한 쌍만 지원한다. 다른 selector 문법이면 수집 범위를 판단하지 않고 실패한다.
+def external_dns_hosts(documents: list[dict], annotation_filter: str) -> set[str]:
+    require(
+        re.fullmatch(r"[^=!,()\s]+=[^=!,()\s]+", annotation_filter) is not None,
+        f"ExternalDNS annotationFilter must be a single key=value: {annotation_filter}",
+    )
+    opt_in_key, opt_in_value = annotation_filter.split("=")
+    hosts: set[str] = set()
+    for document in documents:
+        if not isinstance(document, dict) or document.get("kind") != "Ingress":
+            continue
+        annotations = document.get("metadata", {}).get("annotations") or {}
+        if annotations.get(opt_in_key) != opt_in_value:
+            continue
+        spec = document.get("spec", {})
+        hosts.update(rule["host"] for rule in spec.get("rules", []) if rule.get("host"))
+        hosts.update(host for tls in spec.get("tls", []) for host in tls.get("hosts", []))
+        hostname = annotations.get("external-dns.kubernetes.io/hostname", "")
+        hosts.update(name.strip() for name in hostname.split(",") if name.strip())
+    return hosts
+
+
+def iam_string_like(pattern: str, value: str) -> bool:
+    expression = "".join(
+        ".*" if char == "*" else "." if char == "?" else re.escape(char)
+        for char in pattern
+    )
+    return re.fullmatch(expression, value) is not None
+
+
+# 렌더된 host에서 ExternalDNS가 쓸 A·TXT 이름을 계산해 IAM 허용 패턴과 양방향으로 대조한다.
+# *는 Preview PR 번호 자리에만 허용한다. 견본 PR 번호로 바꾼 패턴은 실제 렌더 이름이어야 한다.
+def validate_external_dns_record_names(
+    allowed_patterns: list[str],
+    hosts: set[str],
+    *,
+    txt_prefix: str,
+    record_types: list[str],
+) -> None:
+    require(hosts, "ExternalDNS: no opted-in Ingress host was collected")
+    record_names = set(hosts) | {
+        f"{txt_prefix}{record_type.lower()}-{host}"
+        for host in hosts
+        for record_type in record_types
+        if record_type != "TXT"
+    }
+    for name in sorted(record_names):
+        require(
+            any(iam_string_like(pattern, name) for pattern in allowed_patterns),
+            f"ExternalDNS Route53 IAM does not allow record name: {name}",
+        )
+    for pattern in allowed_patterns:
+        require(
+            pattern.count("*") <= 1
+            and pattern.replace("*", PREVIEW_SAMPLE_PR_NUMBER) in record_names,
+            "ExternalDNS Route53 IAM pattern is broader than a rendered record "
+            f"or no longer used: {pattern}",
+        )
+
+
+# 앱·ApplicationSet·Grafana 렌더와 정적 manifest에서 ExternalDNS가 관리할 host를 모은다.
+def external_dns_desired_hosts(render_paths: list[Path], annotation_filter: str) -> set[str]:
+    documents = [document for path in render_paths for document in yaml_documents(path)]
+    documents += [
+        document
+        for path in sorted((ROOT / "manifests").rglob("*.yaml"))
+        for document in yaml_documents(path)
+    ]
+    return external_dns_hosts(documents, annotation_filter)
+
+
 # 기존 위임 zone을 재생성하지 않고 인증서용 TXT와 앱용 DNS 변경 권한을 분리하는지 확인한다.
-def validate_route53_contract() -> None:
+def validate_route53_contract(render_paths: list[Path]) -> None:
     template_path = ROOT / "cloud" / "aws" / "route53-dns.yaml"
     with template_path.open(encoding="utf-8") as stream:
         template = yaml.load(stream, Loader=CloudFormationLoader)
@@ -229,6 +312,17 @@ def validate_route53_contract() -> None:
             "Statement"
         ]
     }
+    external_dns_config = external_dns_registry_config()
+    external_dns_name_patterns = (
+        external_dns_statements.get("ManageOnlyUmcIngressAndOwnershipRecords", {})
+        .get("Condition", {})
+        .get("ForAllValues:StringLike", {})
+        .get("route53:ChangeResourceRecordSetsNormalizedRecordNames")
+    )
+    require(
+        isinstance(external_dns_name_patterns, list),
+        "ExternalDNS Route53 record name allowlist",
+    )
     require(
         external_dns_statements
         == {
@@ -256,26 +350,26 @@ def validate_route53_contract() -> None:
                             "UPSERT",
                             "DELETE",
                         ],
-                        "route53:ChangeResourceRecordSetsRecordTypes": ["A", "TXT"],
+                        "route53:ChangeResourceRecordSetsRecordTypes": (
+                            external_dns_config["managedRecordTypes"]
+                        ),
                     },
                     "ForAllValues:StringLike": {
-                        "route53:ChangeResourceRecordSetsNormalizedRecordNames": [
-                            "api.${DnsZoneName}",
-                            "api-dev.${DnsZoneName}",
-                            "api-pr-*.${DnsZoneName}",
-                            "grafana.${DnsZoneName}",
-                            "argo.${DnsZoneName}",
-                            "_external-dns.a-api.${DnsZoneName}",
-                            "_external-dns.a-api-dev.${DnsZoneName}",
-                            "_external-dns.a-api-pr-*.${DnsZoneName}",
-                            "_external-dns.a-grafana.${DnsZoneName}",
-                            "_external-dns.a-argo.${DnsZoneName}",
-                        ]
+                        "route53:ChangeResourceRecordSetsNormalizedRecordNames": (
+                            external_dns_name_patterns
+                        )
                     },
                 },
             },
         },
         "ExternalDNS Route53 least-privilege policy",
+    )
+    zone = template["Parameters"]["DnsZoneName"]["Default"]
+    validate_external_dns_record_names(
+        [pattern.replace("${DnsZoneName}", zone) for pattern in external_dns_name_patterns],
+        external_dns_desired_hosts(render_paths, external_dns_config["annotationFilter"]),
+        txt_prefix=external_dns_config["txtPrefix"],
+        record_types=external_dns_config["managedRecordTypes"],
     )
     require(
         all(resource.get("Type") != "AWS::IAM::AccessKey" for resource in resources.values()),
@@ -361,6 +455,7 @@ def validate_app_storage_contract() -> None:
         "app storage production CORS condition",
     )
     # preview만 테스트 업로드를 30일 뒤 만료한다. prod·dev 파일은 만료하지 않는다.
+    bucket_properties = template["Resources"]["AppStorageBucket"]["Properties"]
     abort_multipart = {
         "Id": "abort-incomplete-multipart-uploads",
         "Status": "Enabled",
@@ -368,7 +463,7 @@ def validate_app_storage_contract() -> None:
     }
     require(
         template["Conditions"]["IsPreview"] == ["Environment", "preview"]
-        and template["Resources"]["AppStorageBucket"]["Properties"]["LifecycleConfiguration"]
+        and bucket_properties["LifecycleConfiguration"]
         == {
             "Rules": [
                 "IsPreview",
@@ -376,10 +471,69 @@ def validate_app_storage_contract() -> None:
                     abort_multipart,
                     {"Id": "expire-preview-test-uploads", "Status": "Enabled", "ExpirationInDays": 30},
                 ],
-                [abort_multipart],
+                [
+                    abort_multipart,
+                    {
+                        "Id": "expire-noncurrent-versions",
+                        "Status": "Enabled",
+                        "NoncurrentVersionExpiration": {"NoncurrentDays": 30},
+                        "ExpiredObjectDeleteMarker": True,
+                    },
+                ],
             ]
         },
-        "app storage lifecycle: only preview uploads expire after 30 days",
+        "app storage lifecycle: only preview uploads expire after 30 days; "
+        "prod/dev keep noncurrent versions for 30 days",
+    )
+    # prod·dev에서 지우거나 덮어쓴 업로드를 이전 버전으로 복구할 수 있어야 한다.
+    require(
+        bucket_properties.get("VersioningConfiguration")
+        == ["IsPreview", "AWS::NoValue", {"Status": "Enabled"}],
+        "app storage versioning must be enabled for prod and dev",
+    )
+    app_policies = template["Resources"]["AppStorageUser"]["Properties"]["Policies"]
+    # 앱 자격증명이 유출되거나 오작동해도 이전 버전까지 지우지 못하게 한다.
+    for policy in app_policies:
+        for statement in policy["PolicyDocument"]["Statement"]:
+            actions = statement.get("Action", [])
+            actions = [actions] if isinstance(actions, str) else actions
+            require(
+                "NotAction" not in statement
+                and all(
+                    "*" not in action and action.lower() != "s3:deleteobjectversion"
+                    for action in actions
+                ),
+                "app storage IAM must not delete object versions "
+                "(no s3:DeleteObjectVersion, wildcard actions, or NotAction)",
+            )
+    # 앱 권한을 바꾸면 이 사본도 함께 고쳐 리뷰에서 변경이 드러나게 한다.
+    require(
+        app_policies
+        == [{
+            "PolicyName": ["EnvironmentConfig", "Environment", "PolicyName"],
+            "PolicyDocument": {
+                "Version": "2012-10-17",
+                "Statement": [
+                    {
+                        "Sid": "ListApplicationStorage",
+                        "Effect": "Allow",
+                        "Action": "s3:ListBucket",
+                        "Resource": "AppStorageBucket.Arn",
+                    },
+                    {
+                        "Sid": "ReadWriteApplicationObjects",
+                        "Effect": "Allow",
+                        "Action": ["s3:GetObject", "s3:PutObject", "s3:DeleteObject"],
+                        "Resource": [
+                            "${AppStorageBucket.Arn}/public/*",
+                            "${AppStorageBucket.Arn}/private/*",
+                        ],
+                    },
+                ],
+            },
+        }],
+        "app storage IAM policy differs from the reviewed copy in validate_contracts.py; "
+        "update the copy together with the template change",
     )
     require(
         template["Resources"]["AppStorageBucket"]["Properties"][
@@ -440,9 +594,9 @@ def validate_ses_contract() -> None:
     require("Default" not in route53_parameter, "SES Route53 Hosted Zone ID must be explicit")
     require(
         route53_parameter.get("Type") == "String"
-        and route53_parameter.get("MinLength") == 1
+        and route53_parameter.get("MinLength") == 3
         and route53_parameter.get("MaxLength") == 32
-        and route53_parameter.get("AllowedPattern") == "^[A-Z0-9]{1,32}$",
+        and route53_parameter.get("AllowedPattern") == "^Z[A-Z0-9]+$",
         "SES Route53 Hosted Zone ID parameter",
     )
 
@@ -556,8 +710,47 @@ def validate_ses_contract() -> None:
             "DkimDnsRecord3",
             "MailFromMxDnsRecord",
             "MailFromSpfDnsRecord",
+            "DmarcDnsRecord",
         },
         "SES Route53 record set",
+    )
+    # rua는 공개 DNS에 노출되므로 SNS 알림 주소가 아닌 별도 선택 파라미터만 쓴다.
+    dmarc_parameter = parameters["DmarcReportEmailAddress"]
+    require(
+        dmarc_parameter.get("Type") == "String"
+        and dmarc_parameter.get("Default") == ""
+        and dmarc_parameter.get("MaxLength") == 254
+        and dmarc_parameter.get("AllowedPattern")
+        == "^$|^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}$",
+        "SES DMARC report address parameter must be optional and empty by default",
+    )
+    require(
+        template["Conditions"].get("HasDmarcReportAddress")
+        == [["DmarcReportEmailAddress", ""]],
+        "SES DMARC report address condition",
+    )
+    # 보고로 정렬 실패가 없음을 확인한 뒤 p를 올릴 수 있게 정책 값만 열어 둔다.
+    dmarc_record = route53_records["DmarcDnsRecord"]
+    require(
+        dmarc_record.get("DeletionPolicy") == "Retain"
+        and dmarc_record.get("UpdateReplacePolicy") == "Retain"
+        and dmarc_record.get("Properties")
+        in [
+            {
+                "HostedZoneId": "Route53HostedZoneId",
+                "Name": "_dmarc.${SesDomainIdentity}",
+                "Type": "TXT",
+                "TTL": "300",
+                "ResourceRecords": [[
+                    "HasDmarcReportAddress",
+                    f'"v=DMARC1; p={policy}; rua=mailto:${{DmarcReportEmailAddress}}"',
+                    f'"v=DMARC1; p={policy}"',
+                ]],
+            }
+            for policy in ("none", "quarantine", "reject")
+        ],
+        "SES DMARC TXT record must publish p=none|quarantine|reject, "
+        "with rua only from DmarcReportEmailAddress",
     )
     for index in range(1, 4):
         record = route53_records[f"DkimDnsRecord{index}"]
@@ -619,6 +812,28 @@ def validate_ses_contract() -> None:
         == "v=spf1 include:amazonses.com ~all",
         "MAIL FROM SPF output",
     )
+
+
+# 계정에서 스택 밖 수동 자원과 구분하고 용도를 찾을 수 있도록 IAM·S3 자원에 같은 태그를 붙인다.
+def validate_cloudformation_tags() -> None:
+    tagged_types = {"AWS::IAM::User", "AWS::IAM::Role", "AWS::S3::Bucket"}
+    for template_path in sorted((ROOT / "cloud" / "aws").glob("*.yaml")):
+        with template_path.open(encoding="utf-8") as stream:
+            template = yaml.load(stream, Loader=CloudFormationLoader)
+        for name, item in template.get("Resources", {}).items():
+            if item.get("Type") not in tagged_types:
+                continue
+            tags = {
+                tag.get("Key"): tag.get("Value")
+                for tag in item.get("Properties", {}).get("Tags", [])
+            }
+            require(
+                tags.get("managed-by") == "cloudformation"
+                and bool(tags.get("environment"))
+                and bool(tags.get("purpose")),
+                f"{template_path.name}:{name} must carry managed-by=cloudformation, "
+                "environment, and purpose tags",
+            )
 
 
 def resource(resources: list[dict], kind: str) -> dict:
@@ -2062,15 +2277,17 @@ def validate_repository_identity() -> None:
 
 # 정적 원본 계약을 먼저 검사한 뒤 환경별 렌더와 합성 공개 경로의 교차 검증을 수행한다.
 def main() -> int:
-    if len(sys.argv) != 7:
+    if len(sys.argv) != 9:
         raise SystemExit(
             "usage: validate_contracts.py PROD_RENDER DEV_RENDER PREVIEW_RENDER "
-            "SECRETS_RENDER ACTIVE_EDGE_FIXTURE ACTIVE_PREVIEW_EDGE_FIXTURE"
+            "SECRETS_RENDER ACTIVE_EDGE_FIXTURE ACTIVE_PREVIEW_EDGE_FIXTURE "
+            "PREVIEW_APPLICATIONSET_RENDER GRAFANA_RENDER"
         )
     validate_repository_identity()
-    validate_route53_contract()
+    validate_route53_contract([Path(filename) for filename in sys.argv[1:]])
     validate_app_storage_contract()
     validate_ses_contract()
+    validate_cloudformation_tags()
     validate_postgres()
     validate_preview_budget()
     validate_reloader_argocd_contract()

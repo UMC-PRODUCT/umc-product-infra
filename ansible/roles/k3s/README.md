@@ -5,7 +5,8 @@
 ## 하는 일
 
 1. `/etc/rancher/k3s/config.yaml`을 생성한다.
-2. checksum으로 검증한 공식 설치 스크립트로 지정 버전의 K3s를 설치하거나 갱신한다.
+2. checksum으로 검증한 공식 설치 스크립트로 지정 버전의 K3s를 설치하거나 갱신하고,
+   `/usr/local/bin/k3s`가 Git에 고정한 x86_64 binary SHA-256과 같은지 확인한다.
 3. `k3s` 서비스를 활성화하고 Kubernetes API와 단일 노드의 `Ready` 상태를 기다린다.
 4. 번들 Traefik이 외부에서 임의로 보낸 forwarded header를 신뢰하지 않도록 설정한다.
 5. Kubernetes Secret의 저장 시 암호화가 활성화되었는지 확인한다.
@@ -16,6 +17,8 @@
 | 변수 | 기본값 | 설명 |
 |---|---|---|
 | `k3s_version` | `v1.36.3+k3s1` | 설치할 K3s 버전 |
+| `k3s_install_script_checksum` | `sha256:<64 hex>` | 같은 release tag의 `install.sh` checksum. 비우면 실패한다 |
+| `k3s_binary_checksum` | `<64 hex>` | 같은 release의 `sha256sum-amd64.txt`에 있는 `k3s` 값 |
 | `k3s_kubeconfig_path` | `/etc/rancher/k3s/k3s.yaml` | 관리자 kubeconfig 경로 |
 | `k3s_cluster_cidr` | `10.42.0.0/16` | Pod 네트워크 |
 | `k3s_service_cidr` | `10.43.0.0/16` | Service 네트워크 |
@@ -40,4 +43,13 @@
 - 현재 구현은 **단일 노드 K3s server** 전용이다. 다중 server/agent 구성과 HA join은 지원하지 않는다.
 - `common` 역할이 먼저 실행되어 커널과 방화벽이 준비되어야 한다.
 - Pod/Service CIDR은 IDC·호스트 네트워크와 겹치면 안 되며 기존 클러스터에서 가볍게 바꿀 수 있는 값이 아니다.
-- K3s 버전을 바꿀 때 설치 경로와 백업 가능성을 검토하고 같은 release tag의 설치 스크립트 URL과 checksum도 함께 갱신해야 한다.
+- K3s 버전을 바꿀 때 설치 경로와 백업 가능성을 검토하고 같은 release tag의 설치 스크립트 URL과 checksum,
+  binary checksum을 함께 갱신해야 한다. 서버는 x86_64만 지원하므로 `sha256sum-amd64.txt`를 사용한다.
+
+  ```bash
+  VERSION='v1.36.3+k3s1'
+  TAG="${VERSION/+/%2B}"
+  curl -fsSL "https://raw.githubusercontent.com/k3s-io/k3s/${TAG}/install.sh" | shasum -a 256
+  curl -fsSL "https://github.com/k3s-io/k3s/releases/download/${TAG}/sha256sum-amd64.txt" | grep ' k3s$'
+  gh release view "$VERSION" --repo k3s-io/k3s --json assets --jq '.assets[] | select(.name=="k3s") | .digest'
+  ```

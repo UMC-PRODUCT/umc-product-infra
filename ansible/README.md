@@ -11,12 +11,13 @@ DB는 SSH 터널로 접속한다. DB 5432와 Kubernetes API 6443은 외부에 �
 - 서버 이전·DB 복원·DNS 전환: [이전 runbook](../docs/runbooks/cafe24-migration.md).
 - 전체 문서: [운영 문서 목차](../docs/README.md).
 
-## 두 playbook의 역할
+## playbook별 역할
 
 | 원본 | 역할 | 사용 시점 |
 |---|---|---|
 | [ssh-access.yml](playbooks/ssh-access.yml) | 개인 계정·공개키·SSH 권한·UFW 설정 | 팀원 등록·회수, 최초 관리자 접근 준비 |
 | [bootstrap.yml](playbooks/bootstrap.yml) | SSH·OS → K3s → Argo CD → ESO 최초 자격증명 → root Application | 빈 서버 초기 구성·승인된 재구성 |
+| [argocd.yml](playbooks/argocd.yml) | bootstrap을 마친 서버의 Argo CD core Helm release·AppProject | 계정·RBAC·health·metrics 등 core values 변경 |
 
 팀원 한 명을 추가하기 위해 전체 bootstrap을 실행하지 않는다.
 앱 이미지·Helm values·Kubernetes manifest의 일상 배포는 Ansible이 아니라 Argo CD가 담당한다.

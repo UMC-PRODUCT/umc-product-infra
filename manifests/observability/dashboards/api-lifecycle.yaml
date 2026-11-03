@@ -782,7 +782,7 @@ data:
                 "text": "prod-umc-product",
                 "value": "prod-umc-product"
               },
-              "definition": "label_values(umc_product_service_fallback_info, application)",
+              "definition": "label_values({__name__=~\"umc_product_service_fallback_info|process_uptime_milliseconds\"}, application)",
               "hide": "dontHide",
               "includeAll": false,
               "label": "Service",
@@ -796,13 +796,13 @@ data:
                 "group": "prometheus",
                 "kind": "DataQuery",
                 "spec": {
-                  "query": "label_values(umc_product_service_fallback_info, application)",
+                  "query": "label_values({__name__=~\"umc_product_service_fallback_info|process_uptime_milliseconds\"}, application)",
                   "refId": "StandardVariableQuery"
                 },
                 "version": "v0"
               },
               "refresh": "onDashboardLoad",
-              "regex": "",
+              "regex": "/^((prod|dev|local)-umc-product|preview-umc-product-pr[0-9]+)$/",
               "regexApplyTo": "value",
               "skipUrlSync": false,
               "sort": "alphabeticalAsc"

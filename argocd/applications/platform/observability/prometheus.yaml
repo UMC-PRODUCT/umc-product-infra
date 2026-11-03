@@ -272,12 +272,13 @@ spec:
                 groupInterval: 5m
                 repeatInterval: 4h
                 routes:
-                  - receiver: drop-local
+                  # Preview PR 앱은 SPRING_PROFILES_ACTIVE=dev라 앱 지표의 environment가 dev와 같다.
+                  # PR별 application 이름으로 앱 알림만 버리고 preview namespace의 플랫폼 알림은 그대로 보낸다.
+                  - receiver: "null"
                     matchers:
-                      - name: environment
-                        matchType: "="
-                        value: local
-                    continue: false
+                      - name: application
+                        matchType: "=~"
+                        value: preview-umc-product-pr[0-9]+
                   # preview의 count/certificates.cert-manager.io 쿼터는 공유 wildcard Certificate 1개에 맞춰 hard limit을 1로 고정해뒀다.
                   # 그래서 사용량은 설계상 항상 1/1(100%)이며 이 알림은 상시 거짓양성이다.
                   # 실제로 두 번째 Certificate 생성이 쿼터에 막히는 경우는 cert-manager 이벤트/kubectl describe로 드러나므로 Discord 알림으로 따로 감시할 필요가 없다.
@@ -298,7 +299,6 @@ spec:
                         matchType: "=~"
                         value: Watchdog|InfoInhibitor
               receivers:
-                - name: drop-local
                 - name: "null"
                 - name: discord
                   discordConfigs:
@@ -308,10 +308,12 @@ spec:
                         key: discord-webhook
                       # Helm tpl을 한 번 통과한 뒤 Alertmanager가 실행할 템플릿이다.
                       title: '{{`{{ $scope := or (index .CommonLabels "environment") (index .CommonLabels "deployment_environment") (index .CommonLabels "service_name") (index .CommonLabels "application") (index .CommonLabels "job") (index .CommonLabels "instance") "unknown" }}[{{ .Status | toUpper }}{{ if eq .Status "firing" }}:{{ .Alerts.Firing | len }}{{ end }}][{{ $scope }}] {{ .CommonLabels.alertname }}`}}'
+                      # 대상은 Certificate name, KSM이 붙인 pod, scrape instance 순으로 고른다.
+                      # instance는 수집기 주소이고 cert-manager 지표의 pod는 cert-manager 자신이다.
                       message: |
                         {{`{{ range .Alerts }}
                         {{ $scope := or (index .Labels "environment") (index .Labels "deployment_environment") (index .Labels "service_name") (index .Labels "application") (index .Labels "job") "unknown" }}
-                        {{ $target := or (index .Labels "instance") (index .Labels "pod") (index .Labels "name") "-" }}
+                        {{ $target := or (index .Labels "name") (index .Labels "pod") (index .Labels "instance") "-" }}
                         • {{ .Annotations.summary }}
                           환경: {{ $scope }}
                           severity: {{ .Labels.severity }}
@@ -322,11 +324,19 @@ spec:
                         {{ end }}`}}
               # 같은 대상의 상위 장애가 이미 알림을 내면 겹치는 warning·일반 장애 알림을 억제한다.
               inhibitRules:
+                # KSM 알림은 job·instance가 KSM 자신이라 namespace가 없으면 app critical이 preview warning을 덮는다.
+                # service_name은 Loki 로그 알림이 쓰는 대상 label이다.
                 - sourceMatch:
                     - { name: severity, matchType: "=", value: critical }
                   targetMatch:
                     - { name: severity, matchType: "=", value: warning }
-                  equal: [alertname, service_name, application, job, instance]
+                  equal: [alertname, service_name, application, namespace, job, instance]
+                # 같은 앱의 5xx 비율 critical이 이미 나가면 건수 기반 5xx warning은 따로 보내지 않는다.
+                - sourceMatch:
+                    - { name: alertname, matchType: "=", value: ApiHigh5xxErrorRatio }
+                  targetMatch:
+                    - { name: alertname, matchType: "=~", value: "ApiHigh5xxErrorCount|ApiRouteHigh5xxErrorCount" }
+                  equal: [application]
                 - sourceMatch:
                     - { name: alertname, matchType: "=~", value: "PostgreSQLDown|OTelCollectorDown|LokiDown|TempoDown|GrafanaDown" }
                   targetMatch:

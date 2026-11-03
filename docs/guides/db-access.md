@@ -78,6 +78,7 @@ Preview 종료·정리 전에는 DataGrip 연결을 닫고, 보존할 테스트 
 | `umc_product_ro` 조회가 취소되거나 연결이 끊김 | `canceling statement due to statement timeout`은 60초 제한, `idle-in-transaction timeout`은 열어 둔 transaction 5분 제한이다. `too many connections for role`이면 다른 DataGrip 창·console의 연결을 닫는다. |
 | SQL 권한 오류 | 발급받은 계정의 읽기·쓰기 범위를 확인한다. 필요한 작업과 대상 환경을 적어 권한을 요청한다. |
 | 터미널 SSH 접속 거부 | 터널용 계정의 정상 동작이다. DataGrip의 실제 DB `Test Connection` 결과를 확인한다. |
+| Wi-Fi 변경·절전 뒤 연결이 멈춤 | 서버는 응답 없는 SSH 터널을 약 3분 뒤 닫는다. DataGrip에서 연결을 끊고 다시 연결한다. |
 
 해결되지 않으면 환경, Preview PR 번호, 발생 시간과 오류 메시지를 전달한다.
 공유할 화면·로그에 비밀번호, 개인키, Passphrase가 포함되지 않도록 한다.

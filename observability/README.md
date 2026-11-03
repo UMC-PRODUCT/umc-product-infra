@@ -22,7 +22,8 @@ observability/
 ├── dashboards/              # Grafana dashboard JSON 원본
 └── rules/
     ├── prometheus-alerts.yaml
-    └── loki-alerts.yaml
+    ├── loki-alerts.yaml
+    └── tests/               # promtool test rules 입력
 
 scripts/gen-configmaps.py             # 원본 → ConfigMap / PrometheusRule
 manifests/observability/              # dashboard·Loki ConfigMap, NetworkPolicy
@@ -63,10 +64,12 @@ Prometheus 규칙의 `api`는 요청·지연, `database-cache`는 HikariCP·캐�
 다음 UMC 원본 아홉 개를 Grafana sidecar가 읽는 ConfigMap으로 생성하며 `UMC Product` folder에 둔다.
 Chart의 기본 dashboard는 별도 `Kubernetes` folder로 들어온다.
 
-Application Detail의 Service 변수는 Loki label 목록이 아닌 Prometheus recording rule
-`umc_product_service_fallback_info`의 `application` label을 사용한다. 앱 signal이 잠시 비어도
-prod/dev/local 선택지를 유지하며 Overview는 prod/dev만 비교한다. preview는 고정 fallback
-option이 아니다. 원본 변경 시 이 변수와 dashboard 간 링크를 함께 확인한다.
+Application Detail과 API 호환성의 Service 변수는 Loki label 목록이 아닌 Prometheus의
+`application` label을 사용한다. recording rule `umc_product_service_fallback_info`가 앱 signal이
+잠시 비어도 prod/dev/local 선택지를 유지하고, `process_uptime_milliseconds`가 지금 떠 있는
+`preview-umc-product-prN`을 더한다. 변수 regex는 이 네 형태만 남겨 `x-umc-product` 같은 기본값 이름을
+숨긴다. Application Detail의 `All`은 prod/dev/local만 묶고 Preview PR은 직접 골라야 보인다.
+Overview는 prod/dev만 비교한다. 원본 변경 시 이 변수와 dashboard 간 링크를 함께 확인한다.
 
 - `api-flow.json`
 - `api-lifecycle.json` — API·클라이언트 버전별 호출과 계측 누락 현황
@@ -99,8 +102,11 @@ option이 아니다. 원본 변경 시 이 변수와 dashboard 간 링크를 함
 ## Alert rule 변환
 
 - `rules/prometheus-alerts.yaml`: K3s에 없는 target과 chart 기본 알림의 중복을 제외하고, 앱·DB·
-  Collector·backup 상태용 rule을 `PrometheusRule`로 만든다. `monitoring` namespace와
-  `release: prometheus` label이 Prometheus의 rule selector와 일치해야 한다.
+  Collector·backup·인증서·OOMKilled 상태용 rule을 `PrometheusRule`로 만든다. 배포되는 규칙은
+  모두 이 원본에 있고 생성 스크립트는 `K3S_DROPPED_ALERTS`의 규칙을 빼기만 한다. `monitoring`
+  namespace와 `release: prometheus` label이 Prometheus의 rule selector와 일치해야 한다.
+- `rules/tests/*.test.yaml`: `promtool test rules` 입력이다. 알림 조건을 바꾸면 발화·비발화 사례를
+  함께 고친다. `scripts/tests/test_prometheus_rule_units.py`가 promtool이 있으면 실행한다.
 - `rules/loki-alerts.yaml`: UMC log group 계약을 검사한 뒤 ConfigMap으로 만든다.
 
 원본의 필수 group이나 변환 대상 alert 이름이 사라지면 생성 스크립트가 실패한다. 원본을
