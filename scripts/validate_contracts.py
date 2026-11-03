@@ -1377,6 +1377,13 @@ def validate_postgres() -> None:
         "ALTER ROLE umc_product_ro SET idle_in_transaction_session_timeout = '5min';",
     ):
         require(statement in readonly_script, f"prod: readonly role limit {statement}")
+    backup_dump = resource(
+        yaml_documents(prod_directory / "backup-cronjob.yaml"), "CronJob"
+    )["spec"]["jobTemplate"]["spec"]["template"]["spec"]["initContainers"][0]
+    require(
+        "pg_dump -Fc --lock-wait-timeout=5min " in backup_dump["args"][0],
+        "prod: backup pg_dump must fail instead of waiting forever for table locks",
+    )
     exporter_role_job = resource(
         yaml_documents(prod_directory / "postgres-exporter-role-job.yaml"), "Job"
     )

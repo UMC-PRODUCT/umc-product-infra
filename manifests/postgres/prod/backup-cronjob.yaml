@@ -73,7 +73,8 @@ spec:
                   test "$database_ready" = true
                   backup_name="umc-product-$(date -u +%Y%m%dT%H%M%SZ)-${BACKUP_RUN_ID}.dump"
                   backup_file="/backup/${backup_name}"
-                  pg_dump -Fc -f "$backup_file"
+                  # migration 등이 테이블 lock을 오래 잡으면 무한 대기 대신 실패해 PostgresBackupFailed로 드러낸다.
+                  pg_dump -Fc --lock-wait-timeout=5min -f "$backup_file"
                   test -s "$backup_file"
                   pg_restore --list "$backup_file" >/dev/null
                   (
