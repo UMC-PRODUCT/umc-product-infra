@@ -1340,8 +1340,28 @@ def validate_postgres() -> None:
             script = role_container["args"][0]
             require("CREATE EXTENSION IF NOT EXISTS postgis;" in script, f"{environment}: postgis")
             require("CREATE EXTENSION IF NOT EXISTS btree_gist;" in script, f"{environment}: btree_gist")
+            # 앱 role이 DB owner이면 DROP DATABASE가 가능하다. owner는 관리자에게 두고 필요한 권한만 준다.
+            app_role = "umc_product_app" if environment == "prod" else "umc_product_dev_app"
+            require(
+                'ALTER DATABASE :"DBNAME" OWNER TO CURRENT_USER;' in script
+                and f'ALTER DATABASE :"DBNAME" OWNER TO {app_role}' not in script,
+                f"{environment}: database owner must stay the admin role",
+            )
+            require(
+                f'GRANT CONNECT, TEMPORARY, CREATE ON DATABASE :"DBNAME" TO {app_role};' in script,
+                f"{environment}: app role needs CREATE for the Flyway public schema bootstrap",
+            )
 
     prod_directory = ROOT / "manifests" / "postgres" / "prod"
+    readonly_script = resource(
+        yaml_documents(prod_directory / "readonly-role-job.yaml"), "Job"
+    )["spec"]["template"]["spec"]["containers"][0]["args"][0]
+    for statement in (
+        "CONNECTION LIMIT 5;",
+        "ALTER ROLE umc_product_ro SET statement_timeout = '60s';",
+        "ALTER ROLE umc_product_ro SET idle_in_transaction_session_timeout = '5min';",
+    ):
+        require(statement in readonly_script, f"prod: readonly role limit {statement}")
     exporter_role_job = resource(
         yaml_documents(prod_directory / "postgres-exporter-role-job.yaml"), "Job"
     )
