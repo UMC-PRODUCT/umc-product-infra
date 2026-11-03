@@ -107,7 +107,10 @@ ansible-playbook -i "${TARGET_INVENTORY:?새 서버 inventory 절대 경로 필�
 
 `root-app-prepare.yaml`은 prod/dev API Application, Preview ApplicationSet, ExternalDNS를
 제외한다. DB·SecretStore·ExternalSecret·관측 구성이 준비되고 이 네 대상이 생성되지 않았는지
-확인한다. 새 DB에 업무 데이터가 이미 있으면 복원을 중단한다. backup CronJob도 정지 상태를 확인한다.
+확인한다. 새 DB에 업무 데이터가 이미 있으면 복원을 중단한다.
+Git의 prod backup CronJob은 `suspend: false`라 Prepare에서도 매일 03:00 KST에 실행된다. 새 DB가 비어 있거나
+복원 중일 때 그 상태가 같은 S3 prefix에 정상 backup처럼 올라가지 않도록, 최종 복원 검증 전에 03:00을
+지나게 되면 `suspend: true` PR을 먼저 merge하고 검증 뒤 되돌린다. 기존 서버의 backup은 그대로 둔다.
 
 복원 전에 새 DB 세 대가 ICU `ko-KR` 기본 collation으로 초기화됐는지 확인한다. `POSTGRES_INITDB_ARGS`는
 빈 PVC의 최초 initdb에만 적용되고, 이미 데이터가 있는 PVC나 기존 서버의 locale은 바꾸지 않는다.

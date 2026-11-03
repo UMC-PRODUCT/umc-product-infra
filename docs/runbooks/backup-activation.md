@@ -1,8 +1,15 @@
 # PostgreSQL backup 활성화
 
 목표는 S3 upload가 아니라 실제 restore 가능성을 확인하는 것이다.
-CronJob은 이 절차가 끝날 때까지 `suspend: true`로 유지한다.
 검증은 prod node 밖에서 운영 DB와 같은 PostgreSQL 18·PostGIS 3.6 image digest로 수행한다.
+
+## 현재 상태
+
+- 예약 실행은 2026-09-19 PR #2 merge부터 켜져 있다(`suspend: false`). 운영자 요청으로 이 절차의
+  노드 밖 restore와 DB 권한 검증을 생략하고 활성화했다.
+- 노드 밖 restore 리허설은 아직 기록되지 않았다. 매일 S3에 올라가는 dump가 실제로 복원되는지는
+  확인되지 않은 상태다. 아래 1~5단계를 restore 리허설 절차로 그대로 사용한다.
+- 예약 실행을 멈추는 방법과 기준은 [7단계](#7-예약-실행-유지와-중지)를 따른다.
 
 ## 백업 정책
 
@@ -42,8 +49,9 @@ sudo k3s kubectl get cronjob/pg-backup -n db \
 sudo k3s kubectl wait --for=condition=Ready externalsecret/backup-s3 -n db --timeout=180s
 ```
 
-`SUSPEND`는 `true`여야 한다.
-수동 `create job --from=cronjob`은 suspended CronJob에서도 실행된다.
+현재 계약은 `SUSPEND=false`, `0 3 * * *`, `Asia/Seoul`이다.
+수동 `create job --from=cronjob`은 `suspend` 값과 무관하게 실행되며 `concurrencyPolicy: Forbid`도
+적용되지 않는다. 03:00 KST 예약 실행과 겹치지 않는 시간에 2단계를 실행한다.
 
 ## 2. 수동 backup
 
@@ -75,7 +83,8 @@ printf 'backup_pod_uid=%s\nbackup_started_epoch=%s\nbackup_finished_epoch=%s\n' 
   "$backup_pod_uid" "$backup_started_epoch" "$backup_finished_epoch"
 ```
 
-Job이 실패하면 `suspend:true`를 유지한다.
+수동 Job이 실패하면 최근 예약 Job 결과와 `PostgresBackupFailed` 경보도 함께 확인한다. 같은 원인이면
+예약 백업도 실패하고 있다는 뜻이다. 예약 실행 중지 여부는 7단계 기준으로 판단한다.
 deadline을 늘리기 전에 DB 크기, nodefs, dump 시간, upload 시간을 기록한다.
 
 ## 3. S3 object 검증
@@ -251,7 +260,7 @@ Flyway 이력과 대표 row count가 backup 시점에 기대한 값인지 확인
 `--no-acl`은 dump에 포함된 grant/revoke를 복원하지 않는다. 위 데이터 복원만으로 권한 검증이
 끝난 것은 아니다. 검증 DB에 필요한 role과 grant를 Git의 role Job 계약에 맞춰 별도로 재현하고,
 앱 owner·권한과 조회 전용 role의 읽기 성공·쓰기 거부를 확인한다. extension 소유권도 대조하고
-복원 중 오류가 발생하면 예약 실행을 활성화하지 않는다.
+복원 중 오류가 발생하면 이미 켜진 예약 백업도 복원되지 않을 수 있으므로 원인을 바로 조사한다.
 
 ## 5. RPO와 RTO 기록
 
@@ -286,20 +295,10 @@ Git merge와 Argo CD는 AWS CloudFormation을 자동 배포하지 않는다.
 기간 축소는 **이미 존재하는 오래된 백업에도 적용**된다. 영구 삭제된 버전은 보관 기간을 다시
 늘려도 복구할 수 없다. `DeletionPolicy: Retain`과 CronJob의 `suspend`는 lifecycle 삭제를 막지 않는다.
 
-## 7. 예약 실행 활성화
+## 7. 예약 실행 유지와 중지
 
-앞 단계가 모두 성공한 PR에서만 다음 한 줄을 바꾼다.
-
-```yaml
-spec:
-  suspend: false
-```
-
-대상은 `manifests/postgres/prod/backup-cronjob.yaml`이다.
-`Static validation`을 통과한 PR로 merge한다.
-live patch만 남기지 않는다.
-
-첫 03:00 실행 뒤 새 marker와 외부 restore를 다시 확인한다.
+예약 실행은 이미 켜져 있다. restore 리허설에 성공하면 운영 기록에 리허설 날짜·backup 이름·RPO·RTO를
+남기고, 그 뒤의 03:00 실행에서 새 marker가 생기는지 확인한다.
 `PostgresBackupFailed`, `PostgresBackupNeverSucceeded`, `PostgresBackupStale` 규칙이 로드됐는지 확인한다.
 stale 경보는 **CronJob의 마지막 정규 성공 시각**이 30시간을 넘고 10분간 유지되면 발생한다.
 활성화 후 정규 성공 시각 자체가 없으면 27시간 뒤 별도 경보가 발생한다.
@@ -308,7 +307,19 @@ stale 경보는 **CronJob의 마지막 정규 성공 시각**이 30시간을 넘
 이후 object 삭제·손상이나 모니터링을 포함한 전체 노드 장애를 독립 감지하는 장치는 아니다.
 dump와 upload p95의 두 배를 `activeDeadlineSeconds` 기준으로 사용한다.
 
-실패하면 `suspend: true`로 되돌리는 PR을 즉시 merge한다.
+예약 실행이 실패해도 먼저 원인을 고친다. 중지하면 새 백업이 생기지 않아 손실 범위만 늘어나고,
+`PostgresBackupNeverSucceeded`·`PostgresBackupStale` 경보도 `suspend`가 `false`일 때만 평가되므로
+함께 꺼진다. backup Job이 운영 DB나 node를 해치거나 credential incident가 있을 때만 중지한다.
+
+중지는 `manifests/postgres/prod/backup-cronjob.yaml`의 한 줄을 바꾸는 PR로 한다.
+`Static validation`을 통과한 PR로 merge하며, Argo CD selfHeal이 되돌리므로 live patch만 남기지 않는다.
+
+```yaml
+spec:
+  suspend: true
+```
+
+다시 켤 때도 같은 줄을 `false`로 되돌리는 PR을 쓴다.
 기존 S3 object는 삭제하지 않는다.
 active Job 삭제는 data corruption이나 credential incident가 아니면 피한다.
 
