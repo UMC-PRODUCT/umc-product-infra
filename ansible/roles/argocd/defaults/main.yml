@@ -42,6 +42,6 @@ argocd_root_app_refresh_retries: 900
 argocd_root_app_refresh_delay: 2
 
 # argocd.yml은 k3s role을 로드하지 않아 argocd role이 쓰는 k3s 기본값을 여기에도 둔다.
-# 값은 k3s role default와 같아야 하며 scripts/tests/test_argocd_playbook_contracts.py가 확인한다.
+# 값은 k3s role default와 같아야 하며 scripts/tests/test_ansible_bootstrap_contracts.py가 확인한다.
 k3s_version: v1.36.3+k3s1  # noqa: var-naming[no-role-prefix]
 k3s_kubeconfig_path: /etc/rancher/k3s/k3s.yaml  # noqa: var-naming[no-role-prefix]

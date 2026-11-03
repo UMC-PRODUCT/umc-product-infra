@@ -17,6 +17,39 @@
       K3s, its administrator kubeconfig, or Helm is missing. Install the
       server with playbooks/bootstrap.yml instead of playbooks/argocd.yml.
 
+# bootstrap의 k3s role과 같은 기준이다. cluster-admin 파일이 노출된 서버에서는 진행하지 않는다.
+- name: Require a root-only administrator kubeconfig
+  ansible.builtin.assert:
+    that:
+      - argocd_kubeconfig_stat.pw_name == 'root'
+      - argocd_kubeconfig_stat.mode == '0600'
+    fail_msg: >-
+      {{ k3s_kubeconfig_path }} must be owned by root with mode 0600. Restore
+      it with playbooks/bootstrap.yml before changing Argo CD.
+  vars:
+    argocd_kubeconfig_stat: >-
+      {{ (argocd_bootstrap_files.results
+          | selectattr('item', 'equalto', k3s_kubeconfig_path) | first).stat }}
+
+# PSA label 등 role 값은 Git의 K3s 버전을 전제로 한다. 서버가 다른 버전이면 bootstrap으로 먼저 맞춘다.
+- name: Read the installed K3s version
+  ansible.builtin.command:
+    argv:
+      - /usr/local/bin/k3s
+      - --version
+  register: argocd_installed_k3s_version
+  changed_when: false
+  check_mode: false
+
+- name: Require the K3s version pinned in Git
+  ansible.builtin.assert:
+    that:
+      - k3s_version in argocd_installed_k3s_version.stdout
+    fail_msg: >-
+      Git pins K3s {{ k3s_version }}, but the server reports
+      {{ argocd_installed_k3s_version.stdout_lines | first | default('no version') }}.
+      Upgrade K3s with the approved playbooks/bootstrap.yml run first.
+
 # 이름·상태만 읽는다. check mode에서도 실행해야 아래 판정이 실제 release를 본다.
 - name: Read the installed Argo CD Helm release
   ansible.builtin.command:
@@ -46,13 +79,51 @@
       missing or not deployed. Install the server with playbooks/bootstrap.yml,
       or inspect `helm history` before retrying.
 
-# 마지막으로 적용한 서버의 values 사본과 Git values의 차이를 --diff로 보여준다. 항상 check mode라 쓰지 않는다.
-- name: Preview the Argo CD values change
-  ansible.builtin.copy:
-    src: argo-cd-values.yaml
-    dest: "{{ argocd_helm_values_path }}"
-    owner: root
-    group: root
-    mode: '0600'
-  check_mode: true
-  diff: true
+# kubernetes.core.helm은 서버의 values 사본이 아니라 이 live values와 Git values가 다를 때 upgrade한다.
+- name: Read the live Argo CD Helm values
+  ansible.builtin.command:
+    argv:
+      - "{{ argocd_helm_binary_path }}"
+      - get
+      - values
+      - "{{ argocd_helm_release_name }}"
+      - --kubeconfig
+      - "{{ k3s_kubeconfig_path }}"
+      - --namespace
+      - "{{ argocd_namespace }}"
+      - --output
+      - json
+  register: argocd_live_values
+  changed_when: false
+  check_mode: false
+
+# helm module과 같은 기준(파싱한 값의 동등성)으로 비교하고, 키를 정렬한 YAML의 unified diff로 보여준다.
+- name: Compare the live Argo CD Helm values with Git
+  ansible.builtin.command:
+    argv:
+      - "{{ ansible_playbook_python }}"
+      - -c
+      - |-
+        import difflib, json, sys, yaml
+        live = json.load(sys.stdin) or {}
+        with open(sys.argv[1], encoding="utf-8") as stream:
+            git = yaml.safe_load(stream) or {}
+        def lines(values):
+            return yaml.safe_dump(values, sort_keys=True).splitlines(keepends=True)
+        sys.stdout.writelines(difflib.unified_diff(lines(live), lines(git), "live release", "git"))
+      - "{{ role_path }}/files/argo-cd-values.yaml"
+    stdin: "{{ argocd_live_values.stdout }}"
+  delegate_to: localhost
+  become: false
+  register: argocd_values_diff
+  changed_when: argocd_values_diff.stdout | length > 0
+  check_mode: false
+
+# Helm은 values 또는 chart가 다를 때만 upgrade한다. AppProject·health·PSA 차이는 이 미리보기에 없다.
+- name: Show the change the Helm upgrade will apply
+  ansible.builtin.debug:
+    msg: >-
+      {{ ['Chart: live ' ~ (argocd_installed_release.stdout | from_json | first).chart
+          ~ ', Git argo-cd-' ~ argocd_helm_chart_version]
+         + (argocd_values_diff.stdout_lines if argocd_values_diff is changed
+            else ['Values: the live release already matches Git.']) }}

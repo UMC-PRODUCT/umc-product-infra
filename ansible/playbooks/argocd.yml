@@ -32,8 +32,56 @@
       tags:
         - preflight
 
+    # Argo CD core는 root Application이 self-heal하지 않으므로 검토되지 않은 values가 live release에 남는다.
+    # 관리자 PC의 checkout이 깨끗하고 origin/main과 같은 revision일 때만 진행한다.
+    - name: Fetch the reviewed main revision
+      ansible.builtin.command:
+        argv: [git, -C, "{{ playbook_dir }}", fetch, --quiet, origin, main]
+      delegate_to: localhost
+      become: false
+      changed_when: false
+      check_mode: false
+      tags:
+        - preflight
+
+    - name: Read the controller checkout state
+      ansible.builtin.command:
+        argv: [git, -C, "{{ playbook_dir }}", status, --porcelain]
+      delegate_to: localhost
+      become: false
+      register: argocd_checkout_status
+      changed_when: false
+      check_mode: false
+      tags:
+        - preflight
+
+    - name: Read the controller and main revisions
+      ansible.builtin.command:
+        argv: [git, -C, "{{ playbook_dir }}", rev-parse, HEAD, origin/main]
+      delegate_to: localhost
+      become: false
+      register: argocd_checkout_revisions
+      changed_when: false
+      check_mode: false
+      tags:
+        - preflight
+
+    - name: Require a clean checkout of origin/main
+      ansible.builtin.assert:
+        that:
+          - argocd_checkout_status.stdout | length == 0
+          - argocd_checkout_revisions.stdout_lines | unique | length == 1
+        fail_msg: >-
+          Run playbooks/argocd.yml only from a clean checkout of the merged
+          origin/main revision. Stash or discard local changes, then run
+          `git switch main && git pull --ff-only` first.
+      delegate_to: localhost
+      become: false
+      tags:
+        - preflight
+
     # argocd role의 command 작업은 check mode에서 실행되지 않아 kubectl diff가 비어 보이고
-    # Helm 버전 검사에서 실패한다. 미리보기는 사전 검사와 values diff만 보여주는 preflight로 한정한다.
+    # Helm 버전 검사에서 실패한다. 미리보기는 사전 검사와 live values diff만 보여주는 preflight로 한정한다.
     - name: Limit check mode to the preflight preview
       ansible.builtin.assert:
         that:

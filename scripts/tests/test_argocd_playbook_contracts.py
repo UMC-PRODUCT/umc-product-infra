@@ -1,6 +1,9 @@
 from __future__ import annotations
 
-import re
+import json
+import subprocess
+import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -17,7 +20,7 @@ ROLE_MODULES = {
     "ansible.builtin.include_role",
 }
 TASK_SECTIONS = ("pre_tasks", "tasks", "post_tasks", "handlers")
-READ_ONLY_MODULES = {"ansible.builtin.stat", "ansible.builtin.assert"}
+READ_ONLY_MODULES = {"ansible.builtin.stat", "ansible.builtin.assert", "ansible.builtin.debug"}
 
 
 def load_yaml(path: Path) -> object:
@@ -71,56 +74,99 @@ class ArgocdPlaybookScopeTests(unittest.TestCase):
         self.assertEqual(tasks_from, {"installed_preflight.yml"})
         self.assertNotIn("root_app", PLAYBOOK.read_text(encoding="utf-8"))
 
-    def test_installed_core_check_runs_before_the_role(self) -> None:
+    def test_every_safety_check_is_a_preflight_pre_task(self) -> None:
         pre_tasks = load_play()["pre_tasks"]
-        preflight = [
-            task for task in pre_tasks
-            if task.get("ansible.builtin.import_role", {}).get("tasks_from")
-            == "installed_preflight.yml"
+        for task in pre_tasks:
+            with self.subTest(task=task["name"]):
+                self.assertIn("preflight", task["tags"])
+        names = [task["name"] for task in pre_tasks]
+        self.assertIn("Require a clean checkout of origin/main", names)
+        self.assertEqual(
+            pre_tasks[-1]["ansible.builtin.import_role"]["tasks_from"], "installed_preflight.yml"
+        )
+
+    def test_checkout_guard_reads_the_controller_even_in_check_mode(self) -> None:
+        git_tasks = [
+            task for task in load_play()["pre_tasks"]
+            if task.get("ansible.builtin.command", {}).get("argv", [None])[0] == "git"
         ]
-        self.assertEqual(len(preflight), 1)
-        self.assertIn("preflight", preflight[0]["tags"])
+        self.assertEqual(
+            [task["ansible.builtin.command"]["argv"][3] for task in git_tasks],
+            ["fetch", "status", "rev-parse"],
+        )
+        self.assertEqual(git_tasks[-1]["ansible.builtin.command"]["argv"][4:], ["HEAD", "origin/main"])
+        for task in git_tasks:
+            with self.subTest(task=task["name"]):
+                self.assertEqual(task["delegate_to"], "localhost")
+                self.assertIs(task["check_mode"], False)
+                self.assertIs(task["changed_when"], False)
+
+
+def installed_preflight() -> list[dict[str, object]]:
+    return walk_tasks(load_yaml(ARGOCD_ROLE / "tasks" / "installed_preflight.yml"))
+
+
+def task_named(tasks: list[dict[str, object]], name: str) -> dict[str, object]:
+    return next(task for task in tasks if task.get("name") == name)
+
+
+def run_values_diff(live: object, git_text: str, tmp_dir: Path) -> str:
+    script = task_named(installed_preflight(), "Compare the live Argo CD Helm values with Git")
+    git_values = tmp_dir / "values.yaml"
+    git_values.write_text(git_text, encoding="utf-8")
+    argv = script["ansible.builtin.command"]["argv"]
+    return subprocess.run(
+        [sys.executable, "-I", argv[1], argv[2], str(git_values)],
+        input=json.dumps(live), capture_output=True, text=True, check=True,
+    ).stdout
 
 
 # 사전 검사와 values 미리보기는 서버를 바꾸지 않아야 --tags preflight 실행이 안전하다.
 class ArgocdInstalledPreflightTests(unittest.TestCase):
     def test_preflight_tasks_never_write(self) -> None:
-        tasks = load_yaml(ARGOCD_ROLE / "tasks" / "installed_preflight.yml")
-        for task in walk_tasks(tasks):
+        for task in installed_preflight():
             with self.subTest(task=task["name"]):
                 if READ_ONLY_MODULES & task.keys():
                     continue
-                if "ansible.builtin.command" in task:
-                    self.assertIs(task["changed_when"], False)
-                    self.assertIs(task["check_mode"], False)
-                    self.assertEqual(task["ansible.builtin.command"]["argv"][1], "list")
+                self.assertIn("ansible.builtin.command", task)
+                self.assertIs(task["check_mode"], False)
+                argv = task["ansible.builtin.command"]["argv"]
+                if task.get("delegate_to") == "localhost":
+                    self.assertEqual(argv[0], "{{ ansible_playbook_python }}")
                     continue
-                self.assertIs(task.get("check_mode"), True)
+                self.assertIs(task["changed_when"], False)
+                self.assertIn(argv[1:3], (["list", "--kubeconfig"], ["get", "values"], ["--version"]))
+
+    def test_live_diff_reads_what_the_helm_task_compares(self) -> None:
+        main = walk_tasks(load_yaml(ARGOCD_ROLE / "tasks" / "main.yml"))
+        copy = task_named(main, "Copy the reviewed Argo CD values")["ansible.builtin.copy"]
+        helm = task_named(main, "Reconcile the pinned Argo CD Helm release")["kubernetes.core.helm"]
+        tasks = installed_preflight()
+        live = task_named(tasks, "Read the live Argo CD Helm values")["ansible.builtin.command"]["argv"]
+        diff = task_named(tasks, "Compare the live Argo CD Helm values with Git")
+        self.assertIs(helm["reset_values"], True)
+        self.assertEqual(helm["values_files"], [copy["dest"]])
+        self.assertEqual(
+            diff["ansible.builtin.command"]["argv"][-1], "{{ role_path }}/files/" + copy["src"]
+        )
+        self.assertEqual(live[3], helm["release_name"])
+        self.assertEqual(live[live.index("--namespace") + 1], helm["release_namespace"])
+        self.assertEqual(live[live.index("--kubeconfig") + 1], helm["kubeconfig"])
+        self.assertEqual(live[live.index("--output") + 1], "json")
+
+    def test_values_diff_ignores_formatting_and_shows_value_changes(self) -> None:
+        git_text = "# comment\nserver:\n  replicas: 1\nconfigs:\n  cm: {a: b}\n"
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_dir = Path(tmp)
+            same = {"configs": {"cm": {"a": "b"}}, "server": {"replicas": 1}}
+            self.assertEqual(run_values_diff(same, git_text, tmp_dir), "")
+            changed = run_values_diff({"server": {"replicas": 2}}, git_text, tmp_dir)
+            self.assertIn("-  replicas: 2", changed)
+            self.assertIn("+  replicas: 1", changed)
+            self.assertIn("+configs:", changed)
+            self.assertIn("+configs:", run_values_diff(None, git_text, tmp_dir))
 
 
-# argocd.yml은 k3s role을 로드하지 않으므로 argocd role이 읽는 k3s 값을 같은 값으로 갖고 있어야 한다.
-class ArgocdSharedK3sDefaultsTests(unittest.TestCase):
-    def test_every_k3s_variable_the_role_reads_has_the_k3s_default(self) -> None:
-        argocd_defaults = load_yaml(ARGOCD_ROLE / "defaults" / "main.yml")
-        k3s_defaults = load_yaml(ROOT / "ansible" / "roles" / "k3s" / "defaults" / "main.yml")
-        referenced = {
-            name
-            for path in ARGOCD_ROLE.rglob("*")
-            if path.is_file()
-            and path.suffix in {".yml", ".yaml", ".j2"}
-            and path.parent.name != "defaults"
-            and path.parent.name != "files"
-            for name in re.findall(r"\bk3s_[a-z0-9_]+", path.read_text(encoding="utf-8"))
-        }
-        self.assertIn("k3s_kubeconfig_path", referenced)
-        copied = {name for name in argocd_defaults if name.startswith("k3s_")}
-        for name in sorted(referenced | copied):
-            with self.subTest(variable=name):
-                self.assertTrue(
-                    name in argocd_defaults,
-                    f"add {name} to the argocd role defaults with the k3s role value",
-                )
-                self.assertEqual(argocd_defaults[name], k3s_defaults[name])
 
 
 if __name__ == "__main__":
