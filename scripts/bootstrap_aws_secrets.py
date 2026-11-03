@@ -144,6 +144,12 @@ SECRET_SPECS = (
         "prod",
     ),
     SecretSpec(
+        "/umc-product/prod/postgres-backup",
+        ".env.prod",
+        (("POSTGRES_BACKUP_PASSWORD", "POSTGRES_BACKUP_PASSWORD"),),
+        "prod",
+    ),
+    SecretSpec(
         "/umc-product/prod/backup-s3",
         ".env.prod",
         (
@@ -376,6 +382,7 @@ def validate_worksheet_values(values: dict[str, dict[str, str]], account_id: str
     ]
     database_values.append(values[".env.prod"]["RO_PASSWORD"])
     database_values.append(values[".env.prod"]["POSTGRES_EXPORTER_PASSWORD"])
+    database_values.append(values[".env.prod"]["POSTGRES_BACKUP_PASSWORD"])
     dump_passwords = {
         values[env_file]["DEV_DB_PREVIEW_DUMP_PASSWORD"] for env_file in (".env.dev", ".env.preview")
     }
