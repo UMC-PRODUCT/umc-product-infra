@@ -34,8 +34,8 @@
 선 모양만으로 활성 여부를 판단하지 않는다.
 
 Preview 그림은 [공용 wildcard 인증서](../../manifests/cert-manager/preview-wildcard-certificate.yaml)와
-PR별 앱·DB의 수명주기를 분리한다. PR 조회 조건은 라벨과 대상 브랜치이며 이미지 빌드 성공을
-확인하는 필터는 없다. 활성화 전 준비와 운영 절차는 [배포 운영 가이드](../operations/deployment.md)를 따른다.
+PR별 앱·DB의 수명주기를 분리한다. PR 조회 조건은 라벨과 대상 브랜치이고, infra `main`의
+`argocd/preview-releases/pr-<N>.json` 발행 성공 기록이 있는 PR만 Application을 만든다. 활성화 전 준비와 운영 절차는 [배포 운영 가이드](../operations/deployment.md)를 따른다.
 
 ## 파일 구조
 

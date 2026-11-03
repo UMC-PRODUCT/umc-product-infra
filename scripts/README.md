@@ -137,7 +137,14 @@ Kubernetes 상태는 바꾸지 않는다. 최종 기준은
 | [`test_ansible_bootstrap_contracts.py`](tests/test_ansible_bootstrap_contracts.py) | K3s installer pin, server-side apply, 개인 OpenSSH·UFW와 비공개 Kubernetes API |
 | [`test_bootstrap_aws_secrets.py`](tests/test_bootstrap_aws_secrets.py) | worksheet parser, 33개 source mapping, 환경 분리, stdin 전달과 오류 메시지 비노출 |
 | [`test_bootstrap_route53_access_keys.py`](tests/test_bootstrap_route53_access_keys.py) | 안전한 `.env.prod`, Route53 stack 계약, access key 발급과 실패 rollback |
+| [`test_api_lifecycle_dashboard.py`](tests/test_api_lifecycle_dashboard.py) | API 제거 검토 대시보드의 미관측 표시, 버전 분포와 개인정보 비노출 |
+| [`test_email_transport.py`](tests/test_email_transport.py) | 메일 provider 전환 시 발신자·Secret prefix·SMTP egress, Preview Mailpit 격리 |
+| [`test_migration_bootstrap.py`](tests/test_migration_bootstrap.py) | 서버 이전용 root Application 단계별 제외 범위와 ExternalDNS 보류 |
+| [`test_validate_argocd_access.py`](tests/test_validate_argocd_access.py) | Argo CD 공개 HTTPS Ingress·Certificate·NetworkPolicy와 backend 격리 |
+| [`test_validate_contracts.py`](tests/test_validate_contracts.py) | 저장소 디렉터리 구조와 Git에 보이는 파일 판정 |
+| [`test_validate_edge_platform.py`](tests/test_validate_edge_platform.py) | 공인 IDC target과 ExternalDNS filter·Grafana target 일치 |
 | [`test_validate_observability.py`](tests/test_validate_observability.py) | Operator Pod·monitor selector, named port와 cluster RBAC 권한 경계 |
+| [`test_validate_preview_releases.py`](tests/test_validate_preview_releases.py) | Preview 발행 성공 기록 형식과 ApplicationSet의 마지막 성공 image 고정 |
 | [`test_validate_skips.py`](tests/test_validate_skips.py) | 건너뛴 검사 요약, `validate.sh` 선택 도구 구간의 모든 skip 기록, `VALIDATE_STRICT=1` 실패 |
 | [`test_validate_gitops_sources.py`](tests/test_validate_gitops_sources.py) | `argocd/` 비manifest 파일 거부와 root Application exclude, merge base 기준 chart version 변경 요구 |
 | [`test_validate_argocd_helm_version.py`](tests/test_validate_argocd_helm_version.py) | 같은 minor Helm 허용과 strict 모드의 정확한 버전 요구 |

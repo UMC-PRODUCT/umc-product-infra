@@ -47,7 +47,7 @@ def build(theme: dict) -> None:
             "Route 53 authoritative DNS\nuniversity.neordinary.com child zone\nexact A/TXT · proxy 없음",
         )
         outside = Internet("외부 uptime monitor\n별도 구축 · HTTPS + heartbeat")
-        backup_store = S3("전용 AWS S3 backup\nSSE-S3 · versioning · 35d\nwriter: put only")
+        backup_store = S3("전용 AWS S3 backup\nSSE-S3 · versioning · 10d\nwriter: put only")
         team = Users("UMC 팀원\nGrafana Viewer")
         operator = Users("인프라 관리자")
         management = Internet("공인 SSH :22\n개인 계정·공개키 · local tunnel")
@@ -67,7 +67,7 @@ def build(theme: dict) -> None:
 
         with Cluster("ns db  ·  prod", graph_attr=ca):
             pg = StatefulSet("PostgreSQL 18 + PostGIS 3.6\nDB umc_product")
-            backup = Cronjob("pg-backup\n03:00 Asia/Seoul\nstart deadline 1h · runtime ≤2h\nsuspend:true")
+            backup = Cronjob("pg-backup\n매일 03:00 Asia/Seoul\nstart deadline 1h · runtime ≤2h\n외부 restore 미검증")
 
         with Cluster("ns dev-app  ·  dev", graph_attr=ca):
             ing_d = Ingress("api-dev.university.neordinary.com\npublic API · 앱 인증")
@@ -76,7 +76,7 @@ def build(theme: dict) -> None:
         with Cluster("ns dev-db  ·  dev", graph_attr=ca):
             pg_d = StatefulSet("PostgreSQL 18 + PostGIS 3.6\nDB umc_product_dev")
 
-        with Cluster("ns preview · 최대 3 · 앱/API gate: false", graph_attr=ca):
+        with Cluster("ns preview · 최대 2 · PR별 앱/API", graph_attr=ca):
             ing_p = Ingress("api-pr-<PR>.university.neordinary.com\npublic API · 앱 인증")
             app_p = Deployment("umc-product-server-pr-<PR>")
             pg_p = StatefulSet("postgres-preview\nPR별 database")
@@ -119,9 +119,9 @@ def build(theme: dict) -> None:
         dns_tls >> Edge(color=DATA, style="dotted") >> ing_p
         dns_tls >> Edge(color=OPS, style="dotted") >> graf_ing
 
-        # restore 리허설을 통과한 뒤에만 suspend를 해제하는 운영 backup 경로.
-        backup >> Edge(color=OPS, fontcolor=OPS, style="dashed",
-                       label="restore gate 후\npg_dump + sha256") >> backup_store
+        # 2026-09-19부터 매일 실행한다. 업로드 성공은 복원 성공이 아니며 외부 restore는 아직 검증하지 않았다.
+        backup >> Edge(color=OPS, fontcolor=OPS,
+                       label="매일 pg_dump + sha256") >> backup_store
 
         # 관측 — 앱이 밀어 넣는다 (scrape 아님)
         app >> Edge(color=TELEM, fontcolor=TELEM,
