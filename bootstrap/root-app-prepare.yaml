@@ -14,7 +14,7 @@ spec:
     path: argocd
     directory:
       recurse: true
-      exclude: '{applications/prod/server.yaml,applications/dev/server.yaml,applications/preview/applicationset.yaml,applications/platform/external-dns.yaml}'
+      exclude: '{preview-releases/*,applications/prod/server.yaml,applications/dev/server.yaml,applications/preview/applicationset.yaml,applications/platform/external-dns.yaml}'
   destination:
     server: https://kubernetes.default.svc
     namespace: argocd

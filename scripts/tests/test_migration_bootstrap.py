@@ -11,20 +11,40 @@ import yaml
 ROOT = Path(__file__).resolve().parents[2]
 
 
+ROOT_APPS = ("bootstrap/root-app.yaml", "bootstrap/root-app-prepare.yaml", "bootstrap/root-app-verify.yaml")
+
+
 def load(path: str):
     return yaml.safe_load((ROOT / path).read_text(encoding="utf-8"))
+
+
+def exclude_patterns(path: str) -> list[str]:
+    pattern = load(path)["spec"]["source"]["directory"]["exclude"]
+    return pattern[1:-1].split(",") if pattern.startswith("{") else [pattern]
 
 
 # 이관 준비·검증 단계에서 앱 쓰기와 DNS 전환이 앞서 열리지 않는지 확인한다.
 class MigrationBootstrapTests(unittest.TestCase):
     def test_staged_roots_only_change_directory_exclusions(self):
-        normal = load("bootstrap/root-app.yaml")
+        normal = copy.deepcopy(load("bootstrap/root-app.yaml"))
+        normal["spec"]["source"]["directory"].pop("exclude")
         for path in ("bootstrap/root-app-prepare.yaml", "bootstrap/root-app-verify.yaml"):
             staged = load(path)
             comparison = copy.deepcopy(staged)
             comparison["spec"]["source"]["directory"].pop("exclude")
             self.assertEqual(comparison, normal)
             self.assertFalse(staged["spec"]["syncPolicy"]["automated"]["prune"])
+
+    # PR별 배포 기록 JSON은 kind가 없어 root가 읽으면 manifest 해석 전체가 실패한다.
+    def test_every_root_skips_preview_release_records(self):
+        records = [
+            str(path.relative_to(ROOT / "argocd"))
+            for path in (ROOT / "argocd" / "preview-releases").glob("*.json")
+        ] + ["preview-releases/pr-42.json"]
+        for path in ROOT_APPS:
+            patterns = exclude_patterns(path)
+            for record in records:
+                self.assertTrue(any(fnmatch.fnmatchcase(record, item) for item in patterns), (path, record))
 
     def test_prepare_excludes_app_writers_and_dns_but_keeps_platform_and_db(self):
         paths = {
@@ -37,11 +57,10 @@ class MigrationBootstrapTests(unittest.TestCase):
             "applications/preview/applicationset.yaml",
             "applications/platform/external-dns.yaml",
         }
-        pattern = load("bootstrap/root-app-prepare.yaml")["spec"]["source"]["directory"]["exclude"]
-        self.assertTrue(pattern.startswith("{") and pattern.endswith("}"))
+        patterns = exclude_patterns("bootstrap/root-app-prepare.yaml")
         excluded = {
             path for path in paths
-            if any(fnmatch.fnmatchcase(path, item) for item in pattern[1:-1].split(","))
+            if any(fnmatch.fnmatchcase(path, item) for item in patterns)
         }
         self.assertEqual(excluded, expected)
         self.assertTrue(expected <= paths)
@@ -52,8 +71,10 @@ class MigrationBootstrapTests(unittest.TestCase):
                     self.assertNotEqual(document["metadata"]["name"], "root")
 
     def test_verify_keeps_external_dns_off_until_cutover(self):
-        pattern = load("bootstrap/root-app-verify.yaml")["spec"]["source"]["directory"]["exclude"]
-        self.assertEqual(pattern, "applications/platform/external-dns.yaml")
+        self.assertEqual(
+            exclude_patterns("bootstrap/root-app-verify.yaml"),
+            ["preview-releases/*", "applications/platform/external-dns.yaml"],
+        )
 
     def test_core_only_install_checks_existing_apps_and_gates_root(self):
         play = load("ansible/playbooks/bootstrap.yml")[0]

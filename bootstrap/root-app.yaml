@@ -15,6 +15,8 @@ spec:
     path: argocd
     directory:
       recurse: true
+      # preview-releases/의 PR별 JSON은 ApplicationSet이 읽는 배포 기록이라 매니페스트로 읽지 않는다.
+      exclude: preview-releases/*
   destination:
     server: https://kubernetes.default.svc
     namespace: argocd
