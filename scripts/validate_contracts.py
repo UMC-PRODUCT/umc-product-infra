@@ -648,71 +648,59 @@ def edge_expectation(environment: str) -> tuple[str, str, str]:
     }[environment]
 
 
-def edge_middleware_refs(environment: str, *, in_flight: bool = True) -> list[str]:
+def router_middlewares(environment: str, *names: str) -> str:
     _, _, service = edge_expectation(environment)
-    prefix = f"{APP_NAMESPACES[environment]}-{service}"
-    refs = [f"{prefix}-rate-limit@kubernetescrd"]
-    if in_flight:
-        refs.append(f"{prefix}-in-flight@kubernetescrd")
-    return refs
-
-
-def edge_router_middlewares(environment: str, *protected: str, in_flight: bool = True) -> str:
-    _, _, service = edge_expectation(environment)
-    refs = edge_middleware_refs(environment, in_flight=in_flight)
-    refs.extend(
-        f"{APP_NAMESPACES[environment]}-{service}-{name}@kubernetescrd"
-        for name in protected
+    return ",".join(
+        f"{APP_NAMESPACES[environment]}-{service}-{name}@kubernetescrd" for name in names
     )
-    return ",".join(refs)
 
 
-# 앱 host의 공격성 트래픽을 Traefik에서 먼저 거르는지 검사한다. 한도는 source values와 같아야 하고,
-# inFlightReq 기본 기준(요청 host)으로 돌아가 모든 사용자가 한 한도를 나눠 쓰면 안 된다.
+def require_positive_int(value: object, label: str) -> None:
+    require(
+        isinstance(value, int) and not isinstance(value, bool) and value > 0,
+        f"{label} must be a positive integer (0 means unlimited in Traefik)",
+    )
+
+
+# 앱 host의 공격성 트래픽을 Traefik에서 먼저 거르는지 검사한다. 한도 값은 환경별로 바꿀 수 있어
+# 1 이상의 정수인지만 보고, 기준이 요청 host나 위조 가능한 X-Forwarded-For로 바뀌지 않았는지 본다.
 def validate_edge_protection(resources: list[dict], environment: str) -> None:
     expected_host, expected_tls_secret, expected_service = edge_expectation(environment)
-    settings = yaml.safe_load(
-        (ROOT / "charts" / "umc-product-server" / "values.yaml").read_text(
-            encoding="utf-8"
-        )
-    )["edgeProtection"]
-    require(settings["enabled"] is True, "edgeProtection must be enabled by default")
     by_name = {
         item["metadata"].get("name"): item
         for item in resources
         if item.get("kind") in {"Middleware", "Ingress"}
     }
-    client_ip = {"ipStrategy": {"depth": 0}}
-    rate_limit = by_name.get(f"{expected_service}-rate-limit", {})
+
+    def edge_middleware(suffix: str, kind: str, fields: set[str]) -> dict:
+        name = f"{expected_service}-{suffix}"
+        middleware = by_name.get(name, {})
+        label = f"{environment}: edge Middleware {name}"
+        require(
+            middleware.get("kind") == "Middleware"
+            and middleware["metadata"].get("annotations")
+            == {"argocd.argoproj.io/sync-wave": "0"}
+            and list(middleware.get("spec", {})) == [kind]
+            and set(middleware["spec"][kind]) == fields | {"sourceCriterion"},
+            f"{label} must exist at sync-wave 0 with only {kind} {sorted(fields)}",
+        )
+        require(
+            middleware["spec"][kind]["sourceCriterion"] == {"ipStrategy": {"depth": 0}},
+            f"{label} must count per client remote address (sourceCriterion.ipStrategy.depth: 0)",
+        )
+        return middleware["spec"][kind]
+
+    rate_limit = edge_middleware("rate-limit", "rateLimit", {"average", "period", "burst"})
+    require_positive_int(rate_limit["average"], f"{environment}: rateLimit.average")
+    require_positive_int(rate_limit["burst"], f"{environment}: rateLimit.burst")
     require(
-        rate_limit.get("kind") == "Middleware"
-        and rate_limit["metadata"].get("annotations")
-        == {"argocd.argoproj.io/sync-wave": "0"}
-        and rate_limit.get("spec")
-        == {
-            "rateLimit": {
-                "average": settings["rateLimit"]["average"],
-                "period": settings["rateLimit"]["period"],
-                "burst": settings["rateLimit"]["burst"],
-                "sourceCriterion": client_ip,
-            }
-        },
-        f"{environment}: edge rateLimit Middleware per client IP",
+        isinstance(rate_limit["period"], str) and rate_limit["period"] != "",
+        f"{environment}: rateLimit.period must be a duration string",
     )
-    in_flight = by_name.get(f"{expected_service}-in-flight", {})
-    require(
-        in_flight.get("kind") == "Middleware"
-        and in_flight["metadata"].get("annotations")
-        == {"argocd.argoproj.io/sync-wave": "0"}
-        and in_flight.get("spec")
-        == {
-            "inFlightReq": {
-                "amount": settings["inFlight"]["amount"],
-                "sourceCriterion": client_ip,
-            }
-        },
-        f"{environment}: edge inFlightReq Middleware per client IP",
-    )
+    for suffix in ("in-flight", "ws-in-flight"):
+        in_flight = edge_middleware(suffix, "inFlightReq", {"amount"})
+        require_positive_int(in_flight["amount"], f"{environment}: {suffix} inFlightReq.amount")
+
     websocket = by_name.get(f"{expected_service}-ws", {})
     require(
         websocket.get("kind") == "Ingress"
@@ -720,8 +708,8 @@ def validate_edge_protection(resources: list[dict], environment: str) -> None:
         == {
             "argocd.argoproj.io/sync-wave": "1",
             "traefik.ingress.kubernetes.io/router.entrypoints": "websecure",
-            "traefik.ingress.kubernetes.io/router.middlewares": edge_router_middlewares(
-                environment, in_flight=False
+            "traefik.ingress.kubernetes.io/router.middlewares": router_middlewares(
+                environment, "rate-limit", "ws-in-flight"
             ),
             "traefik.ingress.kubernetes.io/router.priority": "100",
         }
@@ -749,9 +737,9 @@ def validate_edge_protection(resources: list[dict], environment: str) -> None:
             ],
             "tls": [{"hosts": [expected_host], "secretName": expected_tls_secret}],
         },
-        f"{environment}: WebSocket route must skip only the in-flight limit",
+        f"{environment}: WebSocket route must use rate-limit and the WebSocket in-flight limit",
     )
-    edge_refs = edge_middleware_refs(environment)
+    edge_refs = router_middlewares(environment, "rate-limit", "in-flight").split(",")
     for ingress in resources:
         if ingress.get("kind") != "Ingress" or ingress["metadata"].get("name") == websocket["metadata"]["name"]:
             continue
@@ -827,8 +815,8 @@ def validate_ingress_contract(
             "external-dns.kubernetes.io/managed-by": "umc-infra",
             "external-dns.kubernetes.io/target": expected_target,
             "traefik.ingress.kubernetes.io/router.entrypoints": "websecure",
-            "traefik.ingress.kubernetes.io/router.middlewares": edge_router_middlewares(
-                environment
+            "traefik.ingress.kubernetes.io/router.middlewares": router_middlewares(
+                environment, "rate-limit", "in-flight"
             ),
         },
         f"{environment}: exact Route53-backed Ingress annotations",
@@ -863,8 +851,8 @@ def validate_documentation_ingress_contract(
         == {
             "argocd.argoproj.io/sync-wave": "1",
             "traefik.ingress.kubernetes.io/router.entrypoints": "websecure",
-            "traefik.ingress.kubernetes.io/router.middlewares": edge_router_middlewares(
-                environment, "docs-basic-auth"
+            "traefik.ingress.kubernetes.io/router.middlewares": router_middlewares(
+                environment, "rate-limit", "in-flight", "docs-basic-auth"
             ),
             "traefik.ingress.kubernetes.io/router.priority": "100",
         },
@@ -928,8 +916,8 @@ def validate_test_api_ingress_contract(
         == {
             "argocd.argoproj.io/sync-wave": "1",
             "traefik.ingress.kubernetes.io/router.entrypoints": "websecure",
-            "traefik.ingress.kubernetes.io/router.middlewares": edge_router_middlewares(
-                "dev", "test-api-basic-auth"
+            "traefik.ingress.kubernetes.io/router.middlewares": router_middlewares(
+                "dev", "rate-limit", "in-flight", "test-api-basic-auth"
             ),
             "traefik.ingress.kubernetes.io/router.priority": "100",
         },
@@ -1234,7 +1222,7 @@ def validate_render(
     require(
         len(middlewares)
         == (
-            2 + int(documentation_enabled) + int(test_api_enabled)
+            3 + int(documentation_enabled) + int(test_api_enabled)
             if ingress_enabled
             else 0
         ),
@@ -1398,7 +1386,7 @@ def validate_active_preview_edge_fixture(path: Path) -> None:
         mail_ingress["spec"]["rules"][0]["host"] == "mail-pr-42.university.neordinary.com"
         and mail_ingress["spec"]["tls"][0]["secretName"] == "preview-wildcard-tls"
         and mail_ingress["metadata"]["annotations"]["traefik.ingress.kubernetes.io/router.middlewares"]
-        == edge_router_middlewares("preview", "mail-basic-auth"),
+        == router_middlewares("preview", "rate-limit", "in-flight", "mail-basic-auth"),
         "active preview edge fixture: mail capture UI must use the wildcard TLS and Basic Auth",
     )
     require(

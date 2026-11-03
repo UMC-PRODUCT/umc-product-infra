@@ -93,7 +93,7 @@ class GitVisibleFilesTest(unittest.TestCase):
             )
 
 
-# 앱 Ingress에 edge 제한이 빠지거나 동시 요청 기준이 host로 돌아가면 검증이 실패해야 한다.
+# 앱 Ingress에 edge 제한이 빠지거나 기준이 IP에서 벗어나면 실패하고, 환경별 한도 조정은 통과해야 한다.
 @unittest.skipUnless(shutil.which("helm"), "helm not installed")
 class EdgeProtectionTest(unittest.TestCase):
     def render(self, *extra: str) -> list[dict]:
@@ -117,27 +117,33 @@ class EdgeProtectionTest(unittest.TestCase):
             if item["kind"] in {"Ingress", "Middleware"} and item["metadata"]["name"] == name
         )
 
+    def middlewares(self, resources: list[dict], name: str) -> dict:
+        return self.named(resources, name)["metadata"]["annotations"]
+
     def test_accepts_prod_render(self) -> None:
         validate_edge_protection(self.render(), "prod")
 
-    def test_rejects_disabled_edge_protection(self) -> None:
-        with self.assertRaisesRegex(SystemExit, "edge rateLimit Middleware"):
-            validate_edge_protection(
-                self.render("--set", "edgeProtection.enabled=false"), "prod"
-            )
+    def test_accepts_environment_override_of_limits(self) -> None:
+        validate_edge_protection(
+            self.render(
+                "--set", "edgeProtection.rateLimit.average=300",
+                "--set", "edgeProtection.inFlight.amount=250",
+                "--set", "edgeProtection.webSocketInFlight.amount=3000",
+            ),
+            "prod",
+        )
 
     def test_rejects_main_ingress_without_in_flight_limit(self) -> None:
         resources = self.render()
-        annotations = self.named(resources, "umc-product-server")["metadata"]["annotations"]
-        annotations["traefik.ingress.kubernetes.io/router.middlewares"] = (
-            "app-umc-product-server-rate-limit@kubernetescrd"
-        )
+        self.middlewares(resources, "umc-product-server")[
+            "traefik.ingress.kubernetes.io/router.middlewares"
+        ] = "app-umc-product-server-rate-limit@kubernetescrd"
         with self.assertRaisesRegex(SystemExit, "umc-product-server must apply edge limits first"):
             validate_edge_protection(resources, "prod")
 
     def test_rejects_basic_auth_before_edge_limits(self) -> None:
         resources = self.render()
-        annotations = self.named(resources, "umc-product-server-docs")["metadata"]["annotations"]
+        annotations = self.middlewares(resources, "umc-product-server-docs")
         refs = annotations["traefik.ingress.kubernetes.io/router.middlewares"].split(",")
         annotations["traefik.ingress.kubernetes.io/router.middlewares"] = ",".join(refs[::-1])
         with self.assertRaisesRegex(SystemExit, "docs must apply edge limits first"):
@@ -146,16 +152,29 @@ class EdgeProtectionTest(unittest.TestCase):
     def test_rejects_in_flight_limit_grouped_by_host(self) -> None:
         resources = self.render()
         del self.named(resources, "umc-product-server-in-flight")["spec"]["inFlightReq"]["sourceCriterion"]
-        with self.assertRaisesRegex(SystemExit, "inFlightReq Middleware per client IP"):
+        with self.assertRaisesRegex(SystemExit, "umc-product-server-in-flight must exist"):
             validate_edge_protection(resources, "prod")
 
-    def test_rejects_websocket_route_counted_as_in_flight(self) -> None:
+    def test_rejects_forwarded_header_ip_strategy(self) -> None:
         resources = self.render()
-        annotations = self.named(resources, "umc-product-server-ws")["metadata"]["annotations"]
-        annotations["traefik.ingress.kubernetes.io/router.middlewares"] += (
-            ",app-umc-product-server-in-flight@kubernetescrd"
-        )
-        with self.assertRaisesRegex(SystemExit, "WebSocket route must skip only the in-flight limit"):
+        self.named(resources, "umc-product-server-rate-limit")["spec"]["rateLimit"][
+            "sourceCriterion"
+        ] = {"ipStrategy": {"depth": 1}}
+        with self.assertRaisesRegex(SystemExit, "rate-limit must count per client remote address"):
+            validate_edge_protection(resources, "prod")
+
+    def test_rejects_unlimited_websocket_in_flight(self) -> None:
+        resources = self.render()
+        self.named(resources, "umc-product-server-ws-in-flight")["spec"]["inFlightReq"]["amount"] = 0
+        with self.assertRaisesRegex(SystemExit, "ws-in-flight inFlightReq.amount must be a positive integer"):
+            validate_edge_protection(resources, "prod")
+
+    def test_rejects_websocket_route_without_websocket_in_flight(self) -> None:
+        resources = self.render()
+        self.middlewares(resources, "umc-product-server-ws")[
+            "traefik.ingress.kubernetes.io/router.middlewares"
+        ] = "app-umc-product-server-rate-limit@kubernetescrd"
+        with self.assertRaisesRegex(SystemExit, "WebSocket route must use rate-limit and the WebSocket in-flight limit"):
             validate_edge_protection(resources, "prod")
 
 
