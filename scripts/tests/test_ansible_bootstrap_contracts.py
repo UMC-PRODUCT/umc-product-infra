@@ -810,6 +810,71 @@ class JournaldContractTests(unittest.TestCase):
                          {"name": "systemd-journald", "state": "restarted"})
 
 
+# 자격증명·sudo·SSH 인증·K3s 보호 경계를 지키는 task가 리팩터링 중 빠지지 않게 한다.
+class SecurityCriticalTaskContractTests(unittest.TestCase):
+    def test_every_task_touching_effective_credentials_hides_its_output(self) -> None:
+        credential = re.compile(r"\b\w*_effective_\w*(?:key|secret|token|password)\w*\b")
+        touching = [(path, task) for path, task in all_tasks()
+                    if credential.search(yaml.safe_dump(task))]
+        self.assertGreaterEqual(len(touching), 6)
+        for path, task in touching:
+            with self.subTest(path=path, task=task["name"]):
+                self.assertIs(task.get("no_log"), True)
+
+    def test_sudoers_files_are_validated_with_visudo(self) -> None:
+        sudoers = []
+        for path, task in all_tasks():
+            for module in ("ansible.builtin.copy", "ansible.builtin.template", "ansible.builtin.lineinfile"):
+                arguments = task.get(module)
+                if isinstance(arguments, dict) and str(arguments.get("dest", arguments.get("path", ""))).startswith("/etc/sudoers"):
+                    sudoers.append((path, task["name"], arguments))
+        self.assertTrue(sudoers)
+        for path, name, arguments in sudoers:
+            with self.subTest(path=path, task=name):
+                self.assertEqual(arguments["validate"], "/usr/sbin/visudo -cf %s")
+                self.assertEqual(arguments["mode"], "0440")
+
+    def test_shadowed_ssh_policy_is_rejected_before_reload(self) -> None:
+        tasks = load_tasks("ansible/roles/ssh_access/tasks/main.yml")
+        names = [task.get("name") for task in tasks]
+        guard = tasks[names.index("Reject shadowed authentication or tunnel policy before reload")]
+        effective = tasks[names.index("Read effective authentication and per-user policy")]
+        flush = next(index for index, task in enumerate(tasks) if task.get("ansible.builtin.meta") == "flush_handlers")
+        self.assertLess(tasks.index(effective), tasks.index(guard))
+        self.assertLess(tasks.index(guard), flush)
+        self.assertEqual(guard["loop"], "{{ ssh_access_effective.results }}")
+        self.assertEqual(guard["when"], "not ansible_check_mode")
+        self.assertEqual(command_argv(effective)[:3], ["/usr/sbin/sshd", "-T", "-C"])
+        self.assertEqual(guard["ansible.builtin.assert"]["that"], [
+            "'passwordauthentication no' in item.stdout_lines",
+            "'kbdinteractiveauthentication no' in item.stdout_lines",
+            "'authenticationmethods publickey' in item.stdout_lines",
+            "'authorizedkeysfile /etc/ssh/authorized_keys/%u' in item.stdout_lines",
+            "not ssh_access_finalize or 'permitrootlogin no' in item.stdout_lines",
+            "'clientaliveinterval 60' in item.stdout_lines",
+            "'clientalivecountmax 3' in item.stdout_lines",
+            "item.item.role != 'db_tunnel' or 'maxsessions 0' in item.stdout_lines",
+            "item.item.role != 'db_tunnel' or 'allowtcpforwarding local' in item.stdout_lines",
+            "item.item.role != 'db_tunnel' or ('permitopen ' ~ (item.item.permit_open | join(' '))) in item.stdout_lines",
+        ])
+
+    def test_k3s_secret_encryption_and_root_only_kubeconfig_are_enforced(self) -> None:
+        tasks = load_tasks("ansible/roles/k3s/tasks/main.yml")
+        encryption = next(task for task in tasks
+                          if task.get("ansible.builtin.command") == "/usr/local/bin/k3s secrets-encrypt status")
+        condition = " ".join(encryption["failed_when"].split())
+        self.assertEqual(condition, "k3s_encryption_status.rc != 0 or 'Enabled' not in k3s_encryption_status.stdout")
+        kubeconfig = next(task for task in tasks if task.get("name") == "Require a root-only administrator kubeconfig")
+        self.assertEqual(kubeconfig["ansible.builtin.assert"]["that"], [
+            "k3s_kubeconfig.stat.exists",
+            "k3s_kubeconfig.stat.pw_name == 'root'",
+            "k3s_kubeconfig.stat.mode == '0600'",
+        ])
+        config = (ROOT / "ansible/roles/k3s/templates/config.yaml.j2").read_text(encoding="utf-8")
+        self.assertIn("write-kubeconfig-mode: '0600'", config)
+        self.assertIn("secrets-encryption: true", config)
+
+
 # 서버 상태를 바꾸는 kubectl 명령이 재실행 결과에서 변경 없음으로 숨지 않게 한다.
 class ChangeReportingContractTests(unittest.TestCase):
     def test_mutating_kubectl_commands_never_report_unchanged(self) -> None:
