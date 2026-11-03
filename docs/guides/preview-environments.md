@@ -38,6 +38,7 @@ Argo CD의 `preview-head-sha`는 최신 PR 커밋, `preview-deployed-sha`는 배
 - 테스트용 토큰: 위 주소의 `/test/token/access`에서 회원 ID로 액세스 토큰을 받는다. dev와 같은 test·seed API가 열려 있다.
 - 로그·메트릭·트레이스: Grafana에서 서비스 `preview-umc-product-pr<PR번호>` 선택
   로그는 WARN 이상만, 요청(trace) 10개 중 약 1개만 Loki에 남는다. 요청별 원인은 Tempo trace에서 본다.
+  로그로 요청 수를 세는 API 사용량 패널은 실제보다 적게 나오므로 요청 수는 trace나 metric으로 본다.
 
 예를 들어 PR 27의 API 주소는 `https://api-pr-27.university.neordinary.com`이다.
 앱에서 테스트할 때는 API 서버 주소를 해당 Preview 주소로 바꾼다.

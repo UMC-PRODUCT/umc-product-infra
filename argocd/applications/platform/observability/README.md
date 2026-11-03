@@ -14,7 +14,7 @@ Dashboard와 alert 원본을 수정하려면 [원본 관리 README](../../../../
   → OTel Collector : OTLP metrics·logs·traces
       ├─ metrics → Prometheus → alert rule → Alertmanager → Discord
       ├─ logs    ┬ 운영·dev → Loki
-      │          └ Preview  → WARN 이상 10% 표본 → Loki (push·queue 분리)
+      │          └ Preview  → WARN 이상 약 10% 표본 → Loki (push·queue 분리)
       └─ traces  → Tempo
 
 Grafana
@@ -26,12 +26,18 @@ Grafana
 Collector는 애플리케이션이 보낸 세 신호를 각 저장소로 전달하는 중앙 gateway다. metrics·traces와
 운영·dev 로그에는 sampler를 두지 않는다.
 
-Preview 로그만 따로 줄인다. Loki는 모든 환경이 한 tenant의 수집 상한을 함께 쓰고, 상한을 넘는 push를
-통째로 429로 거부한다. 그래서 Collector는 `service.name`이 `preview-umc-product-pr<번호>`인 로그를
-`routing/logs` connector로 `logs/preview` pipeline에 보낸다. 이 pipeline은 WARN 미만을 버리고
-trace 단위 10%만 남기며, 자기 batch와 32MiB queue를 가진 `otlphttp/loki-preview` exporter로 보낸다.
-Preview push에는 운영·dev 로그가 들어가지 않는다. trace가 없는 로그(기동 실패 등)는 표본 추출 없이
-보낸다. Preview의 요청별 원인은 Tempo trace에 전부 남는다.
+Preview 로그는 운영·dev와 다른 경로로 보낸다. Loki는 모든 환경이 한 tenant의 수집 상한을 함께 쓰고,
+상한을 넘는 push를 통째로 429로 거부한다. 그래서 Collector는 `service.name`이 `preview-umc-product-pr<번호>`인
+로그를 `routing/logs` connector로 `logs/preview` pipeline에 보낸다. 이 pipeline은 자기 batch와 32MiB queue를
+가진 `otlphttp/loki-preview` exporter로 보내므로 Preview push에는 운영·dev 로그가 들어가지 않는다. 이 push
+분리가 운영 로그를 지키는 주된 장치다.
+
+Preview 로그는 양도 줄인다. INFO는 버리고 WARN 이상만 trace 단위로 약 10% 남긴다. 상한이 아니라 비율이므로
+폭주량에 비례해 줄 뿐이다. Loki가 stream별 상한으로 Preview push 일부를 거부할 때 재시도 양을 줄이는 역할이다.
+trace가 없는 로그(기동 실패 등)는 표본 추출 없이 보낸다. Preview의 요청별 원인은 Tempo trace에 전부 남는다.
+
+이 때문에 Grafana에서 Preview 앱을 고르면 Loki의 `api_request_completed`(INFO 줄)를 세는 API 사용량 패널은
+실제보다 적게 나온다. Preview의 요청 수와 지연은 Tempo trace와 Prometheus metric으로 본다.
 
 ## 파일을 읽는 순서
 

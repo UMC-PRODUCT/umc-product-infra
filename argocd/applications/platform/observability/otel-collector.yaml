@@ -65,9 +65,9 @@ spec:
             batch:
               send_batch_size: 1024
               timeout: 5s
-            # Loki tenant 4MB/s는 모든 환경이 함께 쓰므로 Preview가 예산을 다 쓰면 운영 push도 429를 받는다.
-            # Preview는 WARN 이상만 남기고 trace 단위 10%만 보낸다. 2개가 1.5코어씩 폭주해도
-            # 남는 양은 약 2MB/s 아래(추정)라 운영·dev 몫이 남는다. 요청 단위 원인은 Tempo에 전부 남는다.
+            # Preview는 WARN 이상만 남기고 trace 단위 약 10%만 보낸다. 운영·dev와 함께 쓰는 Loki tenant
+            # 수집 예산을 덜 쓰고, Loki가 Preview push를 일부 거부할 때 재시도 양도 줄인다.
+            # 요청 단위 원인은 Tempo에 전부 남는다.
             filter/preview:
               log_conditions:
                 - log.severity_number < SEVERITY_NUMBER_WARN
@@ -103,7 +103,8 @@ spec:
               sending_queue:
                 sizer: bytes
                 queue_size: 33554432
-          # metrics·traces·logs를 각각 Prometheus·Tempo·Loki로 보내며 메모리 제한 후 묶어서 전송한다.
+          # metrics·traces는 메모리 제한 후 묶어서 Prometheus·Tempo로 보낸다. logs는 메모리 제한 후
+          # routing/logs로 운영·dev와 Preview를 나누고, 각 경로가 따로 묶어 Loki로 보낸다.
           service:
             pipelines:
               metrics:
