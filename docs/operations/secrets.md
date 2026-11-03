@@ -315,6 +315,8 @@ Secret을 읽지 않으므로 문서 비밀번호 회전만으로 앱을 재시�
 1. `/umc-product/prod/postgres-backup`의 `POSTGRES_BACKUP_PASSWORD`를 새 값으로 갱신한다.
 2. `db/postgres-backup` ExternalSecret을 force-sync하고 `Ready=True`를 확인한다.
 3. `postgres-backup-role` Job을 재실행해 DB role password를 바꾼다.
+   `sudo k3s kubectl delete job -n db postgres-backup-role`로 지우면 Argo CD selfHeal이 다시 만든다.
+   `sudo k3s kubectl wait --for=condition=Complete job/postgres-backup-role -n db --timeout=600s`로 끝났는지 확인한다.
 4. [backup runbook 2단계](../runbooks/backup-activation.md#2-수동-backup)로 수동 backup을 실행하고 성공을 확인한다.
 5. 이전 version을 폐기한다.
 
