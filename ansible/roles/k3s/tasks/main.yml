@@ -64,14 +64,14 @@
   when: k3s_version not in k3s_installed_version.stdout
   changed_when: true
 
-# 설치·유지된 binary의 SHA-256을 읽는다. 서비스 시작 전에 고정 값과 대조한다.
+# 설치·유지된 binary의 SHA-256을 읽어 Git에 고정한 값과 대조한다.
 - name: Inspect the installed K3s binary
   ansible.builtin.stat:
     path: "{{ k3s_binary_path }}"
     checksum_algorithm: sha256
   register: k3s_binary
 
-# 고정 값과 다른 binary로 클러스터를 시작하지 않는다.
+# 고정 값과 다르면 Argo CD·Secret 준비로 넘어가지 않는다. installer가 이미 서비스를 시작했을 수 있어 즉시 점검한다.
 # check mode에서 설치가 예정된 경우에는 아직 새 binary가 없어 비교하지 않는다.
 - name: Require the pinned K3s binary
   ansible.builtin.assert:
