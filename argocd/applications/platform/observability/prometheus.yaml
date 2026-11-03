@@ -327,6 +327,12 @@ spec:
                   targetMatch:
                     - { name: severity, matchType: "=", value: warning }
                   equal: [alertname, service_name, application, job, instance]
+                # 같은 앱의 5xx 비율 critical이 이미 나가면 건수 기반 5xx warning은 따로 보내지 않는다.
+                - sourceMatch:
+                    - { name: alertname, matchType: "=", value: ApiHigh5xxErrorRatio }
+                  targetMatch:
+                    - { name: alertname, matchType: "=~", value: "ApiHigh5xxErrorCount|ApiRouteHigh5xxErrorCount" }
+                  equal: [application]
                 - sourceMatch:
                     - { name: alertname, matchType: "=~", value: "PostgreSQLDown|OTelCollectorDown|LokiDown|TempoDown|GrafanaDown" }
                   targetMatch:

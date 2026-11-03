@@ -11,8 +11,10 @@ data:
     groups:
       - name: umc-product.logs
         rules:
+          # dev·prod 앱 로그만 본다. preview-umc-product-prN은 PR 테스트 트래픽이라 일부러 제외하고,
+          # 로컬 앱은 클러스터 Collector에 닿지 않는다.
           - alert: ErrorLogsSpike
-            expr: sum by (service_name) (count_over_time({service_name=~"(local|dev|prod)-umc-product|umc-product-api|x-umc-product"} |= "ERROR" [5m])) > 10
+            expr: sum by (service_name) (count_over_time({service_name=~"(dev|prod)-umc-product"} |= "ERROR" [5m])) > 10
             for: 3m
             labels:
               severity: warning
@@ -21,7 +23,7 @@ data:
               description: "service={{ $labels.service_name }} 에서 최근 5분 동안 ERROR log가 10건을 넘었어요. 최근 배포와 error stack trace를 확인해주세요."
 
           - alert: StructuredErrorLogsSpike
-            expr: sum by (service_name) (count_over_time({service_name=~"(local|dev|prod)-umc-product|umc-product-api|x-umc-product"} | json | level="ERROR" [5m])) > 10
+            expr: sum by (service_name) (count_over_time({service_name=~"(dev|prod)-umc-product"} | json | level="ERROR" [5m])) > 10
             for: 3m
             labels:
               severity: warning
@@ -30,7 +32,7 @@ data:
               description: "service={{ $labels.service_name }} 에서 최근 5분 동안 structured ERROR log가 10건을 넘었어요. event, traceId, stack trace를 확인해주세요."
 
           - alert: EmailDomainExceptionSpike
-            expr: sum by (service_name) (count_over_time({service_name=~"(local|dev|prod)-umc-product|umc-product-api|x-umc-product"} |= "EmailDomainException" [5m])) > 3
+            expr: sum by (service_name) (count_over_time({service_name=~"(dev|prod)-umc-product"} |= "EmailDomainException" [5m])) > 3
             for: 3m
             labels:
               severity: warning
@@ -39,7 +41,7 @@ data:
               description: "service={{ $labels.service_name }} 에서 최근 5분 동안 EmailDomainException이 3건을 넘었어요. 이메일 domain 검증 로직과 입력값을 확인해주세요."
 
           - alert: NullPointerExceptionDetected
-            expr: sum by (service_name) (count_over_time({service_name=~"(local|dev|prod)-umc-product|umc-product-api|x-umc-product"} |= "NullPointerException" [5m])) > 0
+            expr: sum by (service_name) (count_over_time({service_name=~"(dev|prod)-umc-product"} |= "NullPointerException" [5m])) > 0
             for: 0m
             labels:
               severity: warning
@@ -48,7 +50,7 @@ data:
               description: "service={{ $labels.service_name }} 의 API log에 NullPointerException이 나타났어요. stack trace와 최근 변경을 확인해주세요."
 
           - alert: StructuredLoginFailuresSpike
-            expr: sum by (service_name) (count_over_time({service_name=~"(local|dev|prod)-umc-product|umc-product-api|x-umc-product"} | json | event="auth_login_failed" [5m])) > 5
+            expr: sum by (service_name) (count_over_time({service_name=~"(dev|prod)-umc-product"} | json | event="auth_login_failed" [5m])) > 5
             for: 3m
             labels:
               severity: warning
@@ -60,7 +62,7 @@ data:
             expr: |
               sum by (service_name) (
                 count_over_time(
-                  {service_name=~"(local|dev|prod)-umc-product|umc-product-api|x-umc-product"}
+                  {service_name=~"(dev|prod)-umc-product"}
                   |~ "email|Email|mail|Mail"
                   |~ "fail|failed|exception|Exception|error|ERROR"
                   [5m]
@@ -74,7 +76,7 @@ data:
               description: "service={{ $labels.service_name }} 에서 최근 5분 동안 email 관련 failure log가 3건을 넘었어요. SMTP/API provider 상태와 재시도 log를 확인해주세요."
 
           - alert: StructuredEmailSendFailures
-            expr: sum by (service_name) (count_over_time({service_name=~"(local|dev|prod)-umc-product|umc-product-api|x-umc-product"} | json | event="email_send_failed" [5m])) > 0
+            expr: sum by (service_name) (count_over_time({service_name=~"(dev|prod)-umc-product"} | json | event="email_send_failed" [5m])) > 0
             for: 0m
             labels:
               severity: warning

@@ -437,6 +437,11 @@ def validate_alertmanager_config(resources: list[dict]) -> None:
     require(discord[0]["discordConfigs"][0].get("apiURL") == {
                 "name": "alertmanager-discord", "key": "discord-webhook"},
             "alertmanager: Discord webhook must use the ESO SecretKeySelector")
+    require({"sourceMatch": [{"name": "alertname", "matchType": "=", "value": "ApiHigh5xxErrorRatio"}],
+             "targetMatch": [{"name": "alertname", "matchType": "=~",
+                              "value": "ApiHigh5xxErrorCount|ApiRouteHigh5xxErrorCount"}],
+             "equal": ["application"]} in config.get("inhibitRules", []),
+            "alertmanager: 5xx ratio critical must inhibit count-based 5xx warnings per application")
 
     # Operator 0.92.1's base YAML parser predates webhook_url_file support.
     # The operator alone generates the runtime config from the native resource.

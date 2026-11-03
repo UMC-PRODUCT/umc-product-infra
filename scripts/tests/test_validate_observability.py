@@ -123,7 +123,12 @@ class AlertmanagerNativeConfigTest(unittest.TestCase):
              "metadata": {"name": "prometheus-discord", "namespace": "monitoring"},
              "spec": {"route": {"receiver": "discord"}, "receivers": [
                  {"name": "discord", "discordConfigs": [{"apiURL": {
-                     "name": "alertmanager-discord", "key": "discord-webhook"}}]}]}},
+                     "name": "alertmanager-discord", "key": "discord-webhook"}}]}],
+                 "inhibitRules": [{
+                     "sourceMatch": [{"name": "alertname", "matchType": "=", "value": "ApiHigh5xxErrorRatio"}],
+                     "targetMatch": [{"name": "alertname", "matchType": "=~",
+                                      "value": "ApiHigh5xxErrorCount|ApiRouteHigh5xxErrorCount"}],
+                     "equal": ["application"]}]}},
         ]
 
     def test_global_config_uses_secret_reference_without_legacy_base_yaml(self) -> None:
@@ -141,6 +146,11 @@ class AlertmanagerNativeConfigTest(unittest.TestCase):
             discord["apiURL"] = value
             with self.subTest(value=value), self.assertRaisesRegex(SystemExit, "SecretKeySelector"):
                 validate_alertmanager_config(self.resources)
+
+    def test_5xx_count_warnings_stay_grouped_under_ratio_critical(self) -> None:
+        self.resources[1]["spec"]["inhibitRules"] = []
+        with self.assertRaisesRegex(SystemExit, "count-based 5xx"):
+            validate_alertmanager_config(self.resources)
 
     def test_legacy_base_yaml_cannot_return_alongside_native_config(self) -> None:
         self.resources.append({"kind": "Secret", "metadata": {
