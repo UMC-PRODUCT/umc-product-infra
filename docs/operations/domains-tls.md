@@ -36,11 +36,16 @@ ExternalDNS는 API, Grafana와 Argo CD record만 소유한다.
 prod/dev/preview API는 모바일 앱이 직접 호출한다. Route 53은 요청을 대신 차단하지
 않으므로 abuse 방어는 앱 인증·앱 rate limiter, Traefik edge 제한, 상위 방화벽과 로그 감시로
 별도 구성한다. Traefik edge 제한은 앱 차트의 `edgeProtection` 값으로 API host의 모든 경로에
-클라이언트 IP별 rate limit(기본 평균 100 req/s, burst 200)과 동시 요청 제한(기본 100)을 건다.
+클라이언트 IP별 rate limit(기본 평균 300 req/s, burst 1000)과 동시 요청 제한(기본 300)을 건다.
 WebSocket `/ws`는 연결이 열려 있는 동안 계속 동시 요청으로 세므로 별도 동시 연결 제한(기본 1000)을 쓴다.
 초과 요청은 Traefik이 `429`로 답하고 앱 로그에 남지 않는다. 이 `429`에는 CORS header가 없어서
-브라우저에서는 rate limit이 아니라 CORS 오류로 보인다. 앱 limiter보다 훨씬 느슨한 바깥 울타리이므로
-행사장처럼 공인 IP를 나눠 쓰는 상황에서 `429`가 보이면 값을 올린다. 환경 하나만 바꿀 때는
+브라우저에서는 rate limit이 아니라 CORS 오류로 보인다.
+이 제한은 IP 하나가 초당 수천 건을 보내는 공격만 끊는 거친 바깥 울타리다. 사용자별 제한은 앱 limiter가
+맡는다(인증 사용자는 member별, 익명만 IP별). 데모데이 같은 행사에서는 학생 다수가 캠퍼스 Wi-Fi NAT의
+공인 IP 하나로 요청하므로 공유 IP를 좁게 제한하지 않는다. 전체 트래픽은 많아야 초당 사용자 100명 수준이지만
+화면 하나가 API 여러 개를 동시에 부르므로, 100명이 같은 IP에서 한꺼번에 화면을 열면 수백~1000건이 몰린다.
+기본값은 이 burst를 받도록 잡은 추정치다. 첫 행사 뒤 Traefik accessLog의 IP별 요청 수와 `429`를 보고
+다시 정한다. 환경 하나만 바꿀 때는
 `values-prod.yaml`·`values-dev.yaml`·`values-preview.yaml`에 `edgeProtection`의 바꿀 키만 덮어쓴다.
 값은 1 이상의 정수여야 하고, 0은 Traefik에서 무제한이라 렌더가 실패한다. Grafana도 public HTTPS로 열지만 익명 접근과 회원가입은 끄고 운영자가
 발급한 사람별 Grafana 계정만 사용한다. 기본 Organization role은 `Viewer`다.

@@ -45,19 +45,21 @@ ingress:
   host: api.example.invalid
   tls: []
 
-# 앱 host로 오는 요청을 앱에 닿기 전에 Traefik이 클라이언트 IP별로 거른다. 공격 트래픽이 앱 로그와
-# Loki까지 번지지 않게 하는 바깥 울타리다. 앱 limiter(익명 IP 5 req/s, 사용자 20 req/s, route별)보다
-# 훨씬 느슨하게 둬서 행사장처럼 많은 사람이 공인 IP 하나를 나눠 쓰는 경우에도 걸리지 않게 한다.
-# 한도는 Traefik 라우터(Ingress 경로)마다 따로 센다. 항상 켜져 있고 끌 수 없다.
-# 환경별로 바꾸려면 values-prod.yaml 등에 같은 키만 덮어쓴다. 검증기는 1 이상의 정수인지와
-# IP 기준(ipStrategy.depth: 0)만 보므로 한도를 올려도 통과한다.
+# 공격성 트래픽을 앱에 닿기 전에 Traefik이 클라이언트 IP별로 끊는 거친 바깥 울타리다.
+# 사용자별 제한은 앱 limiter가 맡는다(인증 사용자는 member별, 익명만 IP별).
+# 행사(데모데이)에서는 학생 다수가 캠퍼스 Wi-Fi NAT의 공인 IP 하나를 나눠 쓴다. 전체가 초당 100명
+# 수준이어도 화면마다 API를 여러 개 부르므로 IP 하나에 수백~1000건이 한꺼번에 몰릴 수 있다.
+# 그 정도는 받고, IP 하나가 초당 수천 건을 보내는 공격은 끊도록 잡았다.
+# 추정치이므로 첫 행사 뒤 Traefik accessLog의 IP별 요청 수와 429를 보고 다시 정한다.
+# 한도는 Traefik 라우터(Ingress 경로)마다 따로 센다. 항상 켜져 있고, 환경별로는 values-<env>.yaml에
+# 바꿀 키만 덮어쓴다. 검증기는 1 이상의 정수와 IP 기준(ipStrategy.depth: 0)만 본다.
 edgeProtection:
   rateLimit:
-    average: 100
+    average: 300
     period: 1s
-    burst: 200
+    burst: 1000
   inFlight:
-    amount: 100
+    amount: 300
   # WebSocket(/ws)은 연결이 열려 있는 동안 계속 동시 요청으로 세므로 별도 Ingress에서 넉넉한 한도를 둔다.
   # IP 하나가 소켓을 무한정 열어 메모리 상한이 있는 Traefik(Argo CD·Grafana도 거친다)을 압박하는 것을 막는다.
   webSocketInFlight:

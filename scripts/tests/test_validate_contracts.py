@@ -126,8 +126,9 @@ class EdgeProtectionTest(unittest.TestCase):
     def test_accepts_environment_override_of_limits(self) -> None:
         validate_edge_protection(
             self.render(
-                "--set", "edgeProtection.rateLimit.average=300",
-                "--set", "edgeProtection.inFlight.amount=250",
+                "--set", "edgeProtection.rateLimit.average=50",
+                "--set", "edgeProtection.rateLimit.burst=5000",
+                "--set", "edgeProtection.inFlight.amount=600",
                 "--set", "edgeProtection.webSocketInFlight.amount=3000",
             ),
             "prod",
