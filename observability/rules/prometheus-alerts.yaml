@@ -515,3 +515,26 @@ groups:
         annotations:
           summary: "API health check를 확인해주세요"
           description: "instance={{ $labels.instance }} 의 actuator health check가 2분 이상 실패했어요. app 상태와 dependency health를 확인해주세요."
+
+  - name: umc-product.platform
+    rules:
+      # cert-manager는 Let's Encrypt 90일 인증서를 만료 30일 전부터 갱신한다.
+      # 14일 미만이 남았다면 2주 넘게 갱신이 실패한 상태다. ServiceMonitor target namespace와
+      # 겹친 Certificate namespace label은 Prometheus가 exported_namespace로 바꾼다.
+      - alert: CertManagerCertificateExpiresSoon
+        expr: (certmanager_certificate_expiration_timestamp_seconds - time()) / 86400 < 14
+        for: 1h
+        labels:
+          severity: warning
+        annotations:
+          summary: "TLS 인증서가 14일 안에 만료돼요"
+          description: "Certificate {{ $labels.exported_namespace }}/{{ $labels.name }} 이 약 {{ printf \"%.0f\" $value }}일 뒤 만료돼요. CertificateRequest·Order 상태와 Route 53 DNS-01 권한을 확인해주세요."
+
+      - alert: CertManagerCertificateNotReady
+        expr: certmanager_certificate_ready_status{condition="False"} == 1
+        for: 1h
+        labels:
+          severity: critical
+        annotations:
+          summary: "TLS 인증서가 1시간 넘게 Ready가 아니에요"
+          description: "Certificate {{ $labels.exported_namespace }}/{{ $labels.name }} 이 1시간 이상 Ready=False예요. cert-manager log와 CertificateRequest·Order 이벤트를 확인해주세요."

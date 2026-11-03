@@ -1,0 +1,50 @@
+# promtool test rules 입력이다. scripts/tests/test_prometheus_rule_units.py가 CI에서 실행한다.
+rule_files:
+  - ../prometheus-alerts.yaml
+
+evaluation_interval: 30s
+
+tests:
+  - interval: 1m
+    input_series:
+      # 10일 뒤 만료(갱신 실패)와 60일 뒤 만료(정상)
+      - series: 'certmanager_certificate_expiration_timestamp_seconds{job="cert-manager", namespace="cert-manager", exported_namespace="app", name="prod-api-tls"}'
+        values: '864000x90'
+      - series: 'certmanager_certificate_expiration_timestamp_seconds{job="cert-manager", namespace="cert-manager", exported_namespace="dev-app", name="dev-api-tls"}'
+        values: '5184000x90'
+      - series: 'certmanager_certificate_ready_status{job="cert-manager", namespace="cert-manager", exported_namespace="preview", name="preview-wildcard", condition="False"}'
+        values: '1x90'
+      - series: 'certmanager_certificate_ready_status{job="cert-manager", namespace="cert-manager", exported_namespace="app", name="prod-api-tls", condition="False"}'
+        values: '0x90'
+    alert_rule_test:
+      - eval_time: 59m
+        alertname: CertManagerCertificateExpiresSoon
+        exp_alerts: []
+      - eval_time: 61m
+        alertname: CertManagerCertificateExpiresSoon
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              job: cert-manager
+              namespace: cert-manager
+              exported_namespace: app
+              name: prod-api-tls
+            exp_annotations:
+              summary: "TLS 인증서가 14일 안에 만료돼요"
+              description: "Certificate app/prod-api-tls 이 약 10일 뒤 만료돼요. CertificateRequest·Order 상태와 Route 53 DNS-01 권한을 확인해주세요."
+      - eval_time: 59m
+        alertname: CertManagerCertificateNotReady
+        exp_alerts: []
+      - eval_time: 61m
+        alertname: CertManagerCertificateNotReady
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              job: cert-manager
+              namespace: cert-manager
+              exported_namespace: preview
+              name: preview-wildcard
+              condition: "False"
+            exp_annotations:
+              summary: "TLS 인증서가 1시간 넘게 Ready가 아니에요"
+              description: "Certificate preview/preview-wildcard 이 1시간 이상 Ready=False예요. cert-manager log와 CertificateRequest·Order 이벤트를 확인해주세요."
