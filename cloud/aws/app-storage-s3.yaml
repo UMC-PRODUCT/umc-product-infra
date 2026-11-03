@@ -51,7 +51,7 @@ Resources:
           - ServerSideEncryptionByDefault:
               SSEAlgorithm: AES256
       CorsConfiguration:
-        # 브라우저 요청을 허용할 origin 목록이다. localhost는 dev·preview에서만 포함한다.
+        # 브라우저 요청을 허용할 origin 목록이다. localhost와 dev 프론트 도메인은 dev·preview에서만 포함한다.
         CorsRules:
           - AllowedHeaders:
               - "*"
@@ -68,6 +68,7 @@ Resources:
                 - https://admin.university.neordinary.com
                 - https://tech.university.neordinary.com
                 - http://localhost:5173
+                - https://dev.activity.university.neordinary.com
             ExposedHeaders:
               - ETag
               - x-amz-server-side-encryption
