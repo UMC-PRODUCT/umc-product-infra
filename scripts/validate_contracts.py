@@ -1177,6 +1177,7 @@ def validate_render(
     policies = [item for item in resources if item.get("kind") == "NetworkPolicy"]
     require(len(policies) == (0 if environment == "preview" else 2), f"{environment}: policies")
     if environment == "preview":
+        validate_preview_budget_arithmetic(resources)
         jobs = [item for item in resources if item.get("kind") == "Job"]
         require(len(jobs) == 2, "preview: createdb and dropdb Jobs")
         dropdb = next(
@@ -1226,6 +1227,12 @@ def validate_render(
         require(
             "WITH (FORCE)" in script and "umc-preview-restore-complete" in script,
             "preview: createdb must rebuild only databases without the restore marker",
+        )
+        # 공용 DB 대기(200 × 3초)가 Job deadline 안에 들어가야 대기 중 Job이 죽지 않는다.
+        require(
+            'wait_for "$$PGHOST" 200' in script
+            and createdb["spec"]["activeDeadlineSeconds"] >= 900,
+            "preview: createdb must wait 10 minutes for the shared DB within its deadline",
         )
 
 
@@ -1743,6 +1750,81 @@ def validate_secrets(path: Path) -> None:
 
 
 # PR별 앱 수와 공용 DB·wildcard 인증서 구조가 Preview 자원 예산을 넘지 않게 한다.
+def quantity_millicores(value: str) -> int:
+    return int(value[:-1]) if value.endswith("m") else int(float(value) * 1000)
+
+
+def quantity_mebibytes(value: str) -> int:
+    for suffix, factor in (("Gi", 1024), ("Mi", 1)):
+        if value.endswith(suffix):
+            return int(value[: -len(suffix)]) * factor
+    raise SystemExit(f"contract validation failed: unsupported memory quantity {value}")
+
+
+def pod_template_spec(item: dict) -> dict:
+    spec = item["spec"]
+    if item["kind"] == "CronJob":
+        spec = spec["jobTemplate"]["spec"]
+    return spec["template"]["spec"]
+
+
+def pod_resource_totals(pod: dict) -> tuple[int, int, int]:
+    containers = pod.get("initContainers", []) + pod["containers"]
+    totals = [0, 0, 0]
+    for container in containers:
+        resources = container.get("resources", {})
+        totals[0] += quantity_millicores(resources["requests"]["cpu"])
+        totals[1] += quantity_mebibytes(resources["requests"]["memory"])
+        totals[2] += quantity_mebibytes(resources["limits"]["memory"])
+    return totals[0], totals[1], totals[2]
+
+
+# quota 합계를 손으로 맞추지 않도록 실제 PR render와 공용 manifest에서 다시 계산한다.
+# PR 한 개의 앱·생성 Job·삭제 Job이 슬롯 2개만큼 동시에 돌고, 공용 DB와 고아 DB 점검이 하나씩 더해진다.
+def validate_preview_budget_arithmetic(pr_resources: list[dict]) -> None:
+    quota = resource(
+        yaml_documents(ROOT / "manifests" / "cluster" / "preview-resourcequota.yaml"),
+        "ResourceQuota",
+    )["spec"]["hard"]
+    preview_directory = ROOT / "manifests" / "postgres" / "preview"
+    shared = [
+        resource(yaml_documents(preview_directory / "statefulset.yaml"), "StatefulSet"),
+        resource(
+            yaml_documents(preview_directory / "orphan-database-check-cronjob.yaml"),
+            "CronJob",
+        ),
+    ]
+    per_slot = [
+        item for item in pr_resources if item.get("kind") in {"Deployment", "Job"}
+    ]
+    require(
+        sorted(item["kind"] for item in per_slot) == ["Deployment", "Job", "Job"],
+        "preview: budget expects one Deployment, createdb and dropdb per PR",
+    )
+    expected = [0, 0, 0]
+    for count, items in ((2, per_slot), (1, shared)):
+        for item in items:
+            for index, value in enumerate(pod_resource_totals(pod_template_spec(item))):
+                expected[index] += count * value
+    actual = [
+        quantity_millicores(quota["requests.cpu"]),
+        quantity_mebibytes(quota["requests.memory"]),
+        quantity_mebibytes(quota["limits.memory"]),
+    ]
+    require(
+        actual == expected,
+        f"preview: quota {actual} must equal two PR slots plus shared workloads {expected}",
+    )
+    storage = resource(
+        yaml_documents(preview_directory / "statefulset.yaml"), "StatefulSet"
+    )["spec"]["volumeClaimTemplates"][0]["spec"]["resources"]["requests"]["storage"]
+    require(
+        quota["requests.storage"] == storage
+        and not any(item.get("kind") == "PersistentVolumeClaim" for item in pr_resources),
+        "preview: only the shared PostgreSQL PVC fits the storage quota",
+    )
+
+
 def validate_preview_budget() -> None:
     quota = resource(
         yaml_documents(ROOT / "manifests" / "cluster" / "preview-resourcequota.yaml"),
@@ -1754,9 +1836,11 @@ def validate_preview_budget() -> None:
             "count/certificates.cert-manager.io": "1",
             "count/services": "4",
             "count/deployments.apps": "2",
-            "requests.cpu": "1060m",
-            "requests.memory": "6624Mi",
-            "limits.memory": "9664Mi",
+            "requests.cpu": "1110m",
+            "requests.memory": "6688Mi",
+            "limits.memory": "9792Mi",
+            "count/persistentvolumeclaims": "1",
+            "requests.storage": "5Gi",
         },
         "preview: two-slot resource budget",
     )

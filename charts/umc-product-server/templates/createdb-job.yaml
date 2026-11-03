@@ -8,6 +8,9 @@
 {{- fail "createDatabase.owner는 umc_product_preview_app 이어야 한다" -}}
 {{- end -}}
 {{- $copyFromDev := .Values.createDatabase.copyFromDev.enabled -}}
+{{- if lt (int .Values.createDatabase.activeDeadlineSeconds) 900 -}}
+{{- fail "createDatabase.activeDeadlineSeconds는 공용 DB 대기 600초와 준비 시간을 담도록 900 이상이어야 한다" -}}
+{{- end -}}
 {{- if and $copyFromDev (ne .Values.environment "preview") -}}
 {{- fail "createDatabase.copyFromDev는 preview 환경에서만 사용할 수 있다" -}}
 {{- end -}}

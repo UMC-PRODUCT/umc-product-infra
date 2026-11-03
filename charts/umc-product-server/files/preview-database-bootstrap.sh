@@ -20,7 +20,8 @@ reject() {
 
 wait_for() {
   # NetworkPolicy가 새 Pod IP를 허용하기까지 몇 초 걸리므로 짧게 재시도한다.
-  for _ in $(seq 1 40); do
+  # 두 번째 인자는 3초 간격 시도 횟수다.
+  for _ in $(seq 1 "$2"); do
     if pg_isready -q -h "$1"; then
       return 0
     fi
@@ -55,7 +56,9 @@ case "$COPY_FROM_DEV" in
   *) reject "COPY_FROM_DEV는 true 또는 false여야 한다" ;;
 esac
 
-wait_for "$PGHOST"
+# 공용 Preview DB는 preview-lowest라 노드 재시작 뒤 늦게 뜰 수 있다. startupProbe 상한(5분)보다 긴
+# 10분을 기다린다. createdb 템플릿은 activeDeadlineSeconds가 이 대기와 복원 시간을 담는지 검사한다.
+wait_for "$PGHOST" 200
 
 state="$(admin_psql -tA --set=db="$TARGET_DB" --set=marker="${MARKER_PREFIX}%" <<'SQL'
 SELECT CASE
@@ -96,7 +99,7 @@ if [ "$COPY_FROM_DEV" != "true" ]; then
   exit 0
 fi
 
-wait_for "$SOURCE_HOST"
+wait_for "$SOURCE_HOST" 40
 
 # dev에 추가된 확장도 같은 이름으로 먼저 설치한다. 덤프에서는 확장을 제외한다.
 source_psql -tA -c "SELECT extname FROM pg_extension WHERE extname <> 'plpgsql' ORDER BY extname" |

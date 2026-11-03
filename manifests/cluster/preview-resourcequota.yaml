@@ -16,8 +16,12 @@ spec:
     count/deployments.apps: "2"
     # 앱 2개(250m/2Gi, limit 3Gi) + 공용 PostgreSQL(250m/2Gi, limit 2Gi)
     # + PR별 Mailpit 2개(20m/64Mi, limit 128Mi)
-    # + 동시에 도는 dev 복원 Job 2개(100m/128Mi, limit 512Mi)와 삭제 Job 1개(50m/64Mi, limit 128Mi)
+    # + 동시에 도는 dev 복원 Job 2개(100m/128Mi, limit 512Mi)와 삭제 Job 2개(50m/64Mi, limit 128Mi)
     # + 고아 DB 점검 CronJob 1개(20m/32Mi, limit 64Mi)
-    requests.cpu: 1060m
-    requests.memory: 6624Mi
-    limits.memory: 9664Mi
+    # 두 PR이 함께 닫혀도 두 번째 PostDelete 삭제 Job이 quota에 막혀 DeletionError로 남지 않게 한다.
+    requests.cpu: 1110m
+    requests.memory: 6688Mi
+    limits.memory: 9792Mi
+    # PVC는 이 namespace의 공용 PostgreSQL data 하나(5Gi)뿐이다. PR chart가 PVC를 만들지 못하게 막는다.
+    count/persistentvolumeclaims: "1"
+    requests.storage: 5Gi
