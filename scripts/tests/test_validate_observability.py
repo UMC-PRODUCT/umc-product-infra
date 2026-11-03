@@ -121,7 +121,9 @@ class AlertmanagerNativeConfigTest(unittest.TestCase):
              "spec": {"alertmanagerConfiguration": {"name": "prometheus-discord"}}},
             {"apiVersion": "monitoring.coreos.com/v1alpha1", "kind": "AlertmanagerConfig",
              "metadata": {"name": "prometheus-discord", "namespace": "monitoring"},
-             "spec": {"route": {"receiver": "discord"}, "receivers": [
+             "spec": {"route": {"receiver": "discord", "routes": [{"receiver": "null", "matchers": [
+                 {"name": "application", "matchType": "=~", "value": "preview-umc-product-pr[0-9]+"}]}]},
+                 "receivers": [
                  {"name": "discord", "discordConfigs": [{"apiURL": {
                      "name": "alertmanager-discord", "key": "discord-webhook"}}]}],
                  "inhibitRules": [{
@@ -145,6 +147,15 @@ class AlertmanagerNativeConfigTest(unittest.TestCase):
                       "https://example.invalid/synthetic-webhook"):
             discord["apiURL"] = value
             with self.subTest(value=value), self.assertRaisesRegex(SystemExit, "SecretKeySelector"):
+                validate_alertmanager_config(self.resources)
+
+    def test_preview_app_alerts_cannot_reach_discord(self) -> None:
+        routes = self.resources[1]["spec"]["route"]["routes"]
+        for broken in ([], [{"receiver": "discord", "matchers": routes[0]["matchers"]}],
+                       [{"receiver": "null", "matchers": [
+                           {"name": "environment", "matchType": "=~", "value": "preview-pr-.*"}]}]):
+            self.resources[1]["spec"]["route"]["routes"] = broken
+            with self.subTest(routes=broken), self.assertRaisesRegex(SystemExit, "Preview PR app"):
                 validate_alertmanager_config(self.resources)
 
     def test_5xx_count_warnings_stay_grouped_under_ratio_critical(self) -> None:

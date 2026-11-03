@@ -17,6 +17,8 @@ APPLICATION_DIR = ROOT / "argocd" / "applications" / "platform" / "observability
 EXPECTED_APPLICATIONS = {"grafana", "loki", "otel-collector", "prometheus", "tempo"}
 PROMETHEUS_NAME = "prometheus-kube-prometheus-prometheus"
 ALERTMANAGER_NAME = "prometheus-kube-prometheus-alertmanager"
+# Preview는 dev profile로 떠서 environment label로는 dev와 구분되지 않는다.
+PREVIEW_APPLICATION_PATTERN = "preview-umc-product-pr[0-9]+"
 MONITORING_CLUSTER_KINDS = {
     "ClusterRole", "ClusterRoleBinding", "CustomResourceDefinition"
 }
@@ -437,6 +439,10 @@ def validate_alertmanager_config(resources: list[dict]) -> None:
     require(discord[0]["discordConfigs"][0].get("apiURL") == {
                 "name": "alertmanager-discord", "key": "discord-webhook"},
             "alertmanager: Discord webhook must use the ESO SecretKeySelector")
+    routes = config["route"].get("routes", [])
+    require(routes[:1] == [{"receiver": "null", "matchers": [
+                {"name": "application", "matchType": "=~", "value": PREVIEW_APPLICATION_PATTERN}]}],
+            "alertmanager: Preview PR app alerts must be dropped before any other route")
     require({"sourceMatch": [{"name": "alertname", "matchType": "=", "value": "ApiHigh5xxErrorRatio"}],
              "targetMatch": [{"name": "alertname", "matchType": "=~",
                               "value": "ApiHigh5xxErrorCount|ApiRouteHigh5xxErrorCount"}],
