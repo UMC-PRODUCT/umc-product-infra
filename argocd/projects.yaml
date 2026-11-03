@@ -113,7 +113,7 @@ spec:
   destinations:
     - server: https://kubernetes.default.svc
       namespace: cert-manager
-    # 공용 Preview 와일드카드 Certificate만 이 namespace에 둔다.
+    # 공용 Preview 와일드카드 Certificate와 Mailpit loopback Issuer·Certificate만 이 namespace에 둔다.
     - server: https://kubernetes.default.svc
       namespace: preview
   clusterResourceWhitelist:
@@ -144,6 +144,9 @@ spec:
       kind: RoleBinding
     - group: cert-manager.io
       kind: Certificate
+    # Preview Mailpit loopback 인증서용 자체 서명 Issuer다.
+    - group: cert-manager.io
+      kind: Issuer
 ---
 # DNS controller 배포 권한이다. 실제 Route 53 레코드 변경 범위는 chart 설정과 AWS IAM이 함께 제한한다.
 apiVersion: argoproj.io/v1alpha1

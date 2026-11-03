@@ -53,5 +53,6 @@ spec:
                   name: mail-ui
   tls:
     - hosts: [{{ $host | quote }}]
-      secretName: {{ .Values.mailCapture.tlsSecret | quote }}
+      # API·문서 Ingress와 같은 공용 wildcard Secret이다. Mailpit SMTP 인증서와 분리한다.
+      secretName: {{ (index .Values.ingress.tls 0).secretName | quote }}
 {{- end }}

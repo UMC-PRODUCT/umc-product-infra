@@ -508,10 +508,12 @@ def validate_preview_wildcard_certificate() -> str:
         for path in sorted((ROOT / "manifests" / "cert-manager").glob("*.yaml"))
         for item in documents(path)
         if item.get("kind") == "Certificate"
+        # Mailpit loopback 자체 서명 인증서는 validate_contracts.py가 따로 검사한다.
+        and item.get("spec", {}).get("issuerRef", {}).get("kind") != "Issuer"
     ]
     require(
         len(all_certificates) == 1,
-        "preview: cert-manager manifests must own one central Certificate",
+        "preview: cert-manager manifests must own one central ACME Certificate",
     )
 
     certificate = file_certificates[0]
@@ -693,6 +695,7 @@ def validate_project_boundaries() -> None:
             ("apps", "Deployment"),
             ("batch", "Job"),
             ("cert-manager.io", "Certificate"),
+            ("cert-manager.io", "Issuer"),
             ("rbac.authorization.k8s.io", "Role"),
             ("rbac.authorization.k8s.io", "RoleBinding"),
         },

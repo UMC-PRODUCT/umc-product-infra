@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import copy
 import subprocess
 import sys
 import tempfile
@@ -13,7 +14,13 @@ from unittest.mock import patch
 SCRIPTS_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(SCRIPTS_DIR))
 
-from validate_contracts import git_visible_files, validate_repository_identity
+from validate_contracts import (
+    MAIL_CAPTURE_JAVA_TOOL_OPTIONS,
+    git_visible_files,
+    preview_cert_manager_resources,
+    validate_preview_mail_capture_tls,
+    validate_repository_identity,
+)
 
 
 # 오래된 루트 runbooks가 없어도 새 checkout이 통과하고 docs/runbooks 누락은 실패해야 한다.
@@ -82,6 +89,110 @@ class GitVisibleFilesTest(unittest.TestCase):
                     Path("untracked.txt"),
                 },
             )
+
+
+RESTRICTED = {
+    "allowPrivilegeEscalation": False,
+    "readOnlyRootFilesystem": True,
+    "capabilities": {"drop": ["ALL"]},
+}
+APP_IMAGE = "ghcr.io/umc-product/umc-product-server@sha256:" + "a" * 64
+
+
+def preview_deployment() -> list[dict]:
+    return [{
+        "kind": "Deployment",
+        "spec": {"template": {"spec": {
+            "initContainers": [{
+                "name": "mail-capture-truststore",
+                "image": APP_IMAGE,
+                "securityContext": copy.deepcopy(RESTRICTED),
+                "volumeMounts": [
+                    {"name": "mail-capture-truststore", "mountPath": "/truststore"},
+                    {"name": "mail-capture-cert", "mountPath": "/mail-capture-cert"},
+                ],
+            }],
+            "containers": [
+                {
+                    "name": "umc-product-server",
+                    "image": APP_IMAGE,
+                    "env": [{"name": "JAVA_TOOL_OPTIONS", "value": MAIL_CAPTURE_JAVA_TOOL_OPTIONS}],
+                    "envFrom": [{"secretRef": {"name": "app-email"}}],
+                    "volumeMounts": [{"name": "mail-capture-truststore", "mountPath": "/truststore"}],
+                },
+                {
+                    "name": "mailpit",
+                    "env": [{"name": "SMTP_PASSWORD", "valueFrom": {"secretKeyRef": {"name": "app-email", "key": "SMTP_PASSWORD"}}}],
+                    "volumeMounts": [{"name": "mailpit-tls", "mountPath": "/tls"}],
+                },
+            ],
+            "volumes": [
+                {"name": "mailpit-tls", "secret": {"secretName": "preview-mail-capture-loopback-tls"}},
+                {"name": "mail-capture-cert", "secret": {
+                    "secretName": "preview-mail-capture-loopback-tls",
+                    "items": [{"key": "tls.crt", "path": "tls.crt"}],
+                }},
+                {"name": "mail-capture-truststore", "emptyDir": {}},
+            ],
+        }}},
+    }]
+
+
+# Preview PR Pod는 운영 host까지 덮는 공개 wildcard 키를 어떤 경로로도 참조하지 않아야 한다.
+class PreviewMailCaptureTlsTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self.resources = preview_deployment()
+        self.pod = self.resources[0]["spec"]["template"]["spec"]
+        self.cert_manager = preview_cert_manager_resources()
+
+    def validate(self) -> None:
+        validate_preview_mail_capture_tls(self.resources, self.cert_manager)
+
+    def test_accepts_loopback_certificate_mounted_only_by_mailpit(self) -> None:
+        self.validate()
+
+    def test_rejects_wildcard_secret_volume(self) -> None:
+        self.pod["volumes"][0]["secret"]["secretName"] = "preview-wildcard-tls"
+        with self.assertRaisesRegex(SystemExit, "wildcard TLS Secret"):
+            self.validate()
+
+    def test_rejects_wildcard_secret_in_projected_volume_or_env(self) -> None:
+        self.pod["volumes"].append({"name": "x", "projected": {"sources": [
+            {"secret": {"name": "preview-wildcard-tls"}},
+        ]}})
+        with self.assertRaisesRegex(SystemExit, "wildcard TLS Secret"):
+            self.validate()
+        self.pod["volumes"].pop()
+        self.pod["containers"][0]["envFrom"].append({"secretRef": {"name": "preview-wildcard-tls"}})
+        with self.assertRaisesRegex(SystemExit, "wildcard TLS Secret"):
+            self.validate()
+
+    def test_rejects_app_container_reading_loopback_private_key(self) -> None:
+        self.pod["containers"][0]["volumeMounts"].append({"name": "mailpit-tls", "mountPath": "/tls"})
+        with self.assertRaisesRegex(SystemExit, "only Mailpit may mount"):
+            self.validate()
+
+    def test_rejects_truststore_builder_receiving_private_key(self) -> None:
+        self.pod["volumes"][1]["secret"]["items"].append({"key": "tls.key", "path": "tls.key"})
+        with self.assertRaisesRegex(SystemExit, "only the public certificate"):
+            self.validate()
+
+    def test_rejects_missing_truststore_option(self) -> None:
+        self.pod["containers"][0]["env"] = []
+        with self.assertRaisesRegex(SystemExit, "built truststore"):
+            self.validate()
+
+    def test_rejects_public_issuer_for_loopback_certificate(self) -> None:
+        loopback = next(
+            item for item in self.cert_manager
+            if item["kind"] == "Certificate"
+            and item["metadata"]["name"] == "preview-mail-capture-loopback"
+        )
+        loopback["spec"]["issuerRef"] = {
+            "group": "cert-manager.io", "kind": "ClusterIssuer", "name": "letsencrypt-production",
+        }
+        with self.assertRaisesRegex(SystemExit, "self-signed Issuer"):
+            self.validate()
 
 
 if __name__ == "__main__":

@@ -10,8 +10,8 @@ metadata:
   namespace: preview
 spec:
   hard:
-    # 모든 PR이 공유하는 와일드카드 Certificate 하나만 허용한다.
-    count/certificates.cert-manager.io: "1"
+    # 모든 PR이 공유하는 와일드카드 Certificate와 Mailpit loopback Certificate만 허용한다.
+    count/certificates.cert-manager.io: "2"
     count/services: "4"
     count/deployments.apps: "2"
     # 앱 2개(250m/2Gi, limit 3Gi) + 공용 PostgreSQL(250m/2Gi, limit 2Gi)

@@ -131,6 +131,10 @@ class EmailTransportTests(unittest.TestCase):
                          {"name": "app-email", "key": "SMTP_PASSWORD"})
         self.assertFalse([name for name in mail_env if name.startswith("MP_SMTP_RELAY")])
         self.assertIn("@sha256:", mailpit["image"])
+        volumes = {item["name"]: item for item in pod["volumes"]}
+        self.assertEqual(volumes["mailpit-tls"]["secret"]["secretName"], "preview-mail-capture-loopback-tls")
+        self.assertNotIn("preview-wildcard-tls",
+                         {item["secret"]["secretName"] for item in pod["volumes"] if "secret" in item})
         ingress = next(item for item in documents
                        if item["kind"] == "Ingress" and item["metadata"]["name"].endswith("-mail"))
         self.assertEqual(ingress["spec"]["rules"][0]["host"], "mail-pr-42.university.neordinary.com")

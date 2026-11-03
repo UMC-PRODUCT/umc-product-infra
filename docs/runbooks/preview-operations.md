@@ -97,8 +97,16 @@ Git에 복구할 이미지를 반영하는 작업과 DB 복원은 따로 판단�
 
 - PR 앱 Pod에 Mailpit sidecar가 붙는다. 앱은 `smtp-capture.university.neordinary.com:1025`로 보내고,
   이 이름은 `hostAliases`로 `127.0.0.1`에 묶여 있다. 공개 DNS 레코드는 만들지 않는다.
-- SMTP는 loopback에만 bind하고 STARTTLS·인증을 요구한다. 인증서는 `preview-wildcard-tls`, 비밀번호는
-  `app-email`의 preview 전용 `SMTP_PASSWORD`다. 릴레이(`MP_SMTP_RELAY_*`) 설정은 두지 않는다.
+- SMTP는 loopback에만 bind하고 STARTTLS·인증을 요구한다. 비밀번호는 `app-email`의 preview 전용
+  `SMTP_PASSWORD`다. 릴레이(`MP_SMTP_RELAY_*`) 설정은 두지 않는다.
+- STARTTLS 인증서는 `preview/preview-mail-capture-loopback` Certificate가 `preview-selfsigned` Issuer로
+  발급한 `preview-mail-capture-loopback-tls`다. SMTP 이름 하나만 담은 자체 서명이라 PR Pod에는 공개
+  wildcard 키가 없다. 개인키는 Mailpit container만 마운트한다.
+- 앱은 서버 검증(`checkserveridentity`)을 그대로 한다. init container `mail-capture-truststore`가 앱
+  이미지의 기본 CA 목록에 이 인증서를 더해 `/truststore/cacerts`를 만들고, 앱은 `JAVA_TOOL_OPTIONS`로
+  그 파일을 쓴다. 이미지의 `JAVA_OPTS` 메모리 옵션은 그대로 적용된다.
+- 인증서가 갱신되면 Reloader가 PR Deployment를 재시작해 Mailpit과 truststore를 함께 맞춘다.
+  인증메일이 `PKIX path building failed`로 실패하면 Certificate `Ready`와 Pod 재시작 여부를 먼저 확인한다.
 - UI는 `mail-pr-<PR>` Ingress와 `docs-basic-auth` Middleware로만 연다. NetworkPolicy는 Traefik→8025만 허용한다.
 - 활성화 전 `.env.preview`에 `SMTP_PASSWORD`를 넣고 `/umc-product/preview/app-email` source에 property를 추가한 뒤
   `preview/app-email` ExternalSecret을 force-sync한다. 값이 없으면 앱과 Mailpit이 모두 기동하지 못한다.
@@ -121,7 +129,7 @@ OTel Collector, private CIDR을 제외한 public HTTPS를 사용하고 prod/dev 
 
 ```bash
 sudo k3s kubectl get application -n argocd umc-product-preview-27
-sudo k3s kubectl get certificate -n preview preview-wildcard
+sudo k3s kubectl get certificate -n preview preview-wildcard preview-mail-capture-loopback
 sudo k3s kubectl get deployment/umc-product-server-pr-27 service/umc-product-server-pr-27 \
   job/umc-product-server-pr-27-createdb -n preview
 ```
