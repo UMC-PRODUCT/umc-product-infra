@@ -107,10 +107,24 @@ SSH·UFW·K3s 설정·ESO 자격증명과 root Application을 건드리지 않�
 K3s·kubeconfig·Helm 또는 `deployed` 상태의 `argocd` release가 없는 서버에서는 변경 전에 중단하므로
 새 서버는 [초기 구성](ansible-bootstrap.md)을 따른다.
 
-반영 전 고정 chart의 렌더와 diff를 검토한다. 관리자 PC의 저장소를 merge된 main revision으로 맞춘 뒤
-`ansible/`에서 실행한다.
+PR 검토 때 고정 chart로 렌더한 manifest 차이를 본다. `validate.sh`는 이 렌더를 `argocd.yaml`로 남긴다.
+아래 미리보기는 Helm values만 보여주므로 렌더 결과의 검토는 이 단계에서 끝낸다.
 
 ```bash
+git switch --detach origin/main
+VALIDATION_OUTPUT_DIR=/tmp/argocd-render-main ./scripts/validate.sh
+git switch --detach <PR head>
+VALIDATION_OUTPUT_DIR=/tmp/argocd-render-pr ./scripts/validate.sh
+diff -u /tmp/argocd-render-main/argocd.yaml /tmp/argocd-render-pr/argocd.yaml
+```
+
+merge한 뒤 관리자 PC의 저장소를 `main`으로 맞추고 `ansible/`에서 실행한다. playbook은 먼저 `origin/main`을
+fetch하고 checkout에 수정·미추적 파일이 있거나 `HEAD`가 `origin/main`과 다르면 서버에 접속하기 전에 중단한다.
+Argo CD core는 root Application이 self-heal하지 않으므로 검토되지 않은 values가 live release에 남지 않게 하기 위해서다.
+이 검사를 끄는 변수는 두지 않는다. 긴급 변경도 revert나 수정 PR을 main에 merge한 뒤 실행한다.
+
+```bash
+git switch main && git pull --ff-only
 cd ansible
 source .venv/bin/activate
 ansible-galaxy collection install -r collections/requirements.yml
@@ -120,11 +134,14 @@ ansible-playbook -i inventories/idc-new/hosts.yml --check --diff --tags prefligh
 ansible-playbook -i inventories/idc-new/hosts.yml playbooks/argocd.yml
 ```
 
-`--check --diff --tags preflight`는 서버를 바꾸지 않는다. inventory·bootstrap 완료 여부·release 상태를
-검사한 뒤 서버에 마지막으로 적용한 values 사본과 Git values의 차이를 보여준다. 이 차이가 의도한 변경뿐인지
-확인한다. chart 버전을 올린 revision은 values 사본 경로가 바뀌므로 파일 전체가 새로 표시된다.
+`--check --diff --tags preflight`는 서버를 바꾸지 않는다. checkout·inventory를 검사하고 서버에서 bootstrap
+완료 여부, root 소유·`0600` kubeconfig, Git과 같은 K3s 버전, `deployed` release를 확인한다. 그다음
+`helm get values argocd`로 읽은 live release values와 Git values의 차이, live와 Git의 chart 버전을 출력한다.
+`kubernetes.core.helm`이 upgrade 여부를 정하는 비교와 같은 기준이므로 이 차이가 의도한 변경뿐인지 확인한다.
+AppProject·health 설정·namespace PSA label처럼 role이 `kubectl`로 적용하는 변경은 이 미리보기에 나오지 않는다.
 태그 없는 `--check`는 playbook이 바로 중단한다. role의 `kubectl diff`·`helm version` 같은 command 작업이
 check mode에서 실행되지 않아 차이가 없는 것처럼 보이고 Helm 버전 검사에서 실패하기 때문이다.
+`--skip-tags preflight`는 위 안전 검사를 모두 건너뛰므로 쓰지 않는다.
 
 실제 실행은 values나 chart가 바뀐 경우에만 Helm upgrade를 수행하고, 준비 대기에 실패하면 `atomic`으로
 이전 revision에 되돌린다. 바뀐 값에 따라 Argo CD Pod가 다시 시작되어 UI·sync가 잠시 멈출 수 있지만 이미
