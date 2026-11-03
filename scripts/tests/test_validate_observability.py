@@ -17,10 +17,10 @@ from validate_observability import (
     ALERTMANAGER_NAME,
     ROOT,
     ManifestLoader,
+    admits_prometheus_ingress,
     pod_spec,
     selector_matches,
     validate_alertmanager_config,
-    validate_argocd_application_alerts,
     validate_grafana_dashboard_startup,
     validate_loki_ingestion_limits,
     validate_loki_memory,
@@ -128,14 +128,17 @@ class AlertmanagerNativeConfigTest(unittest.TestCase):
             {"apiVersion": "monitoring.coreos.com/v1alpha1", "kind": "AlertmanagerConfig",
              "metadata": {"name": "prometheus-discord", "namespace": "monitoring"},
              "spec": {"route": {"receiver": "discord", "routes": [{"receiver": "null", "matchers": [
-                 {"name": "application", "matchType": "=~", "value": "preview-umc-product-pr[0-9]+"}]}]},
+                 {"name": "application", "matchType": "=~", "value": "preview-umc-product-pr[0-9]+"}]},
+                 {"receiver": "null", "matchers": [
+                     {"name": "job", "matchType": "=", "value": "argocd-application-controller-metrics"},
+                     {"name": "name", "matchType": "=~", "value": "umc-product-preview-[0-9]+"}]}]},
                  "receivers": [
                  {"name": "discord", "discordConfigs": [{"apiURL": {
                      "name": "alertmanager-discord", "key": "discord-webhook"}}]}],
                  "inhibitRules": [{
                      "sourceMatch": [{"name": "severity", "matchType": "=", "value": "critical"}],
                      "targetMatch": [{"name": "severity", "matchType": "=", "value": "warning"}],
-                     "equal": ["alertname", "application", "namespace", "job", "instance"]}, {
+                     "equal": ["alertname", "application", "namespace", "job", "instance", "name"]}, {
                      "sourceMatch": [{"name": "alertname", "matchType": "=", "value": "ApiHigh5xxErrorRatio"}],
                      "targetMatch": [{"name": "alertname", "matchType": "=~",
                                       "value": "ApiHigh5xxErrorCount|ApiRouteHigh5xxErrorCount"}],
@@ -176,12 +179,27 @@ class AlertmanagerNativeConfigTest(unittest.TestCase):
             with self.subTest(extra=extra), self.assertRaisesRegex(SystemExit, "Preview PR app"):
                 validate_alertmanager_config(self.resources)
 
+    # Preview PR Application의 Argo CD 알림만 버리고 ArgoCDMetricsMissing처럼 name이 없는 알림은 남긴다.
+    def test_preview_argocd_application_alerts_cannot_reach_discord(self) -> None:
+        routes = self.resources[1]["spec"]["route"]["routes"]
+        argocd_route = routes[1]
+        for broken in (routes[:1], [routes[0], {**argocd_route, "receiver": "discord"}],
+                       [routes[0], {**argocd_route, "matchers": argocd_route["matchers"][1:]}],
+                       [routes[0], routes[0], argocd_route]):
+            self.resources[1]["spec"]["route"]["routes"] = broken
+            with self.subTest(routes=broken), self.assertRaisesRegex(SystemExit, "Preview PR Argo CD"):
+                validate_alertmanager_config(self.resources)
+
     # KSM 알림은 job·instance가 같아서 namespace가 빠지면 app OOM critical이 preview OOM warning을 덮는다.
-    def test_critical_cannot_inhibit_warnings_in_another_namespace(self) -> None:
-        self.resources[1]["spec"]["inhibitRules"][0]["equal"] = [
-            "alertname", "service_name", "application", "job", "instance"]
-        with self.assertRaisesRegex(SystemExit, "same alertname and namespace"):
-            validate_alertmanager_config(self.resources)
+    # Argo CD 앱 알림은 namespace·job이 모두 같아 name이 빠지면 운영 앱 critical이 다른 앱 warning을 덮는다.
+    def test_critical_cannot_inhibit_warnings_of_another_target(self) -> None:
+        for missing in ("namespace", "name"):
+            self.resources[1]["spec"]["inhibitRules"][0]["equal"] = [
+                label for label in ["alertname", "service_name", "application", "namespace", "job", "instance", "name"]
+                if label != missing]
+            with self.subTest(missing=missing), self.assertRaisesRegex(
+                    SystemExit, "same alertname, namespace and name"):
+                validate_alertmanager_config(self.resources)
 
     def test_5xx_count_warnings_stay_grouped_under_ratio_critical(self) -> None:
         self.resources[1]["spec"]["inhibitRules"] = self.resources[1]["spec"]["inhibitRules"][:1]
@@ -211,32 +229,61 @@ class PreviewApplicationNameTest(unittest.TestCase):
         for value in ("umc-product-preview-pr{{ .number }}", "preview-umc-product-{{ .number }}",
                       "preview-umc-product-pr42"):
             self.parameter["value"] = value
-            with self.subTest(value=value), self.assertRaisesRegex(SystemExit, "PREVIEW_APPLICATION_PATTERN"):
+            with self.subTest(value=value), self.assertRaisesRegex(SystemExit, "PREVIEW_SPRING_APP_PATTERN"):
                 validate_preview_application_name(self.appset)
 
     def test_renamed_preview_argocd_application_is_rejected(self) -> None:
         for value in ("umc-product-server-preview-{{ .number }}", "umc-product-preview-42"):
             self.appset["spec"]["template"]["metadata"]["name"] = value
             with self.subTest(value=value), self.assertRaisesRegex(
-                    SystemExit, "PREVIEW_ARGOCD_APPLICATION_PATTERN"):
+                    SystemExit, "PREVIEW_ARGOCD_APP_PATTERN"):
                 validate_preview_application_name(self.appset)
 
 
-# Argo CD 앱 알림이 Preview PR Application을 Discord로 보내지 않는지 생성된 rule에서 확인한다.
-class ArgoCDApplicationAlertTest(unittest.TestCase):
+# Prometheus가 exporter에 닿으려면 target namespace의 policy가 monitoring namespace의 Prometheus Pod를
+# metrics port로 들여야 한다.
+class PrometheusIngressPolicyTest(unittest.TestCase):
     def setUp(self) -> None:
-        self.rules = [yaml.safe_load((ROOT / "manifests/observability-integrations/prometheus-alert-rules.yaml")
-                                     .read_text(encoding="utf-8"))]
+        self.prometheus_labels = {"app.kubernetes.io/name": "prometheus",
+                                  "operator.prometheus.io/name": PROMETHEUS_NAME}
+        self.target = {"kind": "Deployment", "metadata": {"name": "exporter", "namespace": "db"},
+                       "spec": {"template": {"metadata": {"labels": {"app.kubernetes.io/name": "exporter"}}}}}
+        self.policy = {
+            "kind": "NetworkPolicy", "metadata": {"name": "exporter-allow-prometheus", "namespace": "db"},
+            "spec": {"podSelector": {"matchLabels": {"app.kubernetes.io/name": "exporter"}},
+                     "ingress": [{"from": [{
+                         "namespaceSelector": {"matchLabels": {"kubernetes.io/metadata.name": "monitoring"}},
+                         "podSelector": {"matchLabels": {"app.kubernetes.io/name": "prometheus"}}}],
+                         "ports": [{"protocol": "TCP", "port": 9187}]}]},
+        }
 
-    def test_generated_rules_exclude_preview_applications(self) -> None:
-        validate_argocd_application_alerts(self.rules)
+    def admits(self) -> bool:
+        return admits_prometheus_ingress([self.policy], self.target, self.prometheus_labels, {"metrics", 9187})
 
-    def test_alert_without_preview_exclusion_is_rejected(self) -> None:
-        rule = next(rule for group in self.rules[0]["spec"]["groups"] for rule in group["rules"]
-                    if rule.get("alert") == "ArgoCDApplicationOutOfSync")
-        rule["expr"] = rule["expr"].replace(', name!~"umc-product-preview-[0-9]+"', "")
-        with self.assertRaisesRegex(SystemExit, "ArgoCDApplicationOutOfSync: must exclude"):
-            validate_argocd_application_alerts(self.rules)
+    def test_policy_admitting_monitoring_prometheus_on_metrics_port_passes(self) -> None:
+        self.assertTrue(self.admits())
+        del self.policy["spec"]["ingress"][0]["ports"]
+        self.assertTrue(self.admits())
+
+    def test_policy_that_does_not_reach_prometheus_is_rejected(self) -> None:
+        def peer(policy: dict) -> dict:
+            return policy["spec"]["ingress"][0]["from"][0]
+        mutations = {
+            "same-namespace peer": lambda policy: peer(policy).pop("namespaceSelector"),
+            "other namespace": lambda policy: peer(policy).update(
+                namespaceSelector={"matchLabels": {"kubernetes.io/metadata.name": "app"}}),
+            "other Pods": lambda policy: peer(policy).update(
+                podSelector={"matchLabels": {"app.kubernetes.io/name": "grafana"}}),
+            "other port": lambda policy: policy["spec"]["ingress"][0].update(ports=[{"port": 5432}]),
+            "other target": lambda policy: policy["spec"].update(
+                podSelector={"matchLabels": {"app.kubernetes.io/name": "db"}}),
+            "policy in another namespace": lambda policy: policy["metadata"].update(namespace="monitoring"),
+        }
+        for case, mutate in mutations.items():
+            self.setUp()
+            mutate(self.policy)
+            with self.subTest(case):
+                self.assertFalse(self.admits())
 
 
 # 끝나지 않는 WATCH를 일반 initContainer에 두면 Grafana가 시작하지 못하는 회귀를 재현한다.
