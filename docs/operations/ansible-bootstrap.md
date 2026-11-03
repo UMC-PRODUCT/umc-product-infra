@@ -237,7 +237,11 @@ ansible-playbook -i inventories/idc-new/hosts.yml playbooks/bootstrap.yml
   shell의 `/usr/sbin/nologin` 변경. reload는 이미 열린 세션을 끊지 않는다.
 - 자동 업데이트: `/etc/apt/apt.conf.d/52umc-unattended-upgrades`, needrestart가 있으면
   `/etc/needrestart/conf.d/99-umc-list-only.conf`, apt timer 활성화. 자동 업데이트가 dpkg lock을 잡고
-  있으면 apt 작업은 최대 10분 기다린다.
+  있으면 apt 작업은 최대 10분 기다린다. timer를 처음 켜면 밀린 자동 업데이트가 바로 실행되어 lock을
+  10분 넘게 잡을 수 있다. apt 작업이 lock 대기로 실패하면 `/var/log/unattended-upgrades`에서 진행 상황을
+  확인하고 업데이트가 끝난 뒤 같은 playbook을 다시 실행한다.
+- journald: `SystemMaxUse=1G` 적용 뒤 journald가 재시작되면서 1G를 넘는 오래된 journal을 지운다.
+  적용 전에 `sudo -n journalctl --disk-usage`로 현재 크기를 확인하고, 1G를 넘으면 보존할 로그를 먼저 내보낸다.
 
 | 증상 | 먼저 확인할 것 |
 |---|---|
@@ -265,7 +269,12 @@ UFW 기본 정책은 inbound deny, outbound allow다. `common`은 필요한 규�
 route allow/limit, quoted application profile은 변경 전에 중단한다.
 
 공개키 인증은 개인 키 유출·OpenSSH 취약점·접속 폭주를 모두 해결하지 않는다. SSH 인증 로그를
-점검하고 계정 회수를 검증한다.
+점검하고 계정 회수를 검증한다. 연결 제한이나 서버 UFW는 회선에 도달한 공격
+트래픽을 없애지 않으므로 대규모 DDoS·초과 과금 대응은 제공업체 정책과 별도로 검토한다.
+
+Route 53은 DNS만 제공하며 proxy나 방화벽이 아니다. public `80/tcp`는 DNS-01 인증에 필요하지
+않아 열지 않는다. K3s는 Secret 저장 암호화와 `root:root`, mode `0600` kubeconfig를 유지한다.
+클러스터 조회는 개인 관리자 SSH의 `sudo -n k3s kubectl`로 수행하고 kubeconfig를 배포하지 않는다.
 
 ### 자동 보안 업데이트
 
@@ -281,9 +290,4 @@ OpenSSH 패키지 자체의 보안 업데이트는 패키지 스크립트가 ssh
 cat /var/run/reboot-required 2>/dev/null || echo "재부팅 필요 없음"
 sudo -n needrestart -r l -b
 sudo -n tail -n 20 /var/log/unattended-upgrades/unattended-upgrades.log
-``` 연결 제한이나 서버 UFW는 회선에 도달한 공격
-트래픽을 없애지 않으므로 대규모 DDoS·초과 과금 대응은 제공업체 정책과 별도로 검토한다.
-
-Route 53은 DNS만 제공하며 proxy나 방화벽이 아니다. public `80/tcp`는 DNS-01 인증에 필요하지
-않아 열지 않는다. K3s는 Secret 저장 암호화와 `root:root`, mode `0600` kubeconfig를 유지한다.
-클러스터 조회는 개인 관리자 SSH의 `sudo -n k3s kubectl`로 수행하고 kubeconfig를 배포하지 않는다.
+```
