@@ -485,6 +485,54 @@ def validate_monitor_selection(prometheus: dict, monitors: list[dict], services:
                     f"{identity}: endpoint port {port} missing from selected Service")
 
 
+LOKI_OTLP_ENDPOINT = "http://loki.monitoring.svc.cluster.local:3100/otlp"
+# chart가 Preview Deployment에 강제하는 SPRING_APPLICATION_NAME(service.name) 형식과 같다.
+PREVIEW_LOG_ROUTE = {
+    "context": "resource",
+    "condition": 'IsMatch(attributes["service.name"], "^preview-umc-product-pr[0-9]+$")',
+    "pipelines": ["logs/preview"],
+}
+COLLECTOR_PIPELINES = {
+    "metrics": (["otlp"], ["memory_limiter", "batch"], ["otlphttp/prometheus"]),
+    "traces": (["otlp"], ["memory_limiter", "batch"], ["otlphttp/tempo"]),
+    "logs": (["otlp"], ["memory_limiter"], ["routing/logs"]),
+    "logs/default": (["routing/logs"], ["memory_limiter", "batch"], ["otlphttp/loki"]),
+    "logs/preview": (["routing/logs"],
+                     ["memory_limiter", "filter/preview", "probabilistic_sampler/preview", "batch"],
+                     ["otlphttp/loki-preview"]),
+}
+
+
+# Preview 로그가 운영·dev push에 섞이거나 운영·dev가 샘플링되면 안 된다. 경로 전체를 고정한다.
+def validate_collector_pipelines(otel: dict) -> None:
+    pipelines = otel.get("service", {}).get("pipelines", {})
+    require(set(pipelines) == set(COLLECTOR_PIPELINES), "OTel: pipeline set")
+    for name, (receivers, processors, exporters) in COLLECTOR_PIPELINES.items():
+        pipeline = pipelines[name]
+        require(pipeline.get("receivers") == receivers and pipeline.get("exporters") == exporters,
+                f"OTel: {name} must keep receivers {receivers} and exporters {exporters}")
+        require(pipeline.get("processors") == processors,
+                f"OTel: {name} processors must be {processors}; only logs/preview may filter or sample")
+    routing = otel.get("connectors", {}).get("routing/logs", {})
+    require(routing.get("default_pipelines") == ["logs/default"]
+            and routing.get("table") == [PREVIEW_LOG_ROUTE],
+            "OTel: routing/logs must move only Preview service.name to logs/preview")
+    exporters = otel.get("exporters", {})
+    require(all(exporters[name].get("endpoint") == LOKI_OTLP_ENDPOINT
+                for name in ("otlphttp/loki", "otlphttp/loki-preview")),
+            "OTel: both log exporters must reach the Loki OTLP endpoint")
+    queue = exporters["otlphttp/loki-preview"].get("sending_queue", {})
+    require(queue.get("sizer") == "bytes" and 0 < queue.get("queue_size", 0) <= 64 << 20,
+            "OTel: Preview Loki queue must be bounded in bytes")
+    processors = otel.get("processors", {})
+    require(processors.get("filter/preview", {}).get("log_conditions")
+            == ["log.severity_number < SEVERITY_NUMBER_WARN"],
+            "OTel: Preview logs below WARN must be dropped")
+    percentage = processors.get("probabilistic_sampler/preview", {}).get("sampling_percentage")
+    require(isinstance(percentage, (int, float)) and 0 < percentage < 100,
+            "OTel: Preview logs must be sampled below 100%")
+
+
 # 지표·로그·트레이스의 내부 전달 주소를 대조하고 실제 이미지로 검사할 설정을 추출한다.
 def validate_runtime_configs(rendered: dict[str, list[dict]]) -> dict[str, str]:
     tempo_raw = configmap_value(rendered["tempo"], "tempo", "tempo.yaml")
@@ -504,17 +552,13 @@ def validate_runtime_configs(rendered: dict[str, list[dict]]) -> dict[str, str]:
     require(set(otel.get("receivers", {})) == {"otlp"}, "OTel: receiver set")
     require(
         set(otel.get("exporters", {}))
-        == {"otlphttp/loki", "otlphttp/prometheus", "otlphttp/tempo"},
+        == {"otlphttp/loki", "otlphttp/loki-preview", "otlphttp/prometheus", "otlphttp/tempo"},
         "OTel: exporter set",
     )
     require(otel["exporters"]["otlphttp/prometheus"].get("endpoint") ==
             f"http://{PROMETHEUS_NAME}.monitoring.svc.cluster.local:9090/api/v1/otlp",
             "OTel: metrics exporter must reach the Prometheus OTLP receiver")
-    require(
-        set(otel.get("service", {}).get("pipelines", {}))
-        == {"logs", "metrics", "traces"},
-        "OTel: pipeline set",
-    )
+    validate_collector_pipelines(otel)
 
     loki_raw = configmap_value(rendered["loki"], "loki", "config.yaml")
     loki = yaml.safe_load(loki_raw)

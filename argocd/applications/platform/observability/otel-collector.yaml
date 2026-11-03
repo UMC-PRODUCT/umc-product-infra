@@ -24,7 +24,7 @@ spec:
         serviceAccount:
           automountServiceAccountToken: false
         image:
-          # compose와 같은 contrib 배포판. k3s에서는 sampling processor를 두지 않는다.
+          # compose와 같은 contrib 배포판. k3s에서는 Preview 로그에만 sampler를 둔다.
           repository: otel/opentelemetry-collector-contrib
           tag: 0.152.0 # compose와 동일
           digest: sha256:f41d7995565df3733b7568702073a9c490792f9c6ac60684fe6a4da21a313f8d
@@ -65,6 +65,24 @@ spec:
             batch:
               send_batch_size: 1024
               timeout: 5s
+            # Loki tenant 4MB/s는 모든 환경이 함께 쓰므로 Preview가 예산을 다 쓰면 운영 push도 429를 받는다.
+            # Preview는 WARN 이상만 남기고 trace 단위 10%만 보낸다. 2개가 1.5코어씩 폭주해도
+            # 남는 양은 약 2MB/s 아래(추정)라 운영·dev 몫이 남는다. 요청 단위 원인은 Tempo에 전부 남는다.
+            filter/preview:
+              log_conditions:
+                - log.severity_number < SEVERITY_NUMBER_WARN
+            probabilistic_sampler/preview:
+              sampling_percentage: 10
+              # 기동 실패처럼 trace가 없는 로그는 버리지 않고 통과시킨다.
+              fail_closed: false
+          connectors:
+            # Preview push에 운영·dev 로그가 섞이지 않도록 resource 단위로 갈라 보낸다.
+            routing/logs:
+              default_pipelines: [logs/default]
+              table:
+                - context: resource
+                  condition: IsMatch(attributes["service.name"], "^preview-umc-product-pr[0-9]+$")
+                  pipelines: [logs/preview]
           exporters:
             # chart 기본 debug exporter는 어느 pipeline에서도 쓰지 않으며 제거한다.
             debug: null
@@ -77,6 +95,14 @@ spec:
             otlphttp/loki:
               endpoint: http://loki.monitoring.svc.cluster.local:3100/otlp
               tls: { insecure: true }
+            # 같은 Loki로 보내되 queue를 따로 둔다. Loki가 Preview를 거부해 재시도가 쌓여도
+            # 32MiB에서 버려 공유 memory_limiter가 운영 수신까지 막지 않게 한다.
+            otlphttp/loki-preview:
+              endpoint: http://loki.monitoring.svc.cluster.local:3100/otlp
+              tls: { insecure: true }
+              sending_queue:
+                sizer: bytes
+                queue_size: 33554432
           # metrics·traces·logs를 각각 Prometheus·Tempo·Loki로 보내며 메모리 제한 후 묶어서 전송한다.
           service:
             pipelines:
@@ -91,8 +117,17 @@ spec:
                 exporters: [otlphttp/tempo]
               logs:
                 receivers: [otlp]
+                processors: [memory_limiter]
+                exporters: [routing/logs]
+              # 운영·dev. processor는 pipeline마다 따로 생성되므로 batch도 Preview와 분리된다.
+              logs/default:
+                receivers: [routing/logs]
                 processors: [memory_limiter, batch]
                 exporters: [otlphttp/loki]
+              logs/preview:
+                receivers: [routing/logs]
+                processors: [memory_limiter, filter/preview, probabilistic_sampler/preview, batch]
+                exporters: [otlphttp/loki-preview]
   destination:
     server: https://kubernetes.default.svc
     namespace: monitoring
