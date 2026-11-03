@@ -1873,24 +1873,6 @@ def validate_preview_budget() -> None:
         item["name"]: item["value"]
         for item in applicationset["spec"]["template"]["spec"]["source"]["helm"]["parameters"]
     }
-    # 일시적인 sync 실패는 platform 앱과 같은 간격으로 재시도한다. createdb는 완료 표시로 재실행에 안전하다.
-    expected_retry = {
-        "limit": 5,
-        "backoff": {"duration": "10s", "factor": 2, "maxDuration": "3m"},
-    }
-    require(
-        applicationset["spec"]["template"]["spec"]["syncPolicy"].get("retry") == expected_retry,
-        "preview: ApplicationSet must retry transient sync failures",
-    )
-    for environment in ("prod", "dev"):
-        server_application = resource(
-            yaml_documents(ROOT / "argocd" / "applications" / environment / "server.yaml"),
-            "Application",
-        )
-        require(
-            server_application["spec"]["syncPolicy"].get("retry") == expected_retry,
-            f"{environment}: server Application must retry transient sync failures",
-        )
     require(
         parameters.get("deployment.enabled") == "true"
         and parameters.get("ingress.enabled") == "true",
@@ -1954,6 +1936,13 @@ def validate_preview_budget() -> None:
     )
 
 
+# 일시적인 sync 실패는 platform 앱과 같은 간격으로 재시도한다. createdb는 완료 표시로 재실행에 안전하다.
+SERVER_SYNC_RETRY = {
+    "limit": 5,
+    "backoff": {"duration": "10s", "factor": 2, "maxDuration": "3m"},
+}
+
+
 # Reloader가 바꾸는 annotation만 Git 비교에서 제외해 다른 Deployment 차이는 계속 탐지한다.
 def validate_reloader_argocd_contract() -> None:
     expected_applications = {
@@ -1982,6 +1971,10 @@ def validate_reloader_argocd_contract() -> None:
             in spec["syncPolicy"].get("syncOptions", []),
             f"{namespace}: Argo sync must respect Reloader ignore rule",
         )
+        require(
+            spec["syncPolicy"].get("retry") == SERVER_SYNC_RETRY,
+            f"{namespace}: server Application must retry transient sync failures",
+        )
 
     applicationset = resource(
         yaml_documents(
@@ -2004,6 +1997,10 @@ def validate_reloader_argocd_contract() -> None:
     require(
         "RespectIgnoreDifferences=true" in spec["syncPolicy"].get("syncOptions", []),
         "preview: Argo sync must respect Reloader ignore rule",
+    )
+    require(
+        spec["syncPolicy"].get("retry") == SERVER_SYNC_RETRY,
+        "preview: ApplicationSet must retry transient sync failures",
     )
 
 
