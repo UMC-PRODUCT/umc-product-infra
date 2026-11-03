@@ -44,7 +44,9 @@
 - name: Require the K3s version pinned in Git
   ansible.builtin.assert:
     that:
-      - k3s_version in argocd_installed_k3s_version.stdout
+      # `k3s version v1.36.3+k3s1 (hash)`의 세 번째 단어를 정확히 비교한다. 부분 문자열이면 k3s10도 통과한다.
+      - (argocd_installed_k3s_version.stdout_lines | first | default('')).split() | length >= 3
+      - (argocd_installed_k3s_version.stdout_lines | first | default('')).split()[2] == k3s_version
     fail_msg: >-
       Git pins K3s {{ k3s_version }}, but the server reports
       {{ argocd_installed_k3s_version.stdout_lines | first | default('no version') }}.
@@ -96,6 +98,8 @@
   register: argocd_live_values
   changed_when: false
   check_mode: false
+  # 누군가 서버에서 --set으로 넣은 값이 있으면 verbose 출력에 평문으로 남지 않게 한다.
+  no_log: true
 
 # helm module과 같은 기준(파싱한 값의 동등성)으로 비교하고, 키를 정렬한 YAML의 unified diff로 보여준다.
 - name: Compare the live Argo CD Helm values with Git
@@ -108,8 +112,17 @@
         live = json.load(sys.stdin) or {}
         with open(sys.argv[1], encoding="utf-8") as stream:
             git = yaml.safe_load(stream) or {}
+        SECRET_WORDS = ("password", "secret", "token", "key")
+        def mask(value, path=()):
+            if isinstance(value, dict):
+                return {k: mask(v, path + (str(k),)) for k, v in value.items()}
+            if isinstance(value, list):
+                return [mask(v, path) for v in value]
+            if any(word in part.lower() for part in path for word in SECRET_WORDS):
+                return "<masked>"
+            return value
         def lines(values):
-            return yaml.safe_dump(values, sort_keys=True).splitlines(keepends=True)
+            return yaml.safe_dump(mask(values), sort_keys=True).splitlines(keepends=True)
         sys.stdout.writelines(difflib.unified_diff(lines(live), lines(git), "live release", "git"))
       - "{{ role_path }}/files/argo-cd-values.yaml"
     stdin: "{{ argocd_live_values.stdout }}"
@@ -118,6 +131,8 @@
   register: argocd_values_diff
   changed_when: argocd_values_diff.stdout | length > 0
   check_mode: false
+  # stdin에 live values 원문이 들어가므로 이 task의 결과도 숨긴다. 보여 줄 diff는 비밀 경로를 가린 뒤 아래 debug가 출력한다.
+  no_log: true
 
 # Helm은 values 또는 chart가 다를 때만 upgrade한다. AppProject·health·PSA 차이는 이 미리보기에 없다.
 - name: Show the change the Helm upgrade will apply
