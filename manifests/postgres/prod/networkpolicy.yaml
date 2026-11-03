@@ -47,6 +47,13 @@ spec:
               app.kubernetes.io/name: postgres-exporter-role
         - podSelector:
             matchLabels:
+              app.kubernetes.io/name: postgres-backup-role
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: postgres-backup-role-check
+              app.kubernetes.io/component: backup-check
+        - podSelector:
+            matchLabels:
               app.kubernetes.io/name: postgres-exporter
               app.kubernetes.io/component: metrics
         - podSelector:
@@ -81,7 +88,7 @@ spec:
         - { protocol: UDP, port: 53 }
         - { protocol: TCP, port: 53 }
 ---
-# role 생성 Job 세 종류가 같은 namespace의 PostgreSQL 5432에 접속하도록 송신을 허용한다.
+# role 생성 Job과 backup role 점검 Job이 같은 namespace의 PostgreSQL 5432에만 접속하도록 송신을 허용한다.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -96,7 +103,12 @@ spec:
     matchExpressions:
       - key: app.kubernetes.io/name
         operator: In
-        values: [postgres-app-role, postgres-readonly-role, postgres-exporter-role]
+        values:
+          - postgres-app-role
+          - postgres-readonly-role
+          - postgres-exporter-role
+          - postgres-backup-role
+          - postgres-backup-role-check
   policyTypes: [Egress]
   egress:
     - to:

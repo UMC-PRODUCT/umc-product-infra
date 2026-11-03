@@ -1568,6 +1568,104 @@ def validate_postgres() -> None:
 
     require(not (prod_directory / "kube-state-metrics-role.yaml").exists(),
             "prod: kube-state-metrics RBAC is owned by kube-prometheus-stack")
+    validate_backup_role(prod_directory)
+
+
+def pg_dump_command(script: str) -> str:
+    commands = [line.strip() for line in script.splitlines() if line.strip().startswith("pg_dump ")]
+    require(len(commands) == 1, "backup script must run exactly one pg_dump")
+    return commands[0]
+
+
+# pg-backup 전환 전에 점검 Job이 관리자 Secret·443 송신 없이 조회 전용 backup role로 실제 backup과 같은 dump를 만드는지 고정한다.
+def validate_backup_role(prod_directory: Path) -> None:
+    role_job = resource(yaml_documents(prod_directory / "postgres-backup-role-job.yaml"), "Job")
+    role_container = role_job["spec"]["template"]["spec"]["containers"][0]
+    role_script = role_container["args"][0]
+    require(role_container["image"] == POSTGIS_IMAGE, "prod: backup role Job image")
+    require(
+        "GRANT pg_read_all_data TO umc_product_backup;" in role_script
+        and "NOSUPERUSER NOCREATEDB NOCREATEROLE INHERIT NOREPLICATION NOBYPASSRLS" in role_script
+        and "CONNECTION LIMIT 2;" in role_script
+        and "AND granted_role.rolname <> 'pg_read_all_data'" in role_script
+        and re.findall(r"GRANT (.+?) TO umc_product_backup;", role_script)
+        == ['CONNECT ON DATABASE :"DBNAME"', "pg_read_all_data"],
+        "prod: backup role must be read-only with pg_read_all_data as its only membership",
+    )
+    require(
+        "\\getenv backup_pw BACKUP_PASSWORD" in role_script and "--set" not in role_script,
+        "prod: backup role password must not appear in psql arguments",
+    )
+    role_env = {item["name"]: item for item in role_container["env"]}
+    require(
+        role_env["BACKUP_PASSWORD"]["valueFrom"]["secretKeyRef"]
+        == {"name": "postgres-backup", "key": "POSTGRES_BACKUP_PASSWORD"},
+        "prod: backup role Secret",
+    )
+    waves = {
+        f"{path.name}/{item['metadata']['name']}": int(
+            item["metadata"].get("annotations", {}).get("argocd.argoproj.io/sync-wave", "0")
+        )
+        for path in sorted(prod_directory.glob("*.yaml"))
+        for item in yaml_documents(path)
+    }
+    role_wave = waves.pop("postgres-backup-role-job.yaml/postgres-backup-role")
+    require(
+        role_wave > max(waves.values()),
+        "prod: backup role Job must sync last so its failure blocks no other wave",
+    )
+
+    backup_pod = resource(
+        yaml_documents(prod_directory / "backup-cronjob.yaml"), "CronJob"
+    )["spec"]["jobTemplate"]["spec"]["template"]["spec"]
+    check = resource(yaml_documents(prod_directory / "backup-role-check-cronjob.yaml"), "CronJob")
+    check_pod = check["spec"]["jobTemplate"]["spec"]["template"]["spec"]
+    check_container = check_pod["containers"][0]
+    check_env = {item["name"]: item for item in check_container["env"]}
+    require(check["spec"]["suspend"] is True, "prod: backup role check runs only as a manual Job")
+    require(
+        check_container["image"] == backup_pod["initContainers"][0]["image"]
+        and pg_dump_command(check_container["args"][0])
+        == pg_dump_command(backup_pod["initContainers"][0]["args"][0]),
+        "prod: backup role check must run the same image and pg_dump options as pg-backup",
+    )
+    require(
+        check_env["PGUSER"].get("value") == "umc_product_backup"
+        and check_env["PGPASSWORD"]["valueFrom"]["secretKeyRef"]
+        == {"name": "postgres-backup", "key": "POSTGRES_BACKUP_PASSWORD"}
+        and "postgres-secrets" not in yaml.safe_dump(check)
+        and "backup-s3" not in yaml.safe_dump(check),
+        "prod: backup role check uses only the backup role credentials",
+    )
+
+    policies = {
+        item["metadata"]["name"]: item["spec"]
+        for item in yaml_documents(prod_directory / "networkpolicy.yaml")
+        if item.get("kind") == "NetworkPolicy"
+    }
+    db_ingress_sources = policies["postgres-allow-required-ingress"]["ingress"][0]["from"]
+    for labels in (
+        {"app.kubernetes.io/name": "postgres-backup-role"},
+        {
+            "app.kubernetes.io/name": "postgres-backup-role-check",
+            "app.kubernetes.io/component": "backup-check",
+        },
+    ):
+        require(
+            {"podSelector": {"matchLabels": labels}} in db_ingress_sources,
+            f"prod: PostgreSQL ingress must allow {labels['app.kubernetes.io/name']}",
+        )
+    db_only_egress = policies["postgres-bootstrap-allow-db-egress"]["podSelector"][
+        "matchExpressions"
+    ][0]["values"]
+    require(
+        {"postgres-backup-role", "postgres-backup-role-check"} <= set(db_only_egress)
+        and policies["pg-backup-allow-required-egress"]["podSelector"]["matchLabels"][
+            "app.kubernetes.io/name"
+        ]
+        == "pg-backup",
+        "prod: backup role Pods get DB-only egress, not the S3 uploader's public 443",
+    )
 
 
 # AWS 원본 경로와 Kubernetes Secret의 namespace·키 매핑·보존 정책을 함께 대조한다.
