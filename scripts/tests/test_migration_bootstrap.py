@@ -41,6 +41,7 @@ class MigrationBootstrapTests(unittest.TestCase):
             str(path.relative_to(ROOT / "argocd"))
             for path in (ROOT / "argocd" / "preview-releases").glob("*.json")
         ] + ["preview-releases/pr-42.json"]
+        self.assertEqual(exclude_patterns("bootstrap/root-app.yaml"), ["preview-releases/*"])
         for path in ROOT_APPS:
             patterns = exclude_patterns(path)
             for record in records:
