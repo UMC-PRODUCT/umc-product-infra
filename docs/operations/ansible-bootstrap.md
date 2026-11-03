@@ -216,6 +216,29 @@ Grafana·Argo CD 계정 발급·회수, 공개 접속 검증과 장애 시 SSH �
 SSH 사용자 변경은 `ssh-access.yml`, OS/K3s bootstrap 변경은 `bootstrap.yml`을 사용한다.
 앱 image, Helm values와 Kubernetes manifest 변경은 Git과 Argo CD로 처리한다.
 
+SSH·OS 설정을 바꾼 Git revision을 운영 서버에 반영할 때는 기존 관리자 세션과 Cafe24 console을
+유지하고 `--check --diff`부터 실행한다. bootstrap은 재실행에도 ESO key 입력을 요구한다.
+
+```bash
+cd ansible
+source .venv/bin/activate
+ansible-galaxy collection install -r collections/requirements.yml
+ansible -i inventories/idc-new/hosts.yml k3s_servers --list-hosts
+ansible-playbook -i inventories/idc-new/hosts.yml --check --diff playbooks/ssh-access.yml
+ansible-playbook -i inventories/idc-new/hosts.yml playbooks/ssh-access.yml
+ansible-playbook -i inventories/idc-new/hosts.yml --check --diff playbooks/bootstrap.yml
+ansible-playbook -i inventories/idc-new/hosts.yml playbooks/bootstrap.yml
+```
+
+`ssh-access.yml` 뒤에는 별도 terminal에서 개인 관리자 SSH·`sudo -n true`와 DB 터널 연결을 다시 확인한
+다음 bootstrap으로 넘어간다. diff에서 특히 다음을 확인한다.
+
+- sshd: `00-umc-hardening.conf`의 `ClientAliveInterval 60`·`ClientAliveCountMax 3`, `db_tunnel` 계정
+  shell의 `/usr/sbin/nologin` 변경. reload는 이미 열린 세션을 끊지 않는다.
+- 자동 업데이트: `/etc/apt/apt.conf.d/52umc-unattended-upgrades`, needrestart가 있으면
+  `/etc/needrestart/conf.d/99-umc-list-only.conf`, apt timer 활성화. 자동 업데이트가 dpkg lock을 잡고
+  있으면 apt 작업은 최대 10분 기다린다.
+
 | 증상 | 먼저 확인할 것 |
 |---|---|
 | SSH timeout | 공인 IP, 카페24 상위 방화벽, UFW, sshd 상태 |
