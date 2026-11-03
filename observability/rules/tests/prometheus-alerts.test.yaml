@@ -161,3 +161,28 @@ tests:
       - eval_time: 30m
         alertname: PostgresDeadlocks
         exp_alerts: []
+
+  - interval: 1m
+    input_series:
+      # Preview 전용 exporter는 처음부터 실패하고, 기본 Loki exporter는 10분부터 실패한다.
+      - series: 'otelcol_exporter_send_failed_log_records_total{job="otel-collector", instance="10.0.0.2:8888", exporter="otlphttp/loki-preview"}'
+        values: '0+10x40'
+      - series: 'otelcol_exporter_send_failed_log_records{job="otel-collector", instance="10.0.0.2:8888", exporter="otlphttp/loki-preview"}'
+        values: '0+10x40'
+      - series: 'otelcol_exporter_send_failed_log_records_total{job="otel-collector", instance="10.0.0.2:8888", exporter="otlphttp/loki"}'
+        values: '0x10 0+10x30'
+    alert_rule_test:
+      - eval_time: 9m
+        alertname: OTelCollectorLogExportFailures
+        exp_alerts: []
+      - eval_time: 16m
+        alertname: OTelCollectorLogExportFailures
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              job: otel-collector
+              instance: 10.0.0.2:8888
+              exporter: otlphttp/loki
+            exp_annotations:
+              summary: "OTel Collector log export를 확인해주세요"
+              description: "OTel Collector가 log record export에 실패하고 있어요. exporter=otlphttp/loki, instance=10.0.0.2:8888 의 downstream endpoint와 인증 정보를 확인해주세요."

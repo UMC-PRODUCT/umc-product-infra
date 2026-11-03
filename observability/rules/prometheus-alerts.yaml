@@ -492,8 +492,10 @@ groups:
           summary: "최근 PostgreSQL S3 backup 성공 기록이 없어요"
           description: "활성화된 pg-backup의 마지막 정규 성공이 30시간을 넘었어요. CronJob, ExternalSecret과 S3 writer 권한을 확인해주세요."
 
+      # Preview 전용 exporter는 Loki가 Preview push만 거부해도 실패가 쌓인다. 운영 로그와 무관하고
+      # endpoint·인증 점검 안내도 맞지 않으므로 이 경보에서 뺀다.
       - alert: OTelCollectorLogExportFailures
-        expr: (rate(otelcol_exporter_send_failed_log_records[5m]) or rate(otelcol_exporter_send_failed_log_records_total[5m])) > 0
+        expr: (rate(otelcol_exporter_send_failed_log_records{exporter!="otlphttp/loki-preview"}[5m]) or rate(otelcol_exporter_send_failed_log_records_total{exporter!="otlphttp/loki-preview"}[5m])) > 0
         for: 3m
         labels:
           severity: warning
