@@ -18,6 +18,7 @@ from validate_contracts import (
     git_visible_files,
     pod_resource_totals,
     validate_backup_role,
+    validate_backup_role_check,
     validate_preview_budget_arithmetic,
     validate_repository_identity,
 )
@@ -194,11 +195,7 @@ class PreviewBudgetArithmeticTest(unittest.TestCase):
             self.validate(self.PR_RESOURCES + [{"kind": "PersistentVolumeClaim"}])
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
-# backup role에 추가 권한·다른 dump 옵션·예약 실행·앞선 wave 차단이 다시 들어오면 실패해야 한다.
+# backup role의 추가 권한·약해진 최종 검사, 점검 Job의 다른 dump 옵션·예약 실행, exporter를 막는 wave는 실패해야 한다.
 class BackupRoleContractTest(unittest.TestCase):
     def setUp(self) -> None:
         directory = tempfile.TemporaryDirectory()
@@ -215,18 +212,58 @@ class BackupRoleContractTest(unittest.TestCase):
     def assert_rejected(self, message: str) -> None:
         with self.assertRaisesRegex(SystemExit, message):
             validate_backup_role(self.prod)
+            validate_backup_role_check(self.prod)
 
     def test_accepts_repository_manifests(self) -> None:
         validate_backup_role(self.prod)
+        validate_backup_role_check(self.prod)
 
-    def test_rejects_extra_privilege_for_backup_role(self) -> None:
+    def add_grant(self, grant: str) -> None:
         self.replace(
             "postgres-backup-role-job.yaml",
             "GRANT pg_read_all_data TO umc_product_backup;",
-            "GRANT pg_read_all_data TO umc_product_backup;\n"
-            "              GRANT pg_write_all_data TO umc_product_backup;",
+            f"GRANT pg_read_all_data TO umc_product_backup;\n              {grant}",
         )
+
+    def test_rejects_extra_privilege_for_backup_role(self) -> None:
+        self.add_grant("GRANT pg_write_all_data TO umc_product_backup;")
         self.assert_rejected("backup role must be read-only")
+
+    def test_rejects_quoted_lowercase_grant_for_backup_role(self) -> None:
+        self.add_grant('grant INSERT ON ALL TABLES IN SCHEMA public to "umc_product_backup";')
+        self.assert_rejected("backup role must be read-only")
+
+    def test_rejects_weakened_final_state_check(self) -> None:
+        self.replace("postgres-backup-role-job.yaml", " AND rolconnlimit = 2", "")
+        self.assert_rejected("pinned final-state check")
+
+    def test_rejects_change_after_final_state_check(self) -> None:
+        self.replace(
+            "postgres-backup-role-job.yaml",
+            "$role_check$;\n              COMMIT;",
+            "$role_check$;\n              ALTER ROLE umc_product_backup SUPERUSER;\n              COMMIT;",
+        )
+        self.assert_rejected("pinned final-state check")
+
+    def test_rejects_commit_before_final_state_check(self) -> None:
+        self.replace(
+            "postgres-backup-role-job.yaml",
+            "GRANT pg_read_all_data TO umc_product_backup;",
+            "GRANT pg_read_all_data TO umc_product_backup;\n              COMMIT;\n              BEGIN;",
+        )
+        self.assert_rejected("must not commit before the final-state check")
+
+    def test_rejects_role_job_that_can_block_the_exporter(self) -> None:
+        self.replace(
+            "postgres-backup-role-job.yaml",
+            'argocd.argoproj.io/sync-wave: "5"',
+            'argocd.argoproj.io/sync-wave: "4"',
+        )
+        self.assert_rejected("must sync after postgres-exporter")
+
+    def test_rejects_renamed_exporter_with_message(self) -> None:
+        (self.prod / "postgres-exporter.yaml").rename(self.prod / "exporter.yaml")
+        self.assert_rejected("postgres-exporter.yaml is missing")
 
     def test_rejects_check_with_different_pg_dump_options(self) -> None:
         self.replace(
@@ -240,10 +277,10 @@ class BackupRoleContractTest(unittest.TestCase):
         self.replace("backup-role-check-cronjob.yaml", "suspend: true", "suspend: false")
         self.assert_rejected("manual Job")
 
-    def test_rejects_role_job_that_can_block_a_later_wave(self) -> None:
-        self.replace(
-            "postgres-backup-role-job.yaml",
-            'argocd.argoproj.io/sync-wave: "5"',
-            'argocd.argoproj.io/sync-wave: "3"',
-        )
-        self.assert_rejected("must sync last")
+    def test_rejects_check_schedule_in_backup_window(self) -> None:
+        self.replace("backup-role-check-cronjob.yaml", 'schedule: "0 14 * * *"', 'schedule: "0 3 * * *"')
+        self.assert_rejected("outside the 03:00 pg-backup window")
+
+
+if __name__ == "__main__":
+    unittest.main()
