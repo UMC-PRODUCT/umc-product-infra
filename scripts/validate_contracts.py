@@ -329,8 +329,13 @@ def validate_app_storage_contract() -> None:
         "https://university.neordinary.com",
         "https://admin.university.neordinary.com",
         "https://tech.university.neordinary.com",
+        "https://activity.university.neordinary.com",
     ]
-    expected_nonprod_origins = [*expected_prod_origins, "http://localhost:5173"]
+    expected_nonprod_origins = [
+        *expected_prod_origins,
+        "http://localhost:5173",
+        "https://dev.activity.university.neordinary.com",
+    ]
     expected_cors = {
         "CorsRules": [
             {
