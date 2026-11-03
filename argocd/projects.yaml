@@ -94,6 +94,15 @@ spec:
       kind: Namespace
     - group: scheduling.k8s.io
       kind: PriorityClass
+  # Secret·ConfigMap·RBAC은 열지 않는다. argocd namespace에는 Preview용 SecretStore·ExternalSecret만 둔다.
+  # default는 cluster Application의 destination이라 남기며, 그 안에 만들 리소스는 없다.
+  namespaceResourceWhitelist:
+    - group: ""
+      kind: ResourceQuota
+    - group: external-secrets.io
+      kind: ExternalSecret
+    - group: external-secrets.io
+      kind: SecretStore
 ---
 # 인증서 controller·CRD·Issuer와 공용 Preview 인증서를 설치할 수 있는 범위를 선언한다.
 apiVersion: argoproj.io/v1alpha1
@@ -144,6 +153,9 @@ spec:
       kind: RoleBinding
     - group: cert-manager.io
       kind: Certificate
+    # Preview Mailpit loopback TLS용 self-signed Issuer다(fix/mailpit-loopback-cert).
+    - group: cert-manager.io
+      kind: Issuer
 ---
 # DNS controller 배포 권한이다. 실제 Route 53 레코드 변경 범위는 chart 설정과 AWS IAM이 함께 제한한다.
 apiVersion: argoproj.io/v1alpha1
@@ -287,6 +299,30 @@ spec:
     - server: https://kubernetes.default.svc
       namespace: db
   clusterResourceWhitelist: []
+  # scripts/argocd_project_kinds.py가 렌더 결과에서 계산한 kind만 연다. Secret·Role 생성은 막는다.
+  namespaceResourceWhitelist:
+    - group: ""
+      kind: ConfigMap
+    - group: ""
+      kind: Service
+    - group: ""
+      kind: ServiceAccount
+    - group: apps
+      kind: Deployment
+    - group: apps
+      kind: StatefulSet
+    - group: batch
+      kind: CronJob
+    - group: batch
+      kind: Job
+    - group: cert-manager.io
+      kind: Certificate
+    - group: networking.k8s.io
+      kind: Ingress
+    - group: networking.k8s.io
+      kind: NetworkPolicy
+    - group: traefik.io
+      kind: Middleware
 ---
 # 개발 앱과 DB의 배포 목적지를 dev-app·dev-db로 제한해 운영 환경과 분리한다.
 apiVersion: argoproj.io/v1alpha1
@@ -308,6 +344,24 @@ spec:
     - server: https://kubernetes.default.svc
       namespace: dev-db
   clusterResourceWhitelist: []
+  # scripts/argocd_project_kinds.py가 렌더 결과에서 계산한 kind만 연다. Secret·Role·ServiceAccount 생성은 막는다.
+  namespaceResourceWhitelist:
+    - group: ""
+      kind: Service
+    - group: apps
+      kind: Deployment
+    - group: apps
+      kind: StatefulSet
+    - group: batch
+      kind: Job
+    - group: cert-manager.io
+      kind: Certificate
+    - group: networking.k8s.io
+      kind: Ingress
+    - group: networking.k8s.io
+      kind: NetworkPolicy
+    - group: traefik.io
+      kind: Middleware
 ---
 # PR별 앱과 공유 DB는 preview namespace 안에서만 관리한다.
 apiVersion: argoproj.io/v1alpha1
@@ -327,6 +381,24 @@ spec:
     - server: https://kubernetes.default.svc
       namespace: preview
   clusterResourceWhitelist: []
+  # scripts/argocd_project_kinds.py가 렌더 결과에서 계산한 kind만 연다. Secret·Role·ServiceAccount 생성은 막는다.
+  namespaceResourceWhitelist:
+    - group: ""
+      kind: Service
+    - group: apps
+      kind: Deployment
+    - group: apps
+      kind: StatefulSet
+    - group: batch
+      kind: CronJob
+    - group: batch
+      kind: Job
+    - group: networking.k8s.io
+      kind: Ingress
+    - group: networking.k8s.io
+      kind: NetworkPolicy
+    - group: traefik.io
+      kind: Middleware
 ---
 # 전용 Project(-100)를 먼저 만든 뒤 기본 Project(-99)의 저장소·배포 목적지·리소스 권한을 닫는다.
 apiVersion: argoproj.io/v1alpha1

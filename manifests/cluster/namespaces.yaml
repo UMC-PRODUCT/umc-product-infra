@@ -138,3 +138,20 @@ metadata:
     pod-security.kubernetes.io/audit-version: v1.36
     pod-security.kubernetes.io/warn: restricted
     pod-security.kubernetes.io/warn-version: v1.36
+---
+# 기본 namespace는 Kubernetes가 만들고 저장소의 workload는 쓰지 않는다. 실수로 배포한 Pod도 restricted를 따르게 한다.
+# environment label은 NetworkPolicy namespaceSelector에 걸리지 않도록 붙이지 않는다.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: default
+  annotations:
+    # Kubernetes는 default 삭제를 거부한다. cluster Application을 지울 때 finalizer가 멈추지 않게 삭제 대상에서 뺀다.
+    argocd.argoproj.io/sync-options: Delete=false
+  labels:
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/enforce-version: v1.36
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/audit-version: v1.36
+    pod-security.kubernetes.io/warn: restricted
+    pod-security.kubernetes.io/warn-version: v1.36

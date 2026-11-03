@@ -44,6 +44,7 @@ observability/ 원본
 | [`gen-configmaps.py`](gen-configmaps.py) | 관측 원본을 ConfigMap·PrometheusRule로 변환 | `manifests/observability/`, `manifests/observability-integrations/` | dashboard·alert 변경 시 |
 | [`validate.sh`](validate.sh) | 저장소 전체 검증 | 외부 인프라 변경 없음 | 모든 변경 후 |
 | `validate_*.py` | 영역별 상세 계약 검사 | 검증 출력 디렉터리 | `validate.sh` 내부 호출 |
+| [`argocd_project_kinds.py`](argocd_project_kinds.py) | Application 렌더를 AppProject별로 묶어 필요한 최소 whitelist와 거부될 kind 출력 | `VALIDATION_OUTPUT_DIR` | AppProject·chart kind 변경 시 |
 | [`tests/`](tests/) | bootstrap·Secret·네트워크 안전장치 단위 테스트 | 없음 | `validate.sh` 내부 호출 |
 
 ## 관측 ConfigMap·PrometheusRule 생성

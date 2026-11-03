@@ -361,13 +361,14 @@ helm template umc-secrets charts/umc-secrets \
   --namespace external-secrets "${secrets_args[@]}" \
   >"$validation_dir/secrets.yaml"
 
-# bootstrap chart의 checksum과 appVersion을 확인하고 실제 values 결과를 검사한다.
-python3 scripts/validate_argocd.py "$validation_dir"
-
 # Argo CD에 인라인으로 둔 valuesObject를 그대로 사용해 외부 관측 chart도 렌더한다.
 # chart 기본값 deep-merge나 label 변경이 운영에서 처음 드러나지 않게 CI에서 고정한다.
 python3 scripts/validate_edge_platform.py "$validation_dir"
 python3 scripts/validate_observability.py "$validation_dir"
+
+# bootstrap chart의 checksum과 appVersion을 확인하고 실제 values 결과를 검사한다.
+# 위 platform·observability 렌더가 있어야 AppProject whitelist를 모든 Application에 대조할 수 있다.
+python3 scripts/validate_argocd.py "$validation_dir"
 
 # 개별 YAML 문법만으로 알 수 없는 환경 간 Secret·DB·DNS 연결 계약을 확인한다.
 python3 scripts/validate_contracts.py \
