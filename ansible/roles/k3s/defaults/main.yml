@@ -8,7 +8,6 @@ k3s_install_script_checksum: >-
 # 같은 release의 sha256sum-amd64.txt에 있는 x86_64 k3s binary 값이다. common이 x86_64만 허용한다.
 # installer가 내려받은 binary를 Git에 고정한 값과 다시 대조해 release 자산 변조를 탐지한다.
 k3s_binary_checksum: 2f98a9f8fe5782479ee2d54e70a1b10a7f6fd4cae8d38ed3098452dc6eed76b5
-k3s_binary_path: /usr/local/bin/k3s
 
 # 관리자 kubeconfig는 서버의 root 전용 파일로 유지하고 제어 노드로 복사하지 않는다.
 k3s_kubeconfig_path: /etc/rancher/k3s/k3s.yaml

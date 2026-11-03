@@ -110,7 +110,7 @@ class K3sInstallerContractTests(unittest.TestCase):
         self.assertLess(names.index(install["name"]), names.index(binary_guard["name"]))
         self.assertLess(names.index(binary_guard["name"]), names.index(start["name"]))
         inspect = next(task for task in tasks
-                       if task.get("ansible.builtin.stat", {}).get("path") == "{{ k3s_binary_path }}")
+                       if task.get("ansible.builtin.stat", {}).get("path") == "/usr/local/bin/k3s")
         self.assertEqual(inspect["ansible.builtin.stat"]["checksum_algorithm"], "sha256")
 
         pinned = "sha256:" + "a" * 64
