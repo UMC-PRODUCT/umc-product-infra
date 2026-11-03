@@ -4,6 +4,8 @@
 from __future__ import annotations
 
 import hashlib
+import os
+import re
 import shutil
 import subprocess
 import sys
@@ -240,15 +242,48 @@ def sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
+# Ansible이 서버에 설치하는 Helm과 major.minor가 같으면 로컬 patch 차이는 경고로 허용한다.
+# VALIDATE_STRICT=1(CI)에서는 고정 버전과 정확히 같아야 한다.
+def check_helm_version(actual: str, pinned: str, *, strict: bool) -> str | None:
+    pinned_parts = re.fullmatch(r"v(\d+)\.(\d+)\.(\d+)", pinned)
+    if pinned_parts is None:
+        raise SystemExit(f"Argo CD validation failed: argocd_helm_version must be vX.Y.Z, got {pinned}")
+    major, minor, _ = pinned_parts.groups()
+    required = f"install Helm {pinned} (argocd_helm_version in {DEFAULTS_PATH.relative_to(ROOT)})"
+    actual_parts = re.fullmatch(r"v(\d+)\.(\d+)\.(\d+)(?:\+\S+)?", actual)
+    if actual_parts is None or actual_parts.groups()[:2] != (major, minor):
+        raise SystemExit(
+            f"Argo CD validation failed: Helm v{major}.{minor}.x is required, got {actual}; {required}"
+        )
+    if actual_parts.groups() == pinned_parts.groups():
+        return None
+    require(not strict, f"VALIDATE_STRICT=1 requires Helm {pinned}, got {actual}; {required}")
+    return f"warning: Helm {actual} differs from pinned {pinned} in patch version; {required} to match CI"
+
+
+def verify_helm_version(defaults: dict) -> None:
+    warning = check_helm_version(
+        run(["helm", "version", "--short"]).stdout.strip(),
+        str(defaults["argocd_helm_version"]),
+        strict=os.environ.get("VALIDATE_STRICT") == "1",
+    )
+    if warning:
+        print(warning, file=sys.stderr)
+
+
+def load_defaults() -> dict:
+    return yaml.safe_load(DEFAULTS_PATH.read_text(encoding="utf-8"))
+
+
 # 고정된 chart를 실제 bootstrap values로 렌더해 접속 경계·계정 권한·workload 설정을 검사한다.
 def main(output_dir: Path) -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
-    defaults = yaml.safe_load(DEFAULTS_PATH.read_text(encoding="utf-8"))
+    defaults = load_defaults()
     values = yaml.safe_load(VALUES_PATH.read_text(encoding="utf-8"))
 
     chart_version = str(defaults["argocd_helm_chart_version"])
     app_version = str(defaults["argocd_version"])
-    helm_version = str(defaults["argocd_helm_version"])
+    verify_helm_version(defaults)
     expected_checksum = str(defaults["argocd_helm_chart_checksum"]).removeprefix(
         "sha256:"
     )
@@ -275,13 +310,6 @@ def main(output_dir: Path) -> None:
         ),
         "account passwords must remain runtime-managed, not chart values",
     )
-    actual_helm_version = run(["helm", "version", "--short"]).stdout.strip()
-    require(
-        actual_helm_version == helm_version
-        or actual_helm_version.startswith(f"{helm_version}+"),
-        f"Helm version must be {helm_version}, got {actual_helm_version}",
-    )
-
     # 다운로드한 chart의 checksum과 메타데이터를 확인한 뒤에만 Helm 입력으로 사용한다.
     archive = output_dir / f"argo-cd-{chart_version}.tgz"
     request = urllib.request.Request(
@@ -415,5 +443,8 @@ def main(output_dir: Path) -> None:
 
 
 if __name__ == "__main__":
-    require(len(sys.argv) == 2, "usage: validate_argocd.py OUTPUT_DIR")
-    main(Path(sys.argv[1]))
+    require(len(sys.argv) == 2, "usage: validate_argocd.py --helm-version-only | OUTPUT_DIR")
+    if sys.argv[1] == "--helm-version-only":
+        verify_helm_version(load_defaults())
+    else:
+        main(Path(sys.argv[1]))

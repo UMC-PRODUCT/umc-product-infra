@@ -22,8 +22,11 @@ jobs:
 
     steps:
       # 깨끗한 체크아웃을 사용해 로컬의 미추적 파일이 검증 누락을 가리지 않게 한다.
+      # chart version guard가 origin/<base>와의 merge base를 계산하도록 전체 이력과 원격 branch를 받는다.
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
 
       # Python 버전과 의존성 파일을 기준으로 검증 환경·캐시를 맞춘다.
       - name: Set up Python
@@ -89,16 +92,15 @@ jobs:
           -r ansible/collections/requirements.yml
 
       # 실제 서버 적용 없이 생성물·Helm 렌더·구성 간 계약과 테스트를 실행한다.
+      # 위에서 모든 선택 도구(ubuntu runner 기본 docker 포함)를 준비했으므로 skip이 있으면 실패시킨다.
       - name: Validate repository contracts
         env:
           VALIDATION_OUTPUT_DIR: ${{ runner.temp }}/umc-infra-rendered
+          VALIDATE_STRICT: "1"
+          # main push는 merge base가 HEAD라 비교할 chart 변경이 없어 그대로 통과한다.
+          VALIDATE_BASE_REF: origin/${{ github.base_ref || 'main' }}
         run: ./scripts/validate.sh
 
-      # 실행 계약 검사 뒤 workflow 문법과 Ansible 작성 규칙을 별도로 확인한다.
-      - name: Lint workflow and Ansible style
-        shell: bash
-        run: |
-          set -euo pipefail
-          actionlint
-          cd ansible
-          ansible-lint playbooks/ssh-access.yml playbooks/bootstrap.yml
+      # Ansible lint는 validate.sh에 포함되어 workflow 문법만 별도로 확인한다.
+      - name: Lint workflow
+        run: actionlint

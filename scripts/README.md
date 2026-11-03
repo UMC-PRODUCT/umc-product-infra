@@ -86,12 +86,31 @@ python3 scripts/gen-configmaps.py --check
 - kube-prometheus-stack CRD·RBAC·Operator workload, monitor/rule selector와 named Service port
 - Grafana, Loki, Tempo, OpenTelemetry 연결과 설정, 원본·렌더된 모든 Prometheus rule 문법
 - native AlertmanagerConfig의 global 참조·Discord SecretKeySelector (실제 runtime 설정 생성은 live reconcile에서 확인)
-- CloudFormation, Ansible, Kubernetes YAML과 schema
+- `argocd/`에 Kubernetes manifest만 있는지와, 앱 chart 입력 변경 시 `Chart.yaml` version 변경 여부
+- CloudFormation, Ansible syntax·lint, Kubernetes YAML과 schema
 - 남은 과거 이름, Terraform 파일, placeholder와 운영 gate가 의도한 안전 상태인지
 
-Helm과 PyYAML은 필수다. `cfn-lint`, `ansible-playbook`, `kubeconform`, `promtool`, Docker가
-없으면 관련 검사는 skip되므로 출력 전체를 확인한다. Argo CD 검증은 저장소에 고정한 Helm
-버전과 chart checksum을 요구하며 chart 다운로드를 위해 네트워크를 사용한다. 검증 중 Helm
+Helm, PyYAML과 Git 작업 트리는 필수다. `cfn-lint`, `ansible-playbook`, `ansible-lint`,
+`kubeconform`, `promtool`, Docker가 없거나 chart version을 비교할 base ref가 없으면 관련 검사를
+건너뛰고, 마지막 줄에 건너뛴 검사를 모두 적는다.
+
+```text
+umc-infra validation passed (skipped: CloudFormation lint, Kubernetes schema validation)
+```
+
+`VALIDATE_STRICT=1`이면 건너뛴 검사가 하나라도 있을 때 실패한다. CI는 모든 도구를 설치하고
+이 모드로 실행한다.
+
+Helm은 `ansible/roles/argocd/defaults/main.yml`의 `argocd_helm_version`과 major·minor가 같아야
+한다. 다르면 첫 chart 렌더 전에 필요한 버전을 안내하고 멈춘다. patch만 다르면 경고를 출력하고
+계속하며, `VALIDATE_STRICT=1`에서는 patch까지 같아야 한다.
+
+`charts/umc-product-server/`에서 `Chart.yaml` 밖의 파일을 하나라도 바꾸면 같은 변경에서
+`Chart.yaml`의 `version`도 바꿔야 한다. 기준은 `VALIDATE_BASE_REF`(기본 `origin/main`)와의 merge
+base다. CI는 PR에서 `origin/<base branch>`, `main` push에서 `origin/main`을 넘긴다. `main` push는
+merge base가 HEAD라 비교할 변경이 없다. base ref가 없는 clone에서는 이 검사를 건너뛴 검사로 적는다.
+
+Argo CD 검증은 chart checksum을 확인하며 chart 다운로드를 위해 네트워크를 사용한다. 검증 중 Helm
 chart 다운로드, Docker image pull과 로컬 cache 변경은 발생할 수 있지만 AWS, GitHub나
 Kubernetes 상태는 바꾸지 않는다. 최종 기준은
 [GitHub Actions workflow](../.github/workflows/validate.yml)의 `Static validation` 성공이다.
@@ -103,7 +122,8 @@ Kubernetes 상태는 바꾸지 않는다. 최종 기준은
 
 | 파일 | 검사 영역 |
 |---|---|
-| [`validate_argocd.py`](validate_argocd.py) | Argo CD Helm·CRD·workload·ServiceAccount 권한 |
+| [`validate_argocd.py`](validate_argocd.py) | Helm 버전, Argo CD Helm·CRD·workload·ServiceAccount 권한 |
+| [`validate_gitops_sources.py`](validate_gitops_sources.py) | root Application이 `bootstrap/root-app.yaml`의 exclude를 빼고 읽는 `argocd/` 파일 구성, 앱 chart version 변경 |
 | [`validate_edge_platform.py`](validate_edge_platform.py) | cert-manager·ExternalDNS·Reloader·Route53·TLS/DNS gate |
 | [`validate_observability.py`](validate_observability.py) | chart·CRD·RBAC·Operator image/resource·ServiceMonitor·NetworkPolicy·runtime config |
 | [`validate_contracts.py`](validate_contracts.py) | AWS·Helm·Secret·PostgreSQL·preview 등 UMC 전용 교차 파일 계약 |
@@ -118,6 +138,9 @@ Kubernetes 상태는 바꾸지 않는다. 최종 기준은
 | [`test_bootstrap_aws_secrets.py`](tests/test_bootstrap_aws_secrets.py) | worksheet parser, 33개 source mapping, 환경 분리, stdin 전달과 오류 메시지 비노출 |
 | [`test_bootstrap_route53_access_keys.py`](tests/test_bootstrap_route53_access_keys.py) | 안전한 `.env.prod`, Route53 stack 계약, access key 발급과 실패 rollback |
 | [`test_validate_observability.py`](tests/test_validate_observability.py) | Operator Pod·monitor selector, named port와 cluster RBAC 권한 경계 |
+| [`test_validate_skips.py`](tests/test_validate_skips.py) | 건너뛴 검사 요약, `validate.sh` 선택 도구 구간의 모든 skip 기록, `VALIDATE_STRICT=1` 실패 |
+| [`test_validate_gitops_sources.py`](tests/test_validate_gitops_sources.py) | `argocd/` 비manifest 파일 거부와 root Application exclude, merge base 기준 chart version 변경 요구 |
+| [`test_validate_argocd_helm_version.py`](tests/test_validate_argocd_helm_version.py) | 같은 minor Helm 허용과 strict 모드의 정확한 버전 요구 |
 
 테스트만 실행하려면 다음을 사용한다.
 
