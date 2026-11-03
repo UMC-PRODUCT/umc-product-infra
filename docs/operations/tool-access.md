@@ -144,7 +144,7 @@ ssh -N -L 127.0.0.1:18080:127.0.0.1:18080 "$IDC_SSH_USER@$IDC_NODE_HOST"
 - Grafana는 `kube-system`의 Traefik Pod에서 오는 `3000/TCP`만 별도 허용한다.
 - Actuator 9090은 application Service나 Ingress에 노출하지 않는다.
 - kube-state-metrics는 cluster 상태를 읽지만 Secret과 ConfigMap 내용은 수집하지 않는다.
-- Prometheus는 14일 / 4GB 중 먼저 도달하는 조건, Tempo는 7일, Loki는 90일 retention을 사용한다.
+- Prometheus는 14일 / 4GB 중 먼저 도달하는 조건, Tempo는 7일, Loki는 운영 90일·dev 30일·Preview 7일 retention을 사용한다.
 - 단일 노드 local-path storage이므로 node loss 시 telemetry가 유실될 수 있다.
 - 같은 노드의 Alertmanager는 node/power/network 전체 장애를 알릴 수 없다. 운영 전 IDC 밖에
   uptime monitor를 둔다.
