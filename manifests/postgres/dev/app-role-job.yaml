@@ -71,7 +71,7 @@ spec:
 
               -- DB owner는 DROP DATABASE와 DB 설정 변경까지 할 수 있으므로 관리자 role이 갖는다.
               -- 앱에는 접속과 Flyway 첫 migration의 CREATE SCHEMA IF NOT EXISTS public에 필요한
-              -- CREATE만 준다. public schema 소유는 앱 객체 관리와 backup 복원 절차를 위해 유지한다.
+              -- CREATE만 준다. public schema 소유는 앱 table 소유와 같은 범위라 앱에 그대로 둔다.
               ALTER DATABASE :"DBNAME" OWNER TO CURRENT_USER;
               ALTER SCHEMA public OWNER TO umc_product_dev_app;
               GRANT CONNECT, TEMPORARY, CREATE ON DATABASE :"DBNAME" TO umc_product_dev_app;
