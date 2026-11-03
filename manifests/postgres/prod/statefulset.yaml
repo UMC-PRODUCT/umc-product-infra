@@ -14,6 +14,12 @@ spec:
     matchLabels:
       app.kubernetes.io/name: postgres
       app.kubernetes.io/component: database
+  # 기본값이지만 명시한다. StatefulSet 삭제·축소가 데이터 PVC를 지우지 않고 Pod는 하나씩 교체된다.
+  persistentVolumeClaimRetentionPolicy:
+    whenDeleted: Retain
+    whenScaled: Retain
+  updateStrategy:
+    type: RollingUpdate
   template:
     metadata:
       labels:
@@ -71,13 +77,13 @@ spec:
             - name: POSTGRES_INITDB_ARGS
               value: "--encoding=UTF8 --locale=C.UTF-8 --locale-provider=icu --icu-locale=ko-KR"
           # 임시 Azure 4 vCPU 테스트 노드 예산. 최종 IDC 전환 시 CPU를 다시 산정한다.
-          # requests == limits를 유지해 Guaranteed QoS는 보존한다.
+          # CPU request는 예약량만 정하고 limit은 두지 않아 checkpoint·vacuum이 남는 CPU를 쓰며 throttle되지 않게 한다.
+          # 그래서 QoS는 Burstable이다. 축출 보호는 db-critical PriorityClass와 memory requests == limits가 맡는다.
           resources:
             requests:
               cpu: 500m
               memory: 8Gi
             limits:
-              cpu: 500m
               memory: 8Gi
           securityContext:
             allowPrivilegeEscalation: false

@@ -19,6 +19,12 @@ spec:
     matchLabels:
       app.kubernetes.io/name: postgres
       app.kubernetes.io/component: database
+  # 기본값이지만 명시한다. StatefulSet 삭제·축소가 데이터 PVC를 지우지 않고 Pod는 하나씩 교체된다.
+  persistentVolumeClaimRetentionPolicy:
+    whenDeleted: Retain
+    whenScaled: Retain
+  updateStrategy:
+    type: RollingUpdate
   template:
     metadata:
       labels:

@@ -1321,6 +1321,21 @@ def validate_postgres() -> None:
             == "--encoding=UTF8 --locale=C.UTF-8 --locale-provider=icu --icu-locale=ko-KR",
             f"{environment}: initdb must use the ICU ko-KR default collation",
         )
+        require(
+            statefulset["spec"].get("persistentVolumeClaimRetentionPolicy")
+            == {"whenDeleted": "Retain", "whenScaled": "Retain"}
+            and statefulset["spec"].get("updateStrategy") == {"type": "RollingUpdate"},
+            f"{environment}: StatefulSet must retain data PVCs and roll Pods one at a time",
+        )
+        if environment == "prod":
+            # CPU limit은 checkpoint·vacuum을 throttle한다. memory는 request와 limit을 같게 둔다.
+            resources = container["resources"]
+            require(
+                "cpu" not in resources.get("limits", {})
+                and resources["requests"].get("cpu")
+                and resources["requests"]["memory"] == resources["limits"]["memory"],
+                "prod: PostgreSQL keeps a CPU request without a CPU limit and fixed memory",
+            )
         if environment == "preview":
             require(
                 "max_connections=40" in container.get("args", []),
