@@ -87,7 +87,7 @@ Resources:
                 Action: route53:ListResourceRecordSets
                 Resource: !Sub "arn:${AWS::Partition}:route53:::hostedzone/${Route53HostedZoneId}"
               - Sid: ManageOnlyUmcIngressAndOwnershipRecords
-                # 이 zone의 나열된 이름·유형에 한해 변경하며 Preview 이름 패턴도 포함한다.
+                # 이 zone의 나열된 이름·유형에 한해 변경한다. *는 Preview PR 번호 자리에만 쓴다.
                 Effect: Allow
                 Action: route53:ChangeResourceRecordSets
                 Resource: !Sub "arn:${AWS::Partition}:route53:::hostedzone/${Route53HostedZoneId}"
@@ -105,12 +105,14 @@ Resources:
                       - !Sub "api.${DnsZoneName}"
                       - !Sub "api-dev.${DnsZoneName}"
                       - !Sub "api-pr-*.${DnsZoneName}"
+                      - !Sub "mail-pr-*.${DnsZoneName}"
                       - !Sub "grafana.${DnsZoneName}"
                       - !Sub "argo.${DnsZoneName}"
                       # ExternalDNS v0.21은 A record ownership TXT에 a-를 붙인다.
                       - !Sub "_external-dns.a-api.${DnsZoneName}"
                       - !Sub "_external-dns.a-api-dev.${DnsZoneName}"
                       - !Sub "_external-dns.a-api-pr-*.${DnsZoneName}"
+                      - !Sub "_external-dns.a-mail-pr-*.${DnsZoneName}"
                       - !Sub "_external-dns.a-grafana.${DnsZoneName}"
                       - !Sub "_external-dns.a-argo.${DnsZoneName}"
       Tags:
