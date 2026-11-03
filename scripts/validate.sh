@@ -391,7 +391,9 @@ python3 scripts/validate_contracts.py \
   "$validation_dir/preview.yaml" \
   "$validation_dir/secrets.yaml" \
   "$validation_dir/active-edge-test-net.yaml" \
-  "$validation_dir/active-preview-edge-test-net.yaml"
+  "$validation_dir/active-preview-edge-test-net.yaml" \
+  "$validation_dir/preview-pr-42-desired-state.yaml" \
+  "$validation_dir/observability-grafana.yaml"
 
 python3 - <<'PY'
 from pathlib import Path

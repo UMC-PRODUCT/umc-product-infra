@@ -175,7 +175,7 @@ Ansible 또는 수동 주입 스크립트에 전달한다.
 다음 두 IAM 사용자의 키를 각각 발급한다.
 
 - cert-manager: Let's Encrypt DNS-01 검증용 TXT record 관리
-- ExternalDNS: 앱·Grafana DNS record 관리
+- ExternalDNS: 앱 API·Preview 메일 수집함·Grafana·Argo CD DNS record 관리
 
 두 controller가 같은 키를 공유하지 않도록 네 필드를 `.env.prod`에 기록한다.
 

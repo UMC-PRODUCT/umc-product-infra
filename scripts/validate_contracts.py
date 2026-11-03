@@ -32,6 +32,8 @@ APP_IMAGE = (
 )
 PREVIEW_APP_IMAGE = APP_IMAGE
 TEST_NET_EDGE_TARGET = "203.0.113.10"
+# validate.sh가 Preview 렌더 견본으로 쓰는 PR 번호다.
+PREVIEW_SAMPLE_PR_NUMBER = "42"
 CERTIFICATE_ISSUERS = {"letsencrypt-staging", "letsencrypt-production"}
 KAKAO_JAVASCRIPT_KEY = "4e79ba06223b60e13ad76bb6aec8f2b9"
 GOOGLE_CLIENT_ID_LIST = (
@@ -106,8 +108,89 @@ def git_visible_files(root: Path) -> list[Path]:
     )
 
 
+def external_dns_registry_config() -> dict:
+    application = yaml.safe_load(
+        (ROOT / "argocd" / "applications" / "platform" / "external-dns.yaml").read_text(
+            encoding="utf-8"
+        )
+    )
+    return application["spec"]["source"]["helm"]["valuesObject"]
+
+
+# ExternalDNS ingress source는 rules·tls host와 hostname annotation을 모두 record로 만든다.
+# annotationFilter는 key=value 한 쌍만 지원한다. 다른 selector 문법이면 수집 범위를 판단하지 않고 실패한다.
+def external_dns_hosts(documents: list[dict], annotation_filter: str) -> set[str]:
+    require(
+        re.fullmatch(r"[^=!,()\s]+=[^=!,()\s]+", annotation_filter) is not None,
+        f"ExternalDNS annotationFilter must be a single key=value: {annotation_filter}",
+    )
+    opt_in_key, opt_in_value = annotation_filter.split("=")
+    hosts: set[str] = set()
+    for document in documents:
+        if not isinstance(document, dict) or document.get("kind") != "Ingress":
+            continue
+        annotations = document.get("metadata", {}).get("annotations") or {}
+        if annotations.get(opt_in_key) != opt_in_value:
+            continue
+        spec = document.get("spec", {})
+        hosts.update(rule["host"] for rule in spec.get("rules", []) if rule.get("host"))
+        hosts.update(host for tls in spec.get("tls", []) for host in tls.get("hosts", []))
+        hostname = annotations.get("external-dns.kubernetes.io/hostname", "")
+        hosts.update(name.strip() for name in hostname.split(",") if name.strip())
+    return hosts
+
+
+def iam_string_like(pattern: str, value: str) -> bool:
+    expression = "".join(
+        ".*" if char == "*" else "." if char == "?" else re.escape(char)
+        for char in pattern
+    )
+    return re.fullmatch(expression, value) is not None
+
+
+# 렌더된 host에서 ExternalDNS가 쓸 A·TXT 이름을 계산해 IAM 허용 패턴과 양방향으로 대조한다.
+# *는 Preview PR 번호 자리에만 허용한다. 견본 PR 번호로 바꾼 패턴은 실제 렌더 이름이어야 한다.
+def validate_external_dns_record_names(
+    allowed_patterns: list[str],
+    hosts: set[str],
+    *,
+    txt_prefix: str,
+    record_types: list[str],
+) -> None:
+    require(hosts, "ExternalDNS: no opted-in Ingress host was collected")
+    record_names = set(hosts) | {
+        f"{txt_prefix}{record_type.lower()}-{host}"
+        for host in hosts
+        for record_type in record_types
+        if record_type != "TXT"
+    }
+    for name in sorted(record_names):
+        require(
+            any(iam_string_like(pattern, name) for pattern in allowed_patterns),
+            f"ExternalDNS Route53 IAM does not allow record name: {name}",
+        )
+    for pattern in allowed_patterns:
+        require(
+            pattern.count("*") <= 1
+            and pattern.replace("*", PREVIEW_SAMPLE_PR_NUMBER) in record_names,
+            "ExternalDNS Route53 IAM pattern is broader than a rendered record "
+            f"or no longer used: {pattern}",
+        )
+
+
+# 앱·ApplicationSet·Grafana 렌더와 정적 manifest에서 ExternalDNS가 관리할 host를 모은다.
+def external_dns_desired_hosts(render_paths: list[Path], annotation_filter: str) -> set[str]:
+    documents = [document for path in render_paths for document in yaml_documents(path)]
+    documents += [
+        document
+        for path in sorted((ROOT / "manifests").rglob("*.yaml"))
+        for document in yaml_documents(path)
+    ]
+    return external_dns_hosts(documents, annotation_filter)
+
+
 # 기존 위임 zone을 재생성하지 않고 인증서용 TXT와 앱용 DNS 변경 권한을 분리하는지 확인한다.
-def validate_route53_contract() -> None:
+def validate_route53_contract(render_paths: list[Path]) -> None:
     template_path = ROOT / "cloud" / "aws" / "route53-dns.yaml"
     with template_path.open(encoding="utf-8") as stream:
         template = yaml.load(stream, Loader=CloudFormationLoader)
@@ -229,6 +312,17 @@ def validate_route53_contract() -> None:
             "Statement"
         ]
     }
+    external_dns_config = external_dns_registry_config()
+    external_dns_name_patterns = (
+        external_dns_statements.get("ManageOnlyUmcIngressAndOwnershipRecords", {})
+        .get("Condition", {})
+        .get("ForAllValues:StringLike", {})
+        .get("route53:ChangeResourceRecordSetsNormalizedRecordNames")
+    )
+    require(
+        isinstance(external_dns_name_patterns, list),
+        "ExternalDNS Route53 record name allowlist",
+    )
     require(
         external_dns_statements
         == {
@@ -256,26 +350,26 @@ def validate_route53_contract() -> None:
                             "UPSERT",
                             "DELETE",
                         ],
-                        "route53:ChangeResourceRecordSetsRecordTypes": ["A", "TXT"],
+                        "route53:ChangeResourceRecordSetsRecordTypes": (
+                            external_dns_config["managedRecordTypes"]
+                        ),
                     },
                     "ForAllValues:StringLike": {
-                        "route53:ChangeResourceRecordSetsNormalizedRecordNames": [
-                            "api.${DnsZoneName}",
-                            "api-dev.${DnsZoneName}",
-                            "api-pr-*.${DnsZoneName}",
-                            "grafana.${DnsZoneName}",
-                            "argo.${DnsZoneName}",
-                            "_external-dns.a-api.${DnsZoneName}",
-                            "_external-dns.a-api-dev.${DnsZoneName}",
-                            "_external-dns.a-api-pr-*.${DnsZoneName}",
-                            "_external-dns.a-grafana.${DnsZoneName}",
-                            "_external-dns.a-argo.${DnsZoneName}",
-                        ]
+                        "route53:ChangeResourceRecordSetsNormalizedRecordNames": (
+                            external_dns_name_patterns
+                        )
                     },
                 },
             },
         },
         "ExternalDNS Route53 least-privilege policy",
+    )
+    zone = template["Parameters"]["DnsZoneName"]["Default"]
+    validate_external_dns_record_names(
+        [pattern.replace("${DnsZoneName}", zone) for pattern in external_dns_name_patterns],
+        external_dns_desired_hosts(render_paths, external_dns_config["annotationFilter"]),
+        txt_prefix=external_dns_config["txtPrefix"],
+        record_types=external_dns_config["managedRecordTypes"],
     )
     require(
         all(resource.get("Type") != "AWS::IAM::AccessKey" for resource in resources.values()),
@@ -2012,13 +2106,14 @@ def validate_repository_identity() -> None:
 
 # 정적 원본 계약을 먼저 검사한 뒤 환경별 렌더와 합성 공개 경로의 교차 검증을 수행한다.
 def main() -> int:
-    if len(sys.argv) != 7:
+    if len(sys.argv) != 9:
         raise SystemExit(
             "usage: validate_contracts.py PROD_RENDER DEV_RENDER PREVIEW_RENDER "
-            "SECRETS_RENDER ACTIVE_EDGE_FIXTURE ACTIVE_PREVIEW_EDGE_FIXTURE"
+            "SECRETS_RENDER ACTIVE_EDGE_FIXTURE ACTIVE_PREVIEW_EDGE_FIXTURE "
+            "PREVIEW_APPLICATIONSET_RENDER GRAFANA_RENDER"
         )
     validate_repository_identity()
-    validate_route53_contract()
+    validate_route53_contract([Path(filename) for filename in sys.argv[1:]])
     validate_app_storage_contract()
     validate_ses_contract()
     validate_cloudformation_tags()
