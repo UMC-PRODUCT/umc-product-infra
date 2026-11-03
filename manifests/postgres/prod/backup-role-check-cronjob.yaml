@@ -11,7 +11,8 @@ metadata:
     app.kubernetes.io/component: backup-check
     environment: prod
 spec:
-  schedule: "0 3 * * *"
+  # suspend를 풀더라도 03:00 pg-backup과 ephemeral storage 25Gi를 동시에 잡지 않도록 낮 시간에 둔다.
+  schedule: "0 14 * * *"
   timeZone: Asia/Seoul
   suspend: true
   concurrencyPolicy: Forbid
@@ -38,8 +39,6 @@ spec:
           automountServiceAccountToken: false
           securityContext:
             runAsNonRoot: true
-            fsGroup: 2000
-            fsGroupChangePolicy: OnRootMismatch
             seccompProfile:
               type: RuntimeDefault
           containers:
@@ -102,7 +101,6 @@ spec:
                   value: umc_product
               securityContext:
                 runAsUser: 999
-                runAsGroup: 2000
                 allowPrivilegeEscalation: false
                 readOnlyRootFilesystem: true
                 capabilities: { drop: ["ALL"] }
