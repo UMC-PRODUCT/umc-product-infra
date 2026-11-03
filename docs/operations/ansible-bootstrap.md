@@ -209,6 +209,8 @@ SSH 개인키와 PostgreSQL 계정·비밀번호는 서로 다른 자격증명�
 
 Grafana·Argo CD 계정 발급·회수, 공개 접속 검증과 장애 시 SSH 복구는
 [도구 접근 운영](tool-access.md)을 따른다.
+Argo CD core values(계정·RBAC·health·controller metrics)만 바꿨다면 전체 bootstrap 대신
+[`argocd.yml` 반영 절차](tool-access.md#argo-cd-core-values-반영)를 따른다.
 
 ### 재실행과 오류 확인
 

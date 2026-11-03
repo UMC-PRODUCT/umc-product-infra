@@ -416,7 +416,7 @@ fi
 if optional_check "Ansible syntax check" command -v ansible-playbook; then
   (
     cd ansible
-    for playbook in playbooks/ssh-access.yml playbooks/bootstrap.yml; do
+    for playbook in playbooks/*.yml; do
       ansible-playbook --syntax-check \
         -i inventories/idc-new/hosts.example.yml "$playbook"
     done

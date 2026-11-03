@@ -1,0 +1,147 @@
+---
+# argocd.yml 전용 사전 검사다. 서버를 바꾸지 않고, 빈 서버면 bootstrap.yml로 돌려보낸다.
+- name: Inspect the K3s and Helm files that bootstrap installs
+  ansible.builtin.stat:
+    path: "{{ item }}"
+  loop:
+    - /usr/local/bin/k3s
+    - "{{ k3s_kubeconfig_path }}"
+    - "{{ argocd_helm_binary_path }}"
+  register: argocd_bootstrap_files
+
+- name: Refuse a server that bootstrap has not prepared
+  ansible.builtin.assert:
+    that:
+      - argocd_bootstrap_files.results | rejectattr('stat.exists') | list | length == 0
+    fail_msg: >-
+      K3s, its administrator kubeconfig, or Helm is missing. Install the
+      server with playbooks/bootstrap.yml instead of playbooks/argocd.yml.
+
+# bootstrap의 k3s role과 같은 기준이다. cluster-admin 파일이 노출된 서버에서는 진행하지 않는다.
+- name: Require a root-only administrator kubeconfig
+  ansible.builtin.assert:
+    that:
+      - argocd_kubeconfig_stat.pw_name == 'root'
+      - argocd_kubeconfig_stat.mode == '0600'
+    fail_msg: >-
+      {{ k3s_kubeconfig_path }} must be owned by root with mode 0600. Restore
+      it with playbooks/bootstrap.yml before changing Argo CD.
+  vars:
+    argocd_kubeconfig_stat: >-
+      {{ (argocd_bootstrap_files.results
+          | selectattr('item', 'equalto', k3s_kubeconfig_path) | first).stat }}
+
+# PSA label 등 role 값은 Git의 K3s 버전을 전제로 한다. 서버가 다른 버전이면 bootstrap으로 먼저 맞춘다.
+- name: Read the installed K3s version
+  ansible.builtin.command:
+    argv:
+      - /usr/local/bin/k3s
+      - --version
+  register: argocd_installed_k3s_version
+  changed_when: false
+  check_mode: false
+
+- name: Require the K3s version pinned in Git
+  ansible.builtin.assert:
+    that:
+      # `k3s version v1.36.3+k3s1 (hash)`의 세 번째 단어를 정확히 비교한다. 부분 문자열이면 k3s10도 통과한다.
+      - (argocd_installed_k3s_version.stdout_lines | first | default('')).split() | length >= 3
+      - (argocd_installed_k3s_version.stdout_lines | first | default('')).split()[2] == k3s_version
+    fail_msg: >-
+      Git pins K3s {{ k3s_version }}, but the server reports
+      {{ argocd_installed_k3s_version.stdout_lines | first | default('no version') }}.
+      Upgrade K3s with the approved playbooks/bootstrap.yml run first.
+
+# 이름·상태만 읽는다. check mode에서도 실행해야 아래 판정이 실제 release를 본다.
+- name: Read the installed Argo CD Helm release
+  ansible.builtin.command:
+    argv:
+      - "{{ argocd_helm_binary_path }}"
+      - list
+      - --kubeconfig
+      - "{{ k3s_kubeconfig_path }}"
+      - --namespace
+      - "{{ argocd_namespace }}"
+      - --filter
+      - "^{{ argocd_helm_release_name }}$"
+      - --output
+      - json
+  register: argocd_installed_release
+  changed_when: false
+  check_mode: false
+
+# 진행 중이거나 실패한 release 위에 upgrade를 겹치지 않는다.
+- name: Refuse a missing or unsettled Argo CD release
+  ansible.builtin.assert:
+    that:
+      - argocd_installed_release.stdout | from_json | length == 1
+      - (argocd_installed_release.stdout | from_json | first).status == 'deployed'
+    fail_msg: >-
+      Helm release {{ argocd_helm_release_name }} in {{ argocd_namespace }} is
+      missing or not deployed. Install the server with playbooks/bootstrap.yml,
+      or inspect `helm history` before retrying.
+
+# kubernetes.core.helm은 서버의 values 사본이 아니라 이 live values와 Git values가 다를 때 upgrade한다.
+- name: Read the live Argo CD Helm values
+  ansible.builtin.command:
+    argv:
+      - "{{ argocd_helm_binary_path }}"
+      - get
+      - values
+      - "{{ argocd_helm_release_name }}"
+      - --kubeconfig
+      - "{{ k3s_kubeconfig_path }}"
+      - --namespace
+      - "{{ argocd_namespace }}"
+      - --output
+      - json
+  register: argocd_live_values
+  changed_when: false
+  check_mode: false
+  # 누군가 서버에서 --set으로 넣은 값이 있으면 verbose 출력에 평문으로 남지 않게 한다.
+  no_log: true
+
+# helm module과 같은 기준(파싱한 값의 동등성)으로 비교하고, 키를 정렬한 YAML의 unified diff로 보여준다.
+- name: Compare the live Argo CD Helm values with Git
+  ansible.builtin.command:
+    argv:
+      - "{{ ansible_playbook_python }}"
+      - -c
+      - |-
+        import difflib, json, sys, yaml
+        live = json.load(sys.stdin) or {}
+        with open(sys.argv[1], encoding="utf-8") as stream:
+            git = yaml.safe_load(stream) or {}
+        # chart의 비밀 값 위치(configs.secret)와 password 이름의 키만 가린다. 넓게 가리면 일반 설정 차이도 사라진다.
+        def secret_path(path):
+            return path[:2] == ("configs", "secret") or "password" in path[-1].lower()
+        def mask(value, path=()):
+            if isinstance(value, dict):
+                return {k: mask(v, path + (str(k),)) for k, v in value.items()}
+            if isinstance(value, list):
+                return [mask(v, path) for v in value]
+            return "<masked>" if path and secret_path(path) else value
+        def lines(values):
+            return yaml.safe_dump(mask(values), sort_keys=True).splitlines(keepends=True)
+        diff = list(difflib.unified_diff(lines(live), lines(git), "live release", "git"))
+        sys.stdout.writelines(diff)
+        if not diff and live != git:
+            print("# 가려진 비밀 경로에만 차이가 있다. upgrade가 그 값을 Git 기준으로 맞춘다.")
+      - "{{ role_path }}/files/argo-cd-values.yaml"
+    stdin: "{{ argocd_live_values.stdout }}"
+  delegate_to: localhost
+  become: false
+  register: argocd_values_diff
+  changed_when: argocd_values_diff.stdout | length > 0
+  check_mode: false
+  # stdin에 live values 원문이 들어가므로 이 task의 결과도 숨긴다. 보여 줄 diff는 비밀 경로를 가린 뒤 아래 debug가 출력한다.
+  no_log: true
+
+# Helm은 values 또는 chart가 다를 때만 upgrade한다. AppProject·health·PSA 차이는 이 미리보기에 없다.
+- name: Show the change the Helm upgrade will apply
+  ansible.builtin.debug:
+    msg: >-
+      {{ ['Chart: live ' ~ (argocd_installed_release.stdout | from_json | first).chart
+          ~ ', Git argo-cd-' ~ argocd_helm_chart_version]
+         + (argocd_values_diff.stdout_lines if argocd_values_diff is changed
+            else ['Values: the live release already matches Git.']) }}

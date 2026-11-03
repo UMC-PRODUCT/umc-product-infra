@@ -981,6 +981,38 @@ class ChangeReportingContractTests(unittest.TestCase):
 
 
 # 저장소 정체성 검사가 Git ignore 규칙을 존중해 로컬 비공개 파일을 훑지 않게 한다.
+# k3s role을 로드하지 않고 실행될 수 있는 role은 읽는 k3s 값을 직접 갖되, k3s role과 같은 값이어야 한다.
+class SharedK3sDefaultsContractTests(unittest.TestCase):
+    def test_every_role_reading_k3s_values_copies_the_k3s_defaults(self) -> None:
+        roles = ROOT / "ansible" / "roles"
+        k3s_defaults = yaml.safe_load((roles / "k3s/defaults/main.yml").read_text(encoding="utf-8"))
+        checked = set()
+        for role in sorted(path for path in roles.iterdir() if path.name != "k3s"):
+            defaults_path = role / "defaults" / "main.yml"
+            defaults = (
+                yaml.safe_load(defaults_path.read_text(encoding="utf-8"))
+                if defaults_path.exists() else {}
+            ) or {}
+            referenced = {
+                name
+                for path in role.rglob("*")
+                if path.suffix in {".yml", ".yaml", ".j2"}
+                and path.parent.name not in {"defaults", "files"}
+                for name in re.findall(r"\bk3s_[a-z0-9_]+", path.read_text(encoding="utf-8"))
+            }
+            copied = {name for name in defaults if name.startswith("k3s_")}
+            for name in sorted(referenced | copied):
+                checked.add((role.name, name))
+                with self.subTest(role=role.name, variable=name):
+                    self.assertIn(name, defaults, f"add {name} to {role.name} defaults")
+                    self.assertEqual(defaults[name], k3s_defaults[name])
+        self.assertTrue({
+            ("common", "k3s_cluster_cidr"),
+            ("argocd", "k3s_kubeconfig_path"),
+            ("argocd", "k3s_version"),
+        } <= checked)
+
+
 class RepositoryValidationContractTests(unittest.TestCase):
     def test_repository_identity_scan_respects_gitignore(self) -> None:
         validator = (ROOT / "scripts" / "validate_contracts.py").read_text(
