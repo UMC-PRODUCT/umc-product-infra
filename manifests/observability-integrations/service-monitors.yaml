@@ -194,3 +194,25 @@ spec:
     - port: http
       interval: 30s
       scrapeTimeout: 10s
+---
+# Service는 Ansible bootstrap의 Argo CD chart가 만든다(controller.metrics.enabled).
+# Application health·sync 알림이 쓰는 argocd_app_info를 수집한다.
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: argocd-application-controller
+  namespace: monitoring
+  labels:
+    release: prometheus
+spec:
+  namespaceSelector:
+    matchNames: [argocd]
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: argocd-metrics
+      app.kubernetes.io/instance: argocd
+      app.kubernetes.io/component: application-controller
+  endpoints:
+    - port: http-metrics
+      interval: 30s
+      scrapeTimeout: 10s

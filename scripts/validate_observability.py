@@ -818,7 +818,8 @@ def main() -> int:
     require({resource["metadata"]["name"] for resource in integrations
              if resource.get("kind") == "ServiceMonitor"} == {
                 "loki", "tempo", "otel-collector", "grafana", "postgres-exporter",
-                "cert-manager", "cert-manager-cainjector", "cert-manager-webhook", "external-dns"},
+                "cert-manager", "cert-manager-cainjector", "cert-manager-webhook", "external-dns",
+                "argocd-application-controller"},
             "monitoring-integrations: required platform scrape targets must be preserved")
     all_resources = [resource for resources in rendered.values() for resource in resources] + integrations
     write_monitoring_schemas(prometheus_resources, output_dir)
@@ -829,6 +830,11 @@ def main() -> int:
                           for resource in yaml.safe_load_all(path.read_text()) if resource]
     for path in output_dir.glob("platform-*.yaml"):
         external_resources.extend(resource for resource in yaml.safe_load_all(path.read_text()) if resource)
+    # Argo CD metrics Service는 Ansible bootstrap chart가 만든다. validate_argocd.py 렌더 결과를 쓴다.
+    argocd_render = output_dir / "argocd.yaml"
+    require(argocd_render.is_file(), "argocd: run validate_argocd.py with the same output directory first")
+    argocd_resources = [resource for resource in yaml.safe_load_all(argocd_render.read_text()) if resource]
+    external_resources.extend(argocd_resources)
     services = [resource for resource in all_resources + external_resources if resource.get("kind") == "Service"]
     # These Services are produced by Kubernetes/the operator, not Helm. Assert
     # the operator's creation target before modelling its documented port/labels.
@@ -879,6 +885,17 @@ def main() -> int:
                 and selector_matches(peer.get("namespaceSelector", {}),
                                      {"kubernetes.io/metadata.name": "monitoring"})
                 for peer in peers), "PostgreSQL exporter NetworkPolicy must select operator-managed Prometheus Pods")
+    controller_labels = workload_labels(named_resource(argocd_resources, "StatefulSet", "argocd-application-controller"))
+    # namespaceSelector가 없는 peer는 argocd namespace 안의 Pod만 뜻한다.
+    require(any("namespaceSelector" in peer
+                and selector_matches(peer.get("podSelector", {}), prometheus_labels)
+                and selector_matches(peer["namespaceSelector"],
+                                     {"kubernetes.io/metadata.name": "monitoring"})
+                and any(port.get("port") in {"metrics", 8082} for port in rule.get("ports", []))
+                for policy in argocd_resources if policy.get("kind") == "NetworkPolicy"
+                and selector_matches(policy["spec"].get("podSelector", {}), controller_labels)
+                for rule in policy["spec"].get("ingress", []) for peer in rule.get("from", [])),
+            "Argo CD application-controller NetworkPolicy must admit Prometheus on the metrics port")
     tempo_policy = next(
         policy
         for policy in policies

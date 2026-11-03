@@ -341,6 +341,9 @@ def main(output_dir: Path) -> None:
                 "--kube-version",
                 "1.36.0",
                 "--include-crds",
+                # 운영 클러스터에는 Prometheus Operator CRD가 있어 chart의 monitor 템플릿이 열린다.
+                "--api-versions",
+                "monitoring.coreos.com/v1",
                 "-f",
                 str(VALUES_PATH),
             ],
@@ -439,6 +442,10 @@ def main(output_dir: Path) -> None:
         if item.get("kind") == "CustomResourceDefinition"
     }
     require(actual_crds == EXPECTED_CRDS, "CRD set drifted")
+    require(
+        not any(item.get("kind") in {"ServiceMonitor", "PrometheusRule"} for item in documents),
+        "Argo CD scrape and rule definitions belong to monitoring-integrations, not the bootstrap chart",
+    )
     print("Argo CD Helm release validation passed")
 
 
