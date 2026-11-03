@@ -71,7 +71,7 @@ SecretKeySelector로 읽어 runtime 설정을 생성한다. `useExistingSecret: 
 | `monitoring-integrations` | UMC ServiceMonitor·PrometheusRule | 해당 없음 |
 | `otel-collector` | 중앙 OTLP gateway | 저장하지 않음 |
 | `prometheus` | Operator·CRD, metrics, Alertmanager, node-exporter, kube-state-metrics | 14일 / 4GB 중 먼저 도달하는 조건 |
-| `loki` | logs와 Loki ruler | 90일 (`2160h`) |
+| `loki` | logs와 Loki ruler | 운영 90일 (`2160h`), dev 30일, Preview 7일 |
 | `tempo` | traces | 7일 (`168h`) |
 | `grafana` | datasource와 dashboard 조회 | Git에서 dashboard 복원 |
 
@@ -86,7 +86,9 @@ SecretKeySelector로 읽어 runtime 설정을 생성한다. `useExistingSecret: 
 | Grafana | 1Gi | local user와 Grafana 내부 DB |
 
 `local-path`는 PVC 요청량을 실제 disk quota로 강제하지 않으므로 Prometheus는 별도 4GB retention
-상한을 둔다. 모든 PVC는 단일 노드의 `local-path`를 사용한다. Node나 disk를 잃으면 telemetry와 Grafana local
+상한을 둔다. Loki는 디스크 대신 수집 속도를 묶는다. 전체 4MB/s(burst 16MB), 환경별 stream 2MB/s를
+넘는 로그는 버려지고 `LokiDiscardedSamples` 알림이 뜬다. 64KB를 넘는 줄은 잘라서 저장한다.
+모든 PVC는 단일 노드의 `local-path`를 사용한다. Node나 disk를 잃으면 telemetry와 Grafana local
 user 상태를 잃을 수 있다. Dashboard와 datasource는 Git에서 복원하지만 이 저장소는 PostgreSQL
 backup을 대신하지 않는다.
 

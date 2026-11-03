@@ -20,6 +20,8 @@ from validate_observability import (
     selector_matches,
     validate_alertmanager_config,
     validate_grafana_dashboard_startup,
+    validate_loki_ingestion_limits,
+    validate_loki_memory,
     validate_loki_query_budget,
     validate_cluster_resource,
     validate_monitor_selection,
@@ -176,6 +178,74 @@ class LokiQueryBudgetTest(unittest.TestCase):
                     broken[section][key] = value
                 with self.subTest(key=key, value=value), self.assertRaisesRegex(SystemExit, "Loki"):
                     validate_loki_query_budget(broken)
+
+
+# 9월 OOM 경로를 다시 여는 변경(상한 삭제·0·상향, GOMEMLIMIT 재과소·과대, WAL 재생 상한 누락)을 막는다.
+class LokiIngestionLimitsTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self.config = {
+            "limits_config": {
+                "ingestion_rate_mb": 4, "ingestion_burst_size_mb": 16,
+                "per_stream_rate_limit": "2MB", "per_stream_rate_limit_burst": "6MB",
+                "max_line_size": "64KB", "max_line_size_truncate": True,
+                "max_structured_metadata_size": "64KB", "max_global_streams_per_user": 2000,
+                "retention_stream": [
+                    {"selector": '{service_name=~"preview-umc-product-pr[0-9]+"}', "priority": 1, "period": "168h"},
+                    {"selector": '{service_name="dev-umc-product"}', "priority": 1, "period": "720h"},
+                ],
+            },
+            "ingester": {"wal": {"replay_memory_ceiling": "768MB"}},
+        }
+        self.resources = [{"kind": "StatefulSet", "metadata": {"name": "loki"}, "spec": {"template": {"spec": {
+            "containers": [{"name": "loki", "env": [{"name": "GOMEMLIMIT", "value": "1200MiB"}],
+                            "resources": {"limits": {"memory": "1.5Gi"}}}]}}}}]
+
+    def test_명시한_상한과_보존기간과_메모리_설정을_통과시킨다(self) -> None:
+        validate_loki_ingestion_limits(self.config)
+        validate_loki_memory(self.resources, self.config)
+
+    def test_상한을_지우거나_0이나_더_큰_값으로_바꾸면_실패한다(self) -> None:
+        for key, raised in (("ingestion_rate_mb", 8), ("ingestion_burst_size_mb", 32),
+                            ("per_stream_rate_limit", "3MB"), ("per_stream_rate_limit_burst", "15MB"),
+                            ("max_line_size", "256KB"), ("max_structured_metadata_size", "128KB"),
+                            ("max_global_streams_per_user", 5000)):
+            for value in (None, 0, raised):
+                broken = copy.deepcopy(self.config)
+                if value is None:
+                    del broken["limits_config"][key]
+                else:
+                    broken["limits_config"][key] = value
+                with self.subTest(key=key, value=value), self.assertRaisesRegex(SystemExit, key):
+                    validate_loki_ingestion_limits(broken)
+
+    def test_더_낮춘_상한은_허용한다(self) -> None:
+        self.config["limits_config"].update(ingestion_rate_mb=2, per_stream_rate_limit="512KB")
+        validate_loki_ingestion_limits(self.config)
+
+    def test_긴_줄을_버리거나_환경별_보존기간이_빠지면_실패한다(self) -> None:
+        self.config["limits_config"]["max_line_size_truncate"] = False
+        with self.assertRaisesRegex(SystemExit, "max_line_size_truncate"):
+            validate_loki_ingestion_limits(self.config)
+        self.config["limits_config"]["max_line_size_truncate"] = True
+        self.config["limits_config"]["retention_stream"].pop(0)
+        with self.assertRaisesRegex(SystemExit, "retention_stream"):
+            validate_loki_ingestion_limits(self.config)
+
+    def test_GOMEMLIMIT가_limit에서_벗어나거나_WAL_재생_상한이_없으면_실패한다(self) -> None:
+        env = self.resources[0]["spec"]["template"]["spec"]["containers"][0]["env"][0]
+        for value in ("512MiB", "1536MiB", "2GiB", "1200M"):
+            env["value"] = value
+            with self.subTest(value=value), self.assertRaisesRegex(SystemExit, "GOMEMLIMIT"):
+                validate_loki_memory(self.resources, self.config)
+        env["value"] = "1200MiB"
+        for ceiling in (None, "4GB"):
+            config = copy.deepcopy(self.config)
+            if ceiling is None:
+                del config["ingester"]["wal"]["replay_memory_ceiling"]
+            else:
+                config["ingester"]["wal"]["replay_memory_ceiling"] = ceiling
+            with self.subTest(ceiling=ceiling), self.assertRaisesRegex(SystemExit, "replay_memory_ceiling"):
+                validate_loki_memory(self.resources, config)
 
 
 if __name__ == "__main__":

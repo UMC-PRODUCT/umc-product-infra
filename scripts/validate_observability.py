@@ -34,6 +34,24 @@ CLUSTER_SCOPED_KINDS = {
     "ValidatingWebhookConfiguration",
 }
 IMAGE_DIGEST = re.compile(r"@sha256:[0-9a-f]{64}$")
+# Loki(datasize)·Kubernetes·Go GOMEMLIMIT 크기 표기. 이 저장소에서 쓰는 단위는 모두 1024 배수다.
+BYTE_UNITS = {"": 1, "B": 1, "KB": 1 << 10, "MB": 1 << 20, "GB": 1 << 30,
+              "Ki": 1 << 10, "Mi": 1 << 20, "Gi": 1 << 30,
+              "KiB": 1 << 10, "MiB": 1 << 20, "GiB": 1 << 30}
+# 9월 Loki OOM 재발 방지 상한. 값을 낮추는 것은 허용하고, 빠지거나 0(무제한)이거나 커지면 실패한다.
+LOKI_INGESTION_CEILINGS = {
+    "ingestion_rate_mb": 4,
+    "ingestion_burst_size_mb": 16,
+    "per_stream_rate_limit": "2MB",
+    "per_stream_rate_limit_burst": "6MB",
+    "max_line_size": "64KB",
+    "max_structured_metadata_size": "64KB",
+    "max_global_streams_per_user": 2000,
+}
+LOKI_STREAM_RETENTION = {
+    '{service_name=~"preview-umc-product-pr[0-9]+"}': "168h",
+    '{service_name="dev-umc-product"}': "720h",
+}
 
 
 class ManifestLoader(yaml.SafeLoader):
@@ -346,7 +364,48 @@ def validate_loki_query_budget(config: dict) -> None:
                          ("limits_config", "tsdb_max_query_parallelism")):
         value = config.get(section, {}).get(key)
         require(isinstance(value, int) and 1 <= value <= 2,
-                f"Loki: {section}.{key} must be explicitly bounded to 1..2 for 768Mi")
+                f"Loki: {section}.{key} must be explicitly bounded to 1..2 for 1.5Gi")
+
+
+def byte_size(value: object) -> float:
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return value
+    match = re.fullmatch(r"([0-9]+(?:\.[0-9]+)?)([A-Za-z]*)", str(value))
+    require(match is not None and match.group(2) in BYTE_UNITS, f"unsupported byte size: {value!r}")
+    return float(match.group(1)) * BYTE_UNITS[match.group(2)]
+
+
+def validate_loki_ingestion_limits(config: dict) -> None:
+    limits = config.get("limits_config", {})
+    for key, ceiling in LOKI_INGESTION_CEILINGS.items():
+        value = limits.get(key)
+        require(value is not None and not isinstance(value, bool)
+                and 0 < byte_size(value) <= byte_size(ceiling),
+                f"Loki: limits_config.{key} must be set, nonzero, and at most {ceiling}")
+    require(limits.get("max_line_size_truncate") is True,
+            "Loki: max_line_size_truncate must keep oversized lines instead of dropping them")
+    retention = {item.get("selector"): str(item.get("period"))
+                 for item in limits.get("retention_stream", [])}
+    require(retention == LOKI_STREAM_RETENTION,
+            "Loki: retention_stream must keep preview 7 days and dev 30 days")
+
+
+# GOMEMLIMIT가 limit보다 너무 낮으면 GC가 과열되고, 너무 높으면 GC 전에 cgroup OOM kill이 난다.
+def validate_loki_memory(resources: list[dict], config: dict) -> None:
+    containers = [item for item in pod_spec(named_resource(resources, "StatefulSet", "loki"))["containers"]
+                  if item["name"] == "loki"]
+    require(len(containers) == 1, "Loki: StatefulSet must run exactly one loki container")
+    container = containers[0]
+    limit = byte_size(container.get("resources", {}).get("limits", {}).get("memory", 0))
+    environment = {item["name"]: item.get("value") for item in container.get("env", [])}
+    require(re.fullmatch(r"[0-9]+(KiB|MiB|GiB)", str(environment.get("GOMEMLIMIT"))) is not None,
+            "Loki: GOMEMLIMIT must be set in Go KiB/MiB/GiB units")
+    soft_limit = byte_size(environment["GOMEMLIMIT"])
+    require(limit > 0 and 0.6 * limit <= soft_limit <= 0.9 * limit,
+            "Loki: GOMEMLIMIT must stay within 60..90% of the container memory limit")
+    ceiling = config.get("ingester", {}).get("wal", {}).get("replay_memory_ceiling")
+    require(ceiling is not None and 0 < byte_size(ceiling) < soft_limit,
+            "Loki: WAL replay_memory_ceiling must stay below GOMEMLIMIT")
 
 
 # 종료되지 않는 dashboard watcher를 일반 initContainer로 두어 Grafana 시작이 막히는 것을 방지한다.
@@ -519,6 +578,8 @@ def validate_runtime_configs(rendered: dict[str, list[dict]]) -> dict[str, str]:
     loki_raw = configmap_value(rendered["loki"], "loki", "config.yaml")
     loki = yaml.safe_load(loki_raw)
     validate_loki_query_budget(loki)
+    validate_loki_ingestion_limits(loki)
+    validate_loki_memory(rendered["loki"], loki)
     require(
         str(loki.get("limits_config", {}).get("retention_period")) == "2160h",
         "Loki: retention must remain 90 days",
