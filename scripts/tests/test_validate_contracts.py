@@ -169,8 +169,35 @@ class PreviewMailCaptureTlsTest(unittest.TestCase):
 
     def test_rejects_app_container_reading_loopback_private_key(self) -> None:
         self.pod["containers"][0]["volumeMounts"].append({"name": "mailpit-tls", "mountPath": "/tls"})
-        with self.assertRaisesRegex(SystemExit, "only Mailpit may mount"):
+        with self.assertRaisesRegex(SystemExit, "only Mailpit may read"):
             self.validate()
+
+    def test_rejects_app_container_reading_loopback_key_outside_secret_volumes(self) -> None:
+        secret = "preview-mail-capture-loopback-tls"
+        bypasses = {
+            "envFrom": lambda pod, app: app["envFrom"].append({"secretRef": {"name": secret}}),
+            "projected": lambda pod, app: (
+                pod["volumes"].append({"name": "key", "projected": {"sources": [
+                    {"secret": {"name": secret}},
+                ]}}),
+                app["volumeMounts"].append({"name": "key", "mountPath": "/key"}),
+            ),
+            "secretKeyRef": lambda pod, app: app["env"].append({"name": "KEY", "valueFrom": {
+                "secretKeyRef": {"name": secret, "key": "tls.key"},
+            }}),
+        }
+        for name, add_reference in bypasses.items():
+            with self.subTest(name):
+                self.setUp()
+                add_reference(self.pod, self.pod["containers"][0])
+                with self.assertRaisesRegex(SystemExit, "only Mailpit may read"):
+                    self.validate()
+
+    def test_accepts_app_container_reading_only_public_certificate(self) -> None:
+        self.pod["containers"][0]["env"].append({"name": "CERT", "valueFrom": {
+            "secretKeyRef": {"name": "preview-mail-capture-loopback-tls", "key": "tls.crt"},
+        }})
+        self.validate()
 
     def test_rejects_truststore_builder_receiving_private_key(self) -> None:
         self.pod["volumes"][1]["secret"]["items"].append({"key": "tls.key", "path": "tls.key"})

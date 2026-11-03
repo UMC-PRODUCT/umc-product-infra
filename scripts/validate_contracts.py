@@ -9,6 +9,7 @@ import re
 import subprocess
 import sys
 from pathlib import Path
+from typing import NamedTuple
 
 import yaml
 
@@ -633,23 +634,56 @@ def resource(resources: list[dict], kind: str) -> dict:
     return matches[0]
 
 
-def pod_secret_names(pod: dict) -> set[str]:
-    names = set()
+class SecretReference(NamedTuple):
+    # None이면 어떤 container도 마운트하지 않은 Pod volume이다.
+    container: str | None
+    secret: str
+    # None이면 Secret의 모든 key를 받는다.
+    keys: frozenset[str] | None
+
+
+def secret_items(source: dict) -> frozenset[str] | None:
+    items = source.get("items")
+    return frozenset(item["key"] for item in items) if items else None
+
+
+def volume_secrets(volume: dict) -> list[tuple[str, frozenset[str] | None]]:
+    if "secret" in volume:
+        return [(volume["secret"]["secretName"], secret_items(volume["secret"]))]
+    return [
+        (source["secret"]["name"], secret_items(source["secret"]))
+        for source in volume.get("projected", {}).get("sources", [])
+        if "secret" in source
+    ]
+
+
+def pod_secret_references(pod: dict) -> list[SecretReference]:
+    containers = [*pod.get("initContainers", []), *pod["containers"]]
+    references = []
     for volume in pod.get("volumes", []):
-        if "secret" in volume:
-            names.add(volume["secret"]["secretName"])
-        for source in volume.get("projected", {}).get("sources", []):
-            if "secret" in source:
-                names.add(source["secret"]["name"])
-    for container in [*pod.get("initContainers", []), *pod["containers"]]:
+        readers = [
+            container["name"]
+            for container in containers
+            if any(mount["name"] == volume["name"] for mount in container.get("volumeMounts", []))
+        ] or [None]
+        references += [
+            SecretReference(reader, secret, keys)
+            for reader in readers
+            for secret, keys in volume_secrets(volume)
+        ]
+    for container in containers:
         for source in container.get("envFrom", []):
             if "secretRef" in source:
-                names.add(source["secretRef"]["name"])
+                references.append(
+                    SecretReference(container["name"], source["secretRef"]["name"], None)
+                )
         for item in container.get("env", []):
             reference = item.get("valueFrom", {}).get("secretKeyRef")
             if reference:
-                names.add(reference["name"])
-    return names
+                references.append(SecretReference(
+                    container["name"], reference["name"], frozenset({reference["key"]})
+                ))
+    return references
 
 
 def preview_cert_manager_resources() -> list[dict]:
@@ -673,7 +707,8 @@ def validate_preview_mail_capture_tls(
         if any(name.startswith("*.") for name in item["spec"]["dnsNames"])
     }
     require(bool(wildcard_secrets), "preview: shared wildcard Certificate must exist")
-    leaked = pod_secret_names(pod) & wildcard_secrets
+    references = pod_secret_references(pod)
+    leaked = {item.secret for item in references} & wildcard_secrets
     require(
         not leaked,
         f"preview: Deployment must not reference wildcard TLS Secret {sorted(leaked)}",
@@ -704,36 +739,27 @@ def validate_preview_mail_capture_tls(
         "preview: Mailpit Certificate subject, CA flag and Secret",
     )
 
-    containers = [*pod.get("initContainers", []), *pod["containers"]]
-    by_name = {item["name"]: item for item in containers}
-    volumes = {item["name"]: item for item in pod["volumes"]}
-    key_volumes = {
-        name
-        for name, volume in volumes.items()
-        if volume.get("secret", {}).get("secretName") == MAIL_CAPTURE_TLS_SECRET
-        and "items" not in volume["secret"]
-    }
-    key_readers = {
-        item["name"]
-        for item in containers
-        for mount in item.get("volumeMounts", [])
-        if mount["name"] in key_volumes
-    }
-    require(
-        len(key_volumes) == 1 and key_readers == {"mailpit"},
-        "preview: only Mailpit may mount the loopback private key",
-    )
-    certificate_only = [
-        volume["secret"]["items"]
-        for volume in volumes.values()
-        if volume.get("secret", {}).get("secretName") == MAIL_CAPTURE_TLS_SECRET
-        and "items" in volume["secret"]
+    loopback_references = [
+        item for item in references if item.secret == MAIL_CAPTURE_TLS_SECRET
     ]
     require(
-        certificate_only == [[{"key": "tls.crt", "path": "tls.crt"}]],
+        [item.keys for item in loopback_references if item.container == "mail-capture-truststore"]
+        == [frozenset({"tls.crt"})],
         "preview: truststore builder must receive only the public certificate",
     )
-    builder = by_name.get("mail-capture-truststore", {})
+    key_readers = {
+        item.container
+        for item in loopback_references
+        if item.keys is None or "tls.key" in item.keys
+    }
+    require(
+        key_readers == {"mailpit"},
+        "preview: only Mailpit may read the loopback private key",
+    )
+    builder = next(
+        (item for item in pod.get("initContainers", []) if item["name"] == "mail-capture-truststore"),
+        {},
+    )
     app = pod["containers"][0]
     require(
         builder.get("image") == app["image"]
