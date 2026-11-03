@@ -38,6 +38,16 @@ class ApiLifecycleDashboardTest(unittest.TestCase):
                 self.assertIsNotNone(selector)
                 self.assertNotIn("clientVersion", selector.group(0))
 
+    def test_collector_실패_0은_collector가_수집되는_동안에만_보인다(self) -> None:
+        # 실패 counter는 첫 실패 전까지 없다. 0은 sent counter가 scrape되는 동안에만 만들고, 맨 vector(0)은 쓰지 않는다.
+        collector = [query["spec"]["query"]["spec"]["expr"]
+                     for panel in self.panels
+                     for query in panel["data"]["spec"]["queries"]
+                     if "otelcol_exporter_send_failed_log_records" in str(query)]
+        self.assertEqual(len(collector), 1)
+        self.assertIn("or sum(otelcol_exporter_sent_log_records) * 0", collector[0])
+        self.assertNotIn("vector(0)", collector[0])
+
     def test_희귀한_버전을_상위_목록에서_잘라내지_않는다(self) -> None:
         versions = [query for query in self.loki_queries
                     if "sum by (clientService, clientVersion)" in query["expr"]]

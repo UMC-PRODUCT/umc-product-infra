@@ -1847,89 +1847,6 @@
           }
         }
       },
-      "panel-60": {
-        "kind": "Panel",
-        "spec": {
-          "data": {
-            "kind": "QueryGroup",
-            "spec": {
-              "queries": [
-                {
-                  "kind": "PanelQuery",
-                  "spec": {
-                    "hidden": false,
-                    "query": {
-                      "datasource": {
-                        "name": "prometheus"
-                      },
-                      "group": "prometheus",
-                      "kind": "DataQuery",
-                      "spec": {
-                        "editorMode": "code",
-                        "expr": "sum(rate(spring_security_http_secured_requests_milliseconds_count{application=~\"$service\", instance=~\"$instance\"}[$__rate_interval])) by (method, status)",
-                        "legendFormat": "{{method}} - {{status}}",
-                        "range": true
-                      },
-                      "version": "v0"
-                    },
-                    "refId": "A"
-                  }
-                }
-              ],
-              "queryOptions": {},
-              "transformations": []
-            }
-          },
-          "description": "",
-          "id": 60,
-          "links": [],
-          "title": "Security Request Rate",
-          "vizConfig": {
-            "group": "timeseries",
-            "kind": "VizConfig",
-            "spec": {
-              "fieldConfig": {
-                "defaults": {
-                  "color": {
-                    "mode": "palette-classic"
-                  },
-                  "custom": {
-                    "drawStyle": "line",
-                    "fillOpacity": 20,
-                    "lineWidth": 2,
-                    "showPoints": "never",
-                    "stacking": {
-                      "mode": "none"
-                    }
-                  },
-                  "thresholds": {
-                    "mode": "absolute",
-                    "steps": [
-                      {
-                        "color": "green"
-                      }
-                    ]
-                  },
-                  "unit": "reqps"
-                },
-                "overrides": []
-              },
-              "options": {
-                "legend": {
-                  "displayMode": "list",
-                  "placement": "bottom",
-                  "showLegend": true
-                },
-                "tooltip": {
-                  "mode": "multi",
-                  "sort": "desc"
-                }
-              }
-            },
-            "version": ""
-          }
-        }
-      },
       "panel-71": {
         "kind": "Panel",
         "spec": {
@@ -2309,7 +2226,7 @@
                       "kind": "DataQuery",
                       "spec": {
                         "editorMode": "code",
-                        "expr": "sum by (provider, operation) (count_over_time({service_name=~\"$service\"} | event=\"external_api_called\" | result=\"FAILURE\" [$__range])) / sum by (provider, operation) (count_over_time({service_name=~\"$service\"} | event=\"external_api_called\" [$__range]))",
+                        "expr": "sum by (provider, operation) (count_over_time({service_name=~\"$service\"} |= \"external_api_called\" | result=\"FAILURE\" [$__range])) / sum by (provider, operation) (count_over_time({service_name=~\"$service\"} |= \"external_api_called\" [$__range]))",
                         "legendFormat": "{{provider}}/{{operation}}",
                         "queryType": "range"
                       },
@@ -2323,7 +2240,7 @@
               "transformations": []
             }
           },
-          "description": "external_api_called structured log 기반 실패율. provider/operation 필드가 있어야 한다.",
+          "description": "external_api_called 로그 기반 실패율. 로그 본문으로 고르고 provider/operation/result 필드로 나눈다.",
           "id": 75,
           "links": [],
           "title": "External API failure rate (logs)",
@@ -2623,7 +2540,7 @@
                       "kind": "DataQuery",
                       "spec": {
                         "editorMode": "code",
-                        "expr": "topk(10, histogram_quantile(0.95, sum by (le, method, uri) (rate(http_server_requests_milliseconds_bucket{application=~\"$service\", instance=~\"$instance\", uri!=\"UNKNOWN\"}[$__rate_interval]))) > 0)",
+                        "expr": "topk(10, histogram_quantile(0.95, sum by (le, method, uri) (rate(http_server_requests_milliseconds_bucket{application=~\"$service\", instance=~\"$instance\", uri!=\"UNKNOWN\"}[$__range]))) > 0)",
                         "format": "table",
                         "instant": true,
                         "range": false
@@ -2659,7 +2576,7 @@
               ]
             }
           },
-          "description": "Prometheus HTTP request duration histogram 기준 p95 latency가 가장 느린 URI 상위 10개. 행 링크로 Loki 로그를 열고 traceId derived field에서 Tempo 요청 flow를 확인한다.",
+          "description": "선택한 시간 범위 전체의 HTTP request duration histogram 기준 p95 latency가 가장 느린 URI 상위 10개. 행 링크로 Loki 로그를 열고 traceId derived field에서 Tempo 요청 flow를 확인한다.",
           "id": 78,
           "links": [],
           "title": "Top 10 slow latency",
@@ -3408,24 +3325,11 @@
                         "x": 8,
                         "y": 0
                       }
-                    },
-                    {
-                      "kind": "GridLayoutItem",
-                      "spec": {
-                        "element": {
-                          "kind": "ElementReference",
-                          "name": "panel-60"
-                        },
-                        "height": 8,
-                        "width": 8,
-                        "x": 16,
-                        "y": 0
-                      }
                     }
                   ]
                 }
               },
-              "title": "📝 Logs, Tomcat & Security"
+              "title": "📝 Logs & Tomcat"
             }
           }
         ]
