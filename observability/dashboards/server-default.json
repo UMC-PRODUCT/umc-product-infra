@@ -27,7 +27,7 @@
       }
     ],
     "cursorSync": "Crosshair",
-    "description": "Spring Boot 애플리케이션 상세 대시보드. HTTP RED, JVM, HikariCP, Tomcat, 보안 메트릭과 Loki 로그를 분석한다. 운영 전용 PostgreSQL/호스트 상태는 별도 상세 대시보드에서 확인한다.",
+    "description": "API가 느리거나 에러가 늘었을 때 연다. Spring Boot 애플리케이션 상세 대시보드. HTTP RED, JVM, HikariCP, Tomcat, 보안 메트릭과 Loki 로그를 분석한다. 운영 전용 PostgreSQL/호스트 상태는 별도 상세 대시보드에서 확인한다.",
     "editable": true,
     "elements": {
       "panel-1": {

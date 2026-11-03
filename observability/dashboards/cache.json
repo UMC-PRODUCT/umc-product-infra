@@ -12,7 +12,7 @@
       }
     ]
   },
-  "description": "애플리케이션 인메모리(Caffeine) 캐시 지표. 글로벌 캐시 모듈(CacheNamespace)에 등록된 모든 캐시를 cache 라벨로 자동 표시한다. 새 namespace(예: chat)를 추가하면 CaffeineCacheMetrics 가 자동 노출하므로 별도 패널 수정 없이 여기 나타난다. 단, 해당 캐시가 한 번도 사용되지 않으면 lazy 등록 전이라 No data 로 보일 수 있다.",
+  "description": "캐시가 잘 동작하는지 볼 때 연다. 애플리케이션 인메모리(Caffeine) 캐시 지표. 글로벌 캐시 모듈(CacheNamespace)에 등록된 모든 캐시를 cache 라벨로 자동 표시한다. 새 namespace(예: chat)를 추가하면 CaffeineCacheMetrics 가 자동 노출하므로 별도 패널 수정 없이 여기 나타난다. 단, 해당 캐시가 한 번도 사용되지 않으면 lazy 등록 전이라 No data 로 보일 수 있다.",
   "editable": true,
   "graphTooltip": 1,
   "links": [],

@@ -28,7 +28,7 @@ data:
           }
         ]
       },
-      "description": "Spring GraphQL Micrometer metric 기반 운영 대시보드. 요청 본문, variables, raw query는 metric에 수집하지 않는다. operationName과 executionId는 trace의 high-cardinality attribute로만 확인하며, Prometheus에서는 operation type/outcome, resolver field/error type, DataLoader name을 집계한다.",
+      "description": "GraphQL 요청만 느릴 때 연다. Spring GraphQL Micrometer metric 기반 운영 대시보드. 요청 본문, variables, raw query는 metric에 수집하지 않는다. operationName과 executionId는 trace의 high-cardinality attribute로만 확인하며, Prometheus에서는 operation type/outcome, resolver field/error type, DataLoader name을 집계한다.",
       "editable": true,
       "graphTooltip": 1,
       "links": [
