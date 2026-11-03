@@ -1228,9 +1228,12 @@ def validate_render(
             "WITH (FORCE)" in script and "umc-preview-restore-complete" in script,
             "preview: createdb must rebuild only databases without the restore marker",
         )
-        # 공용 DB 대기(200 × 3초)가 Job deadline 안에 들어가야 대기 중 Job이 죽지 않는다.
+        # 공용 DB 대기 상한(600초)이 Job deadline 안에 들어가야 대기 중 Job이 죽지 않는다.
+        # 시도 횟수로 세면 pg_isready timeout만큼 상한이 늘어나므로 경과 시간으로 끊는지도 본다.
         require(
-            'wait_for "$$PGHOST" 200' in script
+            'wait_for "$$PGHOST" 600' in script
+            and "pg_isready -q -t 1" in script
+            and "while [ \"$$SECONDS\" -lt \"$$deadline\" ]" in script
             and createdb["spec"]["activeDeadlineSeconds"] >= 900,
             "preview: createdb must wait 10 minutes for the shared DB within its deadline",
         )
