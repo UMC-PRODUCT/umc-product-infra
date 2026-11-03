@@ -361,6 +361,7 @@ def validate_app_storage_contract() -> None:
         "app storage production CORS condition",
     )
     # preview만 테스트 업로드를 30일 뒤 만료한다. prod·dev 파일은 만료하지 않는다.
+    bucket_properties = template["Resources"]["AppStorageBucket"]["Properties"]
     abort_multipart = {
         "Id": "abort-incomplete-multipart-uploads",
         "Status": "Enabled",
@@ -368,7 +369,7 @@ def validate_app_storage_contract() -> None:
     }
     require(
         template["Conditions"]["IsPreview"] == ["Environment", "preview"]
-        and template["Resources"]["AppStorageBucket"]["Properties"]["LifecycleConfiguration"]
+        and bucket_properties["LifecycleConfiguration"]
         == {
             "Rules": [
                 "IsPreview",
@@ -376,10 +377,69 @@ def validate_app_storage_contract() -> None:
                     abort_multipart,
                     {"Id": "expire-preview-test-uploads", "Status": "Enabled", "ExpirationInDays": 30},
                 ],
-                [abort_multipart],
+                [
+                    abort_multipart,
+                    {
+                        "Id": "expire-noncurrent-versions",
+                        "Status": "Enabled",
+                        "NoncurrentVersionExpiration": {"NoncurrentDays": 30},
+                        "ExpiredObjectDeleteMarker": True,
+                    },
+                ],
             ]
         },
-        "app storage lifecycle: only preview uploads expire after 30 days",
+        "app storage lifecycle: only preview uploads expire after 30 days; "
+        "prod/dev keep noncurrent versions for 30 days",
+    )
+    # prod·dev에서 지우거나 덮어쓴 업로드를 이전 버전으로 복구할 수 있어야 한다.
+    require(
+        bucket_properties.get("VersioningConfiguration")
+        == ["IsPreview", "AWS::NoValue", {"Status": "Enabled"}],
+        "app storage versioning must be enabled for prod and dev",
+    )
+    app_policies = template["Resources"]["AppStorageUser"]["Properties"]["Policies"]
+    # 앱 자격증명이 유출되거나 오작동해도 이전 버전까지 지우지 못하게 한다.
+    for policy in app_policies:
+        for statement in policy["PolicyDocument"]["Statement"]:
+            actions = statement.get("Action", [])
+            actions = [actions] if isinstance(actions, str) else actions
+            require(
+                "NotAction" not in statement
+                and all(
+                    "*" not in action and action.lower() != "s3:deleteobjectversion"
+                    for action in actions
+                ),
+                "app storage IAM must not delete object versions "
+                "(no s3:DeleteObjectVersion, wildcard actions, or NotAction)",
+            )
+    # 앱 권한을 바꾸면 이 사본도 함께 고쳐 리뷰에서 변경이 드러나게 한다.
+    require(
+        app_policies
+        == [{
+            "PolicyName": ["EnvironmentConfig", "Environment", "PolicyName"],
+            "PolicyDocument": {
+                "Version": "2012-10-17",
+                "Statement": [
+                    {
+                        "Sid": "ListApplicationStorage",
+                        "Effect": "Allow",
+                        "Action": "s3:ListBucket",
+                        "Resource": "AppStorageBucket.Arn",
+                    },
+                    {
+                        "Sid": "ReadWriteApplicationObjects",
+                        "Effect": "Allow",
+                        "Action": ["s3:GetObject", "s3:PutObject", "s3:DeleteObject"],
+                        "Resource": [
+                            "${AppStorageBucket.Arn}/public/*",
+                            "${AppStorageBucket.Arn}/private/*",
+                        ],
+                    },
+                ],
+            },
+        }],
+        "app storage IAM policy differs from the reviewed copy in validate_contracts.py; "
+        "update the copy together with the template change",
     )
     require(
         template["Resources"]["AppStorageBucket"]["Properties"][
@@ -440,9 +500,9 @@ def validate_ses_contract() -> None:
     require("Default" not in route53_parameter, "SES Route53 Hosted Zone ID must be explicit")
     require(
         route53_parameter.get("Type") == "String"
-        and route53_parameter.get("MinLength") == 1
+        and route53_parameter.get("MinLength") == 3
         and route53_parameter.get("MaxLength") == 32
-        and route53_parameter.get("AllowedPattern") == "^[A-Z0-9]{1,32}$",
+        and route53_parameter.get("AllowedPattern") == "^Z[A-Z0-9]+$",
         "SES Route53 Hosted Zone ID parameter",
     )
 
@@ -556,8 +616,47 @@ def validate_ses_contract() -> None:
             "DkimDnsRecord3",
             "MailFromMxDnsRecord",
             "MailFromSpfDnsRecord",
+            "DmarcDnsRecord",
         },
         "SES Route53 record set",
+    )
+    # rua는 공개 DNS에 노출되므로 SNS 알림 주소가 아닌 별도 선택 파라미터만 쓴다.
+    dmarc_parameter = parameters["DmarcReportEmailAddress"]
+    require(
+        dmarc_parameter.get("Type") == "String"
+        and dmarc_parameter.get("Default") == ""
+        and dmarc_parameter.get("MaxLength") == 254
+        and dmarc_parameter.get("AllowedPattern")
+        == "^$|^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}$",
+        "SES DMARC report address parameter must be optional and empty by default",
+    )
+    require(
+        template["Conditions"].get("HasDmarcReportAddress")
+        == [["DmarcReportEmailAddress", ""]],
+        "SES DMARC report address condition",
+    )
+    # 보고로 정렬 실패가 없음을 확인한 뒤 p를 올릴 수 있게 정책 값만 열어 둔다.
+    dmarc_record = route53_records["DmarcDnsRecord"]
+    require(
+        dmarc_record.get("DeletionPolicy") == "Retain"
+        and dmarc_record.get("UpdateReplacePolicy") == "Retain"
+        and dmarc_record.get("Properties")
+        in [
+            {
+                "HostedZoneId": "Route53HostedZoneId",
+                "Name": "_dmarc.${SesDomainIdentity}",
+                "Type": "TXT",
+                "TTL": "300",
+                "ResourceRecords": [[
+                    "HasDmarcReportAddress",
+                    f'"v=DMARC1; p={policy}; rua=mailto:${{DmarcReportEmailAddress}}"',
+                    f'"v=DMARC1; p={policy}"',
+                ]],
+            }
+            for policy in ("none", "quarantine", "reject")
+        ],
+        "SES DMARC TXT record must publish p=none|quarantine|reject, "
+        "with rua only from DmarcReportEmailAddress",
     )
     for index in range(1, 4):
         record = route53_records[f"DkimDnsRecord{index}"]
@@ -619,6 +718,28 @@ def validate_ses_contract() -> None:
         == "v=spf1 include:amazonses.com ~all",
         "MAIL FROM SPF output",
     )
+
+
+# 계정에서 스택 밖 수동 자원과 구분하고 용도를 찾을 수 있도록 IAM·S3 자원에 같은 태그를 붙인다.
+def validate_cloudformation_tags() -> None:
+    tagged_types = {"AWS::IAM::User", "AWS::IAM::Role", "AWS::S3::Bucket"}
+    for template_path in sorted((ROOT / "cloud" / "aws").glob("*.yaml")):
+        with template_path.open(encoding="utf-8") as stream:
+            template = yaml.load(stream, Loader=CloudFormationLoader)
+        for name, item in template.get("Resources", {}).items():
+            if item.get("Type") not in tagged_types:
+                continue
+            tags = {
+                tag.get("Key"): tag.get("Value")
+                for tag in item.get("Properties", {}).get("Tags", [])
+            }
+            require(
+                tags.get("managed-by") == "cloudformation"
+                and bool(tags.get("environment"))
+                and bool(tags.get("purpose")),
+                f"{template_path.name}:{name} must carry managed-by=cloudformation, "
+                "environment, and purpose tags",
+            )
 
 
 def resource(resources: list[dict], kind: str) -> dict:
@@ -1900,6 +2021,7 @@ def main() -> int:
     validate_route53_contract()
     validate_app_storage_contract()
     validate_ses_contract()
+    validate_cloudformation_tags()
     validate_postgres()
     validate_preview_budget()
     validate_reloader_argocd_contract()
