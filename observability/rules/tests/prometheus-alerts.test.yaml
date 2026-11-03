@@ -48,3 +48,24 @@ tests:
             exp_annotations:
               summary: "TLS 인증서가 1시간 넘게 Ready가 아니에요"
               description: "Certificate preview/preview-wildcard 이 1시간 이상 Ready=False예요. cert-manager log와 CertificateRequest·Order 이벤트를 확인해주세요."
+
+  - interval: 1m
+    input_series:
+      # prod는 20분에 끊기고 dev는 계속 들어온다. preview는 감시하지 않는다.
+      - series: 'process_uptime_milliseconds{application="prod-umc-product", instance="prod-pod"}'
+        values: '0+60000x20'
+      - series: 'process_uptime_milliseconds{application="dev-umc-product", instance="dev-pod"}'
+        values: '0+60000x60'
+    alert_rule_test:
+      - eval_time: 29m
+        alertname: AppMetricsMissing
+        exp_alerts: []
+      - eval_time: 31m
+        alertname: AppMetricsMissing
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              application: prod-umc-product
+            exp_annotations:
+              summary: "운영 앱 metric이 10분째 들어오지 않아요"
+              description: "application=prod-umc-product 의 process_uptime_milliseconds가 10분 동안 없어요. 앱 Pod 상태, OTEL_URL과 OTel Collector의 metric export를 확인해주세요."

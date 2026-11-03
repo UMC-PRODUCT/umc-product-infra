@@ -91,6 +91,26 @@ spec:
             summary: "Grafana 연결을 확인해주세요"
             description: "Prometheus가 Grafana를 scrape하지 못하고 있어요. instance={{ $labels.instance }} 의 Grafana 상태를 확인해주세요."
 
+        # 앱 지표 유입이 끊기면(OTEL_URL 오설정, Collector 단절) 5xx·지연 규칙은 빈 결과라 조용해진다.
+        # 앱이 살아 있는 동안 항상 보내는 uptime 지표로 유입 자체를 감시한다.
+        - alert: AppMetricsMissing
+          expr: absent_over_time(process_uptime_milliseconds{application="prod-umc-product"}[10m])
+          for: 0m
+          labels:
+            severity: critical
+          annotations:
+            summary: "운영 앱 metric이 10분째 들어오지 않아요"
+            description: "application={{ $labels.application }} 의 process_uptime_milliseconds가 10분 동안 없어요. 앱 Pod 상태, OTEL_URL과 OTel Collector의 metric export를 확인해주세요."
+
+        - alert: AppMetricsMissing
+          expr: absent_over_time(process_uptime_milliseconds{application="dev-umc-product"}[10m])
+          for: 0m
+          labels:
+            severity: warning
+          annotations:
+            summary: "dev 앱 metric이 10분째 들어오지 않아요"
+            description: "application={{ $labels.application }} 의 process_uptime_milliseconds가 10분 동안 없어요. 앱 Pod 상태, OTEL_URL과 OTel Collector의 metric export를 확인해주세요."
+
     - name: umc-product.host
       rules:
         - alert: LowDiskFreeSpace
