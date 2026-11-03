@@ -207,7 +207,7 @@ CREATE ROLE prod_postgres_admin NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOIN
 CREATE ROLE umc_product_app NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLICATION NOBYPASSRLS;
 SQL
 docker exec "$restore_container" createdb -U postgres --template=template0 \
-  -O umc_product_app umc_product_restore_verify
+  -O prod_postgres_admin umc_product_restore_verify
 docker exec -i "$restore_container" psql -X -v ON_ERROR_STOP=1 -U postgres \
   -d umc_product_restore_verify <<'SQL'
 DO $guard$
@@ -225,6 +225,8 @@ END;
 $guard$;
 -- dump에 CREATE SCHEMA public이 포함된다. 이 빈 검증 DB에서만 제거하며 CASCADE는 쓰지 않는다.
 DROP SCHEMA public;
+-- 운영 app-role Job과 같게 DB는 관리자 소유로 두고 앱에는 접속·임시 table·schema 생성만 준다.
+GRANT CONNECT, TEMPORARY, CREATE ON DATABASE umc_product_restore_verify TO umc_product_app;
 SQL
 docker exec -i "$restore_container" pg_restore \
   --exit-on-error --single-transaction --no-acl \
