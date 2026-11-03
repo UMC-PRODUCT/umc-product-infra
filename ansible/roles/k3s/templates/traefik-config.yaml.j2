@@ -5,6 +5,14 @@ metadata:
   namespace: kube-system
 spec:
   valuesContent: |-
+    # 앱 Ingress의 rate limit이 공격 트래픽을 받아내는 동안 Traefik이 노드 메모리를 무제한으로 쓰지 않게 한다.
+    # CPU limit은 두지 않아 TLS 처리량이 몰릴 때 throttling으로 정상 요청까지 늦어지지 않게 한다.
+    resources:
+      requests:
+        cpu: 100m
+        memory: 128Mi
+      limits:
+        memory: 512Mi
     # ServiceLB·NodePort의 전달 트래픽은 UFW만으로 막히지 않으므로 Service 노출도 제한한다.
     service:
       spec:

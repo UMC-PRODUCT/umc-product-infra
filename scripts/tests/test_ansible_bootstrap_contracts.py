@@ -483,6 +483,17 @@ class PublicSshBootstrapContractTests(unittest.TestCase):
             {"insecure": False, "trustedIPs": []},
         )
 
+    # 공격 트래픽을 받는 Traefik은 메모리 상한을 두고, CPU는 throttling 없이 쓰게 한다.
+    def test_traefik_memory_is_bounded_without_cpu_limit(self) -> None:
+        traefik_config = yaml.safe_load(
+            (ROOT / "ansible/roles/k3s/templates/traefik-config.yaml.j2").read_text(encoding="utf-8")
+        )
+        traefik_values = yaml.safe_load(traefik_config["spec"]["valuesContent"])
+        self.assertEqual(
+            traefik_values["resources"],
+            {"requests": {"cpu": "100m", "memory": "128Mi"}, "limits": {"memory": "512Mi"}},
+        )
+
     def test_k3s_api_is_probed_from_the_controller_as_unreachable(self) -> None:
         tasks = load_tasks("ansible/roles/k3s/tasks/main.yml")
         probe = next(task for task in tasks if task.get("name")

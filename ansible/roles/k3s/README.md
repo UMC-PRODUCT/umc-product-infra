@@ -7,7 +7,7 @@
 1. `/etc/rancher/k3s/config.yaml`을 생성한다.
 2. checksum으로 검증한 공식 설치 스크립트로 지정 버전의 K3s를 설치하거나 갱신한다.
 3. `k3s` 서비스를 활성화하고 Kubernetes API와 단일 노드의 `Ready` 상태를 기다린다.
-4. 번들 Traefik이 외부에서 임의로 보낸 forwarded header를 신뢰하지 않도록 설정한다.
+4. 번들 Traefik이 외부에서 임의로 보낸 forwarded header를 신뢰하지 않도록 설정하고, 메모리 상한(`512Mi`)을 둔다.
 5. Kubernetes Secret의 저장 시 암호화가 활성화되었는지 확인한다.
 6. 관리자 kubeconfig가 `root:root`, `0600`인지 확인한다.
 

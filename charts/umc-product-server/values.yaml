@@ -45,6 +45,20 @@ ingress:
   host: api.example.invalid
   tls: []
 
+# 앱 host로 오는 요청을 앱에 닿기 전에 Traefik이 클라이언트 IP별로 거른다. 공격 트래픽이 앱 로그와
+# Loki까지 번지지 않게 하는 바깥 울타리다. 앱 limiter(익명 IP 5 req/s, 사용자 20 req/s, route별)보다
+# 훨씬 느슨하게 둬서 행사장처럼 많은 사람이 공인 IP 하나를 나눠 쓰는 경우에도 걸리지 않게 한다.
+# 한도는 Traefik 라우터(Ingress 경로)마다 따로 센다.
+edgeProtection:
+  enabled: true
+  rateLimit:
+    average: 100
+    period: 1s
+    burst: 200
+  # 오래 열려 있는 WebSocket(/ws)은 동시 요청으로 세지 않도록 별도 Ingress에서 제외한다.
+  inFlight:
+    amount: 100
+
 # Scalar/OpenAPI 문서는 일반 API와 분리된 Ingress에서 Basic Auth로 보호한다.
 # existingSecret은 htpasswd 형식의 users key를 가진 Kubernetes Secret이다.
 documentation:

@@ -1,0 +1,47 @@
+{{/*
+앱 host로 들어온 요청을 앱에 닿기 전에 클라이언트 IP별로 제한한다. 앱 limiter보다 훨씬 느슨한 바깥 울타리다.
+Traefik Service가 externalTrafficPolicy: Local이라 remote address가 실제 클라이언트 IP다.
+앞단 proxy가 없으므로 위조 가능한 X-Forwarded-For는 읽지 않는다(ipStrategy.depth: 0).
+*/}}
+{{- if and .Values.deployment.enabled .Values.ingress.enabled .Values.edgeProtection.enabled }}
+{{- $rate := .Values.edgeProtection.rateLimit }}
+{{- if or (le (int $rate.average) 0) (le (int $rate.burst) 0) }}
+{{- fail "edgeProtection.rateLimit.average·burst는 1 이상이어야 함 (0은 Traefik에서 무제한)" }}
+{{- end }}
+{{- if le (int .Values.edgeProtection.inFlight.amount) 0 }}
+{{- fail "edgeProtection.inFlight.amount는 1 이상이어야 함" }}
+{{- end }}
+---
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: {{ include "umc-product-server.fullname" . }}-rate-limit
+  labels:
+    {{- include "umc-product-server.labels" . | nindent 4 }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+spec:
+  rateLimit:
+    average: {{ int $rate.average }}
+    period: {{ $rate.period | quote }}
+    burst: {{ int $rate.burst }}
+    sourceCriterion:
+      ipStrategy:
+        depth: 0
+---
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: {{ include "umc-product-server.fullname" . }}-in-flight
+  labels:
+    {{- include "umc-product-server.labels" . | nindent 4 }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+spec:
+  inFlightReq:
+    amount: {{ int .Values.edgeProtection.inFlight.amount }}
+    # 기준을 지정하지 않으면 요청 host 하나로 묶여 모든 사용자가 한 한도를 나눠 쓴다.
+    sourceCriterion:
+      ipStrategy:
+        depth: 0
+{{- end }}

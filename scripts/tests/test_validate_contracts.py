@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -10,10 +11,18 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+import yaml
+
 SCRIPTS_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(SCRIPTS_DIR))
 
-from validate_contracts import git_visible_files, validate_repository_identity
+from validate_contracts import (
+    git_visible_files,
+    validate_edge_protection,
+    validate_repository_identity,
+)
+
+CHART = SCRIPTS_DIR.parent / "charts" / "umc-product-server"
 
 
 # 오래된 루트 runbooks가 없어도 새 checkout이 통과하고 docs/runbooks 누락은 실패해야 한다.
@@ -82,6 +91,72 @@ class GitVisibleFilesTest(unittest.TestCase):
                     Path("untracked.txt"),
                 },
             )
+
+
+# 앱 Ingress에 edge 제한이 빠지거나 동시 요청 기준이 host로 돌아가면 검증이 실패해야 한다.
+@unittest.skipUnless(shutil.which("helm"), "helm not installed")
+class EdgeProtectionTest(unittest.TestCase):
+    def render(self, *extra: str) -> list[dict]:
+        result = subprocess.run(
+            [
+                "helm", "template", "umc-product-server", str(CHART),
+                "--namespace", "app",
+                "-f", str(CHART / "values-prod.yaml"),
+                *extra,
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        return [item for item in yaml.safe_load_all(result.stdout) if item]
+
+    def named(self, resources: list[dict], name: str) -> dict:
+        return next(
+            item
+            for item in resources
+            if item["kind"] in {"Ingress", "Middleware"} and item["metadata"]["name"] == name
+        )
+
+    def test_accepts_prod_render(self) -> None:
+        validate_edge_protection(self.render(), "prod")
+
+    def test_rejects_disabled_edge_protection(self) -> None:
+        with self.assertRaisesRegex(SystemExit, "edge rateLimit Middleware"):
+            validate_edge_protection(
+                self.render("--set", "edgeProtection.enabled=false"), "prod"
+            )
+
+    def test_rejects_main_ingress_without_in_flight_limit(self) -> None:
+        resources = self.render()
+        annotations = self.named(resources, "umc-product-server")["metadata"]["annotations"]
+        annotations["traefik.ingress.kubernetes.io/router.middlewares"] = (
+            "app-umc-product-server-rate-limit@kubernetescrd"
+        )
+        with self.assertRaisesRegex(SystemExit, "umc-product-server must apply edge limits first"):
+            validate_edge_protection(resources, "prod")
+
+    def test_rejects_basic_auth_before_edge_limits(self) -> None:
+        resources = self.render()
+        annotations = self.named(resources, "umc-product-server-docs")["metadata"]["annotations"]
+        refs = annotations["traefik.ingress.kubernetes.io/router.middlewares"].split(",")
+        annotations["traefik.ingress.kubernetes.io/router.middlewares"] = ",".join(refs[::-1])
+        with self.assertRaisesRegex(SystemExit, "docs must apply edge limits first"):
+            validate_edge_protection(resources, "prod")
+
+    def test_rejects_in_flight_limit_grouped_by_host(self) -> None:
+        resources = self.render()
+        del self.named(resources, "umc-product-server-in-flight")["spec"]["inFlightReq"]["sourceCriterion"]
+        with self.assertRaisesRegex(SystemExit, "inFlightReq Middleware per client IP"):
+            validate_edge_protection(resources, "prod")
+
+    def test_rejects_websocket_route_counted_as_in_flight(self) -> None:
+        resources = self.render()
+        annotations = self.named(resources, "umc-product-server-ws")["metadata"]["annotations"]
+        annotations["traefik.ingress.kubernetes.io/router.middlewares"] += (
+            ",app-umc-product-server-in-flight@kubernetescrd"
+        )
+        with self.assertRaisesRegex(SystemExit, "WebSocket route must skip only the in-flight limit"):
+            validate_edge_protection(resources, "prod")
 
 
 if __name__ == "__main__":

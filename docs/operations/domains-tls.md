@@ -34,8 +34,12 @@ ExternalDNS는 API, Grafana와 Argo CD record만 소유한다.
 | Argo CD | 관리자가 전달하는 Argo CD host | Route 53 A record → public direct HTTPS, Argo CD 로그인 필수 |
 
 prod/dev/preview API는 모바일 앱이 직접 호출한다. Route 53은 요청을 대신 차단하지
-않으므로 abuse 방어는 앱 인증, Traefik rate limit, 상위 방화벽과 로그 감시로
-별도 구성한다. Grafana도 public HTTPS로 열지만 익명 접근과 회원가입은 끄고 운영자가
+않으므로 abuse 방어는 앱 인증·앱 rate limiter, Traefik edge 제한, 상위 방화벽과 로그 감시로
+별도 구성한다. Traefik edge 제한은 앱 차트의 `edgeProtection` 값으로 API host의 모든 경로에
+클라이언트 IP별 rate limit(기본 평균 100 req/s, burst 200)과 동시 요청 제한(기본 100)을 건다.
+WebSocket `/ws`는 연결이 오래 유지되므로 동시 요청 제한에서 뺀다. 초과 요청은 Traefik이 `429`로
+답하고 앱 로그에 남지 않는다. 앱 limiter보다 훨씬 느슨한 바깥 울타리이므로 행사장처럼 공인 IP를
+나눠 쓰는 상황에서 `429`가 보이면 값을 올린다. Grafana도 public HTTPS로 열지만 익명 접근과 회원가입은 끄고 운영자가
 발급한 사람별 Grafana 계정만 사용한다. 기본 Organization role은 `Viewer`다.
 Argo CD는 비공유 `admin`과 공용 조회 계정 `umc-viewer`를 사용한다. 익명 접근은 끄며,
 로컬 계정에는 MFA나 GitHub 팀 제한이 없다. 계정 관리는 [Argo CD 로컬 계정](tool-access.md#argo-cd-로컬-계정)을 따른다.

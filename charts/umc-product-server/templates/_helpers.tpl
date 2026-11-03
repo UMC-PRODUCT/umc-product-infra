@@ -27,3 +27,19 @@ environment: {{ required "environment 는 필수 (prod | dev | preview)" .Values
 app.kubernetes.io/name: {{ include "umc-product-server.name" . }}
 app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
+
+{{/*
+앱 host 라우터 앞에 둘 edge 보호 Middleware 참조를 쉼표로 이어 반환한다. edgeProtection이 꺼지면 빈 문자열이다.
+WebSocket 라우터는 inFlight=false로 불러 연결 유지 시간을 동시 요청으로 세지 않는다.
+*/}}
+{{- define "umc-product-server.edgeMiddlewareRefs" -}}
+{{- $root := .root -}}
+{{- if $root.Values.edgeProtection.enabled -}}
+{{- $prefix := printf "%s-%s" $root.Release.Namespace (include "umc-product-server.fullname" $root) -}}
+{{- $refs := list (printf "%s-rate-limit@kubernetescrd" $prefix) -}}
+{{- if .inFlight -}}
+{{- $refs = append $refs (printf "%s-in-flight@kubernetescrd" $prefix) -}}
+{{- end -}}
+{{- join "," $refs -}}
+{{- end -}}
+{{- end }}
