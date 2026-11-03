@@ -237,7 +237,7 @@ class PublicSshBootstrapContractTests(unittest.TestCase):
         )
         text = path.read_text(encoding="utf-8")
         self.assertIn("ssh_access_finalize | default(false) | bool", text)
-        self.assertIn("common_public_tcp_ports == [22, 443]", text)
+        self.assertNotIn("common_public_tcp_ports", text)
 
     def test_access_only_playbook_does_not_reinstall_the_cluster(self) -> None:
         play = yaml.safe_load(
@@ -341,14 +341,13 @@ class PublicSshBootstrapContractTests(unittest.TestCase):
         defaults = yaml.safe_load(
             (ROOT / "ansible/roles/common/defaults/main.yml").read_text(encoding="utf-8")
         )
-        self.assertEqual(defaults["common_public_tcp_ports"], [22, 443])
+        self.assertNotIn("common_public_tcp_ports", defaults)
         k3s_defaults = yaml.safe_load(
             (ROOT / "ansible/roles/k3s/defaults/main.yml").read_text(encoding="utf-8")
         )
         for name in ("k3s_cluster_cidr", "k3s_service_cidr"):
             self.assertEqual(defaults[name], k3s_defaults[name])
         guard = tasks[0]["ansible.builtin.assert"]["that"]
-        self.assertIn("common_public_tcp_ports == [22, 443]", guard)
         self.assertTrue(any("ssh_access_public_verified" in condition for condition in guard))
         initial = next(task for task in tasks if task.get("name")
                        == "Initialize the desired inbound firewall rules")
@@ -417,19 +416,39 @@ class PublicSshBootstrapContractTests(unittest.TestCase):
                 argv = templar.template(trust_as_template(cleanup["ansible.builtin.command"]["argv"]))
                 self.assertEqual(argv, ["ufw", "--force", "delete"] + rule.split()[1:])
 
-    def test_firewall_rejects_unsafe_cidrs_before_any_rule_mutation(self) -> None:
-        tasks = load_tasks("ansible/roles/common/tasks/firewall.yml")
-        guard = next(task for task in tasks if task.get("name")
-                     == "Validate private non-overlapping K3s CIDRs before firewall mutation")
+    def test_one_cidr_validator_runs_before_remote_contact_and_firewall_mutation(self) -> None:
+        validators = [
+            (path, task) for path, task in all_tasks()
+            if "import ipaddress" in str(command_argv(task))
+        ]
+        self.assertEqual(
+            [path for path, _ in validators],
+            ["ansible/roles/common/tasks/network_preflight.yml"],
+        )
+        guard = validators[0][1]
         argv = command_argv(guard)
         self.assertEqual(argv[:2], ["{{ ansible_playbook_python }}", "-c"])
         self.assertEqual(guard["delegate_to"], "localhost")
         self.assertIs(guard["become"], False)
         self.assertIs(guard["changed_when"], False)
         self.assertIs(guard["check_mode"], False)
+
+        tasks = load_tasks("ansible/roles/common/tasks/firewall.yml")
+        include = next(index for index, task in enumerate(tasks)
+                       if task.get("ansible.builtin.import_tasks") == "network_preflight.yml")
         first_mutation = next(index for index, task in enumerate(tasks)
                               if command_argv(task)[:1] == ["ufw"])
-        self.assertLess(tasks.index(guard), first_mutation)
+        self.assertLess(include, first_mutation)
+
+        play = yaml.safe_load((ROOT / "ansible/playbooks/bootstrap.yml").read_text(encoding="utf-8"))[0]
+        pre_tasks = play["pre_tasks"]
+        preflight = next(index for index, task in enumerate(pre_tasks)
+                         if task.get("ansible.builtin.import_role")
+                         == {"name": "common", "tasks_from": "network_preflight.yml"})
+        gather = next(index for index, task in enumerate(pre_tasks) if "ansible.builtin.setup" in task)
+        self.assertIs(play["gather_facts"], False)
+        self.assertLess(preflight, gather)
+        self.assertIn("preflight", pre_tasks[preflight]["tags"])
         for cluster, service, valid in (
             ("10.42.0.0/16", "10.43.0.0/16", True),
             ("172.16.0.0/16", "192.168.0.0/16", True),

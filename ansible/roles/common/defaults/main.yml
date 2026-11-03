@@ -11,11 +11,6 @@ common_packages:
   - python3-yaml
   - ufw
 
-# 공인 SSH는 연결 빈도를 제한하고 HTTPS는 Traefik이 직접 수신한다.
-common_public_tcp_ports:
-  - 22
-  - 443
-
 # access-only playbook은 k3s role을 로드하지 않아 공유 network 기본값도 필요하다.
 # 실제 inventory가 선언한 CIDR은 이 role default보다 우선한다.
 k3s_cluster_cidr: 10.42.0.0/16  # noqa: var-naming[no-role-prefix]

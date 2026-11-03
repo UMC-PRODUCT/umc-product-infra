@@ -10,20 +10,6 @@
       - ansible_facts.architecture in ['x86_64', 'amd64']
     fail_msg: This bootstrap supports only x86_64 Ubuntu 22.04 or 24.04 hosts.
 
-# 관리자 PC에서 공개 포트 선언이 22·443만 포함하는지 확인한다. 실제 방화벽 적용은 마지막에 한다.
-# 인증서 발급에 쓰는 DNS-01은 80/tcp가 필요하지 않아 공인 SSH와 HTTPS만 허용한다.
-- name: Require the public SSH and HTTPS contract before host mutation
-  ansible.builtin.assert:
-    that:
-      - common_public_tcp_ports == [22, 443]
-    fail_msg: >-
-      Only key-authenticated SSH on 22/tcp and direct HTTPS on 443/tcp are
-      allowed; 80, 5432, 6443, and every other public port must remain closed.
-  delegate_to: localhost
-  become: false
-  tags:
-    - preflight
-
 # HTTPS 다운로드·Helm values 처리·방화벽 관리에 필요한 패키지를 서버에 설치한다.
 - name: Install host prerequisites
   ansible.builtin.apt:

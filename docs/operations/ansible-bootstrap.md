@@ -66,7 +66,6 @@ private key 본문·DB 비밀번호·AWS key를 inventory에 넣지 않는다.
 | `ssh_access_users` | 실제 개인 계정·역할·상태·공개키 전체 목록 | 기존 목록 보존 |
 | `ssh_access_confirm` | 대상·계정·복구 경로 확인 후 `true` | `true` |
 | `ssh_access_finalize` | `false` | 독립 SSH·sudo 검증 뒤 `true` |
-| `common_public_tcp_ports` | `[22, 443]` | 동일 |
 | `bootstrap_confirm` | `false` | 전체 설치 직전에 `true` |
 | `bootstrap_root_app_enabled` | 예제 기본값 `false` | root 생성 선행 조건 확인 뒤 `true` |
 

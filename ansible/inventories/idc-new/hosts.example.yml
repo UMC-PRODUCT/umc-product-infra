@@ -26,7 +26,6 @@ all:
           #   public_keys: ['CHANGE_ME_ED25519_PUBLIC_KEY']
           #   permit_open: ['CHANGE_ME_DB_SERVICE_CLUSTER_IP:5432']
           # 탈퇴 시 명단에서 지우지 말고 state: absent로 한 번 적용한다.
-        common_public_tcp_ports: [22, 443]
         bootstrap_confirm: false
         # DB 이전 전에 앱과 DNS가 뜨지 않도록 첫 root 생성을 보류한다.
         bootstrap_root_app_enabled: false
