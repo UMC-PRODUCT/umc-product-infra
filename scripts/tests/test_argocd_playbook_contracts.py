@@ -113,7 +113,8 @@ class ArgocdSharedK3sDefaultsTests(unittest.TestCase):
             for name in re.findall(r"\bk3s_[a-z0-9_]+", path.read_text(encoding="utf-8"))
         }
         self.assertIn("k3s_kubeconfig_path", referenced)
-        for name in sorted(referenced):
+        copied = {name for name in argocd_defaults if name.startswith("k3s_")}
+        for name in sorted(referenced | copied):
             with self.subTest(variable=name):
                 self.assertTrue(
                     name in argocd_defaults,
