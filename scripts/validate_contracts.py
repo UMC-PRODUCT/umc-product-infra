@@ -1757,7 +1757,6 @@ def validate_secrets(path: Path) -> None:
     require("umc-secrets-shared" not in iam_text, "obsolete shared IAM role remains")
 
 
-# PR별 앱 수와 공용 DB·wildcard 인증서 구조가 Preview 자원 예산을 넘지 않게 한다.
 def quantity_millicores(value: str) -> int:
     return int(value[:-1]) if value.endswith("m") else int(float(value) * 1000)
 
@@ -1777,14 +1776,15 @@ def pod_template_spec(item: dict) -> dict:
 
 
 def pod_resource_totals(pod: dict) -> tuple[int, int, int]:
-    containers = pod.get("initContainers", []) + pod["containers"]
-    totals = [0, 0, 0]
-    for container in containers:
-        resources = container.get("resources", {})
-        totals[0] += quantity_millicores(resources["requests"]["cpu"])
-        totals[1] += quantity_mebibytes(resources["requests"]["memory"])
-        totals[2] += quantity_mebibytes(resources["limits"]["memory"])
-    return totals[0], totals[1], totals[2]
+    resources = [
+        container["resources"]
+        for container in pod.get("initContainers", []) + pod["containers"]
+    ]
+    return (
+        sum(quantity_millicores(item["requests"]["cpu"]) for item in resources),
+        sum(quantity_mebibytes(item["requests"]["memory"]) for item in resources),
+        sum(quantity_mebibytes(item["limits"]["memory"]) for item in resources),
+    )
 
 
 # quota 합계를 손으로 맞추지 않도록 실제 PR render와 공용 manifest에서 다시 계산한다.
@@ -1823,9 +1823,7 @@ def validate_preview_budget_arithmetic(pr_resources: list[dict]) -> None:
         actual == expected,
         f"preview: quota {actual} must equal two PR slots plus shared workloads {expected}",
     )
-    storage = resource(
-        yaml_documents(preview_directory / "statefulset.yaml"), "StatefulSet"
-    )["spec"]["volumeClaimTemplates"][0]["spec"]["resources"]["requests"]["storage"]
+    storage = shared[0]["spec"]["volumeClaimTemplates"][0]["spec"]["resources"]["requests"]["storage"]
     require(
         quota["requests.storage"] == storage
         and not any(item.get("kind") == "PersistentVolumeClaim" for item in pr_resources),
@@ -1833,6 +1831,7 @@ def validate_preview_budget_arithmetic(pr_resources: list[dict]) -> None:
     )
 
 
+# PR별 앱 수와 공용 DB·wildcard 인증서 구조가 Preview 자원 예산을 넘지 않게 한다.
 def validate_preview_budget() -> None:
     quota = resource(
         yaml_documents(ROOT / "manifests" / "cluster" / "preview-resourcequota.yaml"),
