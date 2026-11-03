@@ -43,6 +43,12 @@ Parameters:
     MinLength: 3
     MaxLength: 254
     AllowedPattern: "^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}$"
+  DmarcReportEmailAddress:
+    Type: String
+    Default: ""
+    Description: Public mailbox for DMARC aggregate reports (rua), published in DNS; empty publishes the policy without reports
+    MaxLength: 254
+    AllowedPattern: "^$|^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}$"
   Route53HostedZoneId:
     Type: String
     Description: Public Route 53 hosted zone ID that owns the SES identity and MAIL FROM records
@@ -52,6 +58,7 @@ Parameters:
 
 Conditions:
   HasNonprodTestRecipient: !Not [!Equals [!Ref NonprodTestRecipientEmailAddress, ""]]
+  HasDmarcReportAddress: !Not [!Equals [!Ref DmarcReportEmailAddress, ""]]
 
 Rules:
   SeoulRegionOnly:
@@ -218,7 +225,8 @@ Resources:
         - '"v=spf1 include:amazonses.com ~all"'
 
   DmarcDnsRecord:
-    # 수신 서버가 SPF·DKIM 정렬 결과를 집계해 보내게 한다. p=none은 메일을 막지 않고 보고만 받는다.
+    # 수신 서버에 SPF·DKIM 정렬 정책을 알린다. p=none은 메일을 막지 않는다.
+    # rua 주소는 공개 DNS에 노출되므로 SNS 알림 주소와 분리하고, 비우면 보고 없이 정책만 게시한다.
     Type: AWS::Route53::RecordSet
     DeletionPolicy: Retain
     UpdateReplacePolicy: Retain
@@ -228,7 +236,10 @@ Resources:
       Type: TXT
       TTL: "300"
       ResourceRecords:
-        - !Sub '"v=DMARC1; p=none; rua=mailto:${FeedbackNotificationEmailAddress}"'
+        - !If
+          - HasDmarcReportAddress
+          - !Sub '"v=DMARC1; p=none; rua=mailto:${DmarcReportEmailAddress}"'
+          - '"v=DMARC1; p=none"'
 
   SesSenderUser:
     # 운영 발송은 지정한 From 주소로 제한한다. domain identity는 nonprod와 공유한다.

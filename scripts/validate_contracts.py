@@ -397,9 +397,24 @@ def validate_app_storage_contract() -> None:
         == ["IsPreview", "AWS::NoValue", {"Status": "Enabled"}],
         "app storage versioning must be enabled for prod and dev",
     )
+    app_policies = template["Resources"]["AppStorageUser"]["Properties"]["Policies"]
     # 앱 자격증명이 유출되거나 오작동해도 이전 버전까지 지우지 못하게 한다.
+    for policy in app_policies:
+        for statement in policy["PolicyDocument"]["Statement"]:
+            actions = statement.get("Action", [])
+            actions = [actions] if isinstance(actions, str) else actions
+            require(
+                "NotAction" not in statement
+                and all(
+                    "*" not in action and action.lower() != "s3:deleteobjectversion"
+                    for action in actions
+                ),
+                "app storage IAM must not delete object versions "
+                "(no s3:DeleteObjectVersion, wildcard actions, or NotAction)",
+            )
+    # 앱 권한을 바꾸면 이 사본도 함께 고쳐 리뷰에서 변경이 드러나게 한다.
     require(
-        template["Resources"]["AppStorageUser"]["Properties"]["Policies"]
+        app_policies
         == [{
             "PolicyName": ["EnvironmentConfig", "Environment", "PolicyName"],
             "PolicyDocument": {
@@ -423,8 +438,8 @@ def validate_app_storage_contract() -> None:
                 ],
             },
         }],
-        "app storage IAM: the app may create delete markers but must not delete "
-        "object versions (no s3:DeleteObjectVersion or wildcard actions)",
+        "app storage IAM policy differs from the reviewed copy in validate_contracts.py; "
+        "update the copy together with the template change",
     )
     require(
         template["Resources"]["AppStorageBucket"]["Properties"][
@@ -605,21 +620,43 @@ def validate_ses_contract() -> None:
         },
         "SES Route53 record set",
     )
+    # rua는 공개 DNS에 노출되므로 SNS 알림 주소가 아닌 별도 선택 파라미터만 쓴다.
+    dmarc_parameter = parameters["DmarcReportEmailAddress"]
+    require(
+        dmarc_parameter.get("Type") == "String"
+        and dmarc_parameter.get("Default") == ""
+        and dmarc_parameter.get("MaxLength") == 254
+        and dmarc_parameter.get("AllowedPattern")
+        == "^$|^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}$",
+        "SES DMARC report address parameter must be optional and empty by default",
+    )
+    require(
+        template["Conditions"].get("HasDmarcReportAddress")
+        == [["DmarcReportEmailAddress", ""]],
+        "SES DMARC report address condition",
+    )
+    # 보고로 정렬 실패가 없음을 확인한 뒤 p를 올릴 수 있게 정책 값만 열어 둔다.
     dmarc_record = route53_records["DmarcDnsRecord"]
     require(
         dmarc_record.get("DeletionPolicy") == "Retain"
         and dmarc_record.get("UpdateReplacePolicy") == "Retain"
         and dmarc_record.get("Properties")
-        == {
-            "HostedZoneId": "Route53HostedZoneId",
-            "Name": "_dmarc.${SesDomainIdentity}",
-            "Type": "TXT",
-            "TTL": "300",
-            "ResourceRecords": [
-                '"v=DMARC1; p=none; rua=mailto:${FeedbackNotificationEmailAddress}"'
-            ],
-        },
-        "SES DMARC TXT record must publish p=none with aggregate reports to the feedback mailbox",
+        in [
+            {
+                "HostedZoneId": "Route53HostedZoneId",
+                "Name": "_dmarc.${SesDomainIdentity}",
+                "Type": "TXT",
+                "TTL": "300",
+                "ResourceRecords": [[
+                    "HasDmarcReportAddress",
+                    f'"v=DMARC1; p={policy}; rua=mailto:${{DmarcReportEmailAddress}}"',
+                    f'"v=DMARC1; p={policy}"',
+                ]],
+            }
+            for policy in ("none", "quarantine", "reject")
+        ],
+        "SES DMARC TXT record must publish p=none|quarantine|reject, "
+        "with rua only from DmarcReportEmailAddress",
     )
     for index in range(1, 4):
         record = route53_records[f"DkimDnsRecord{index}"]
@@ -697,8 +734,11 @@ def validate_cloudformation_tags() -> None:
                 for tag in item.get("Properties", {}).get("Tags", [])
             }
             require(
-                tags.get("managed-by") == "cloudformation" and bool(tags.get("purpose")),
-                f"{template_path.name}:{name} must carry managed-by=cloudformation and purpose tags",
+                tags.get("managed-by") == "cloudformation"
+                and bool(tags.get("environment"))
+                and bool(tags.get("purpose")),
+                f"{template_path.name}:{name} must carry managed-by=cloudformation, "
+                "environment, and purpose tags",
             )
 
 

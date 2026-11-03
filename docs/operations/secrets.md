@@ -106,11 +106,14 @@ CloudFormation은 access key와 Secrets Manager 값을 만들지 않는다. Temp
 스택 삭제 시 domain identity와 기본 configuration set은 함께 보존되지만 SNS 알림 리소스는
 삭제된다. 재구성 시 기존 보존 리소스 처리와 SNS 구독 확인을 다시 점검한다.
 
-같은 스택이 `_dmarc.university.neordinary.com` TXT(`p=none`)도 만든다. 메일을 막지 않고
-수신 서버의 집계 보고만 `FeedbackNotificationEmailAddress`로 받는다. 이 주소가
-`university.neordinary.com` 밖 도메인이면 그 도메인이 외부 보고 수신 허용 레코드를 두지 않는 한
-Gmail 등은 보고를 보내지 않는다. 보고로 SPF·DKIM 정렬 실패가 없음을 확인한 뒤 `p=quarantine`
-이상으로 올리는 것은 별도 변경으로 한다.
+같은 스택이 `_dmarc.university.neordinary.com` TXT(`p=none`)도 만든다. `p=none`은 메일을 막지 않는다.
+집계 보고 주소(`rua`)는 선택 파라미터 `DmarcReportEmailAddress`로 따로 정한다. 비워 두면(기본값)
+`v=DMARC1; p=none`만 게시하고 보고는 받지 않는다. 이 주소는 공개 DNS에 그대로 노출되므로
+SNS 알림 주소(`FeedbackNotificationEmailAddress`)가 아니라 공개해도 되는 보고 전용 메일을 쓴다.
+주소가 `university.neordinary.com` 밖 도메인이면 그 도메인이 외부 보고 수신 허용 레코드를 두지
+않는 한 Gmail 등은 보고를 보내지 않는다. 보고로 SPF·DKIM 정렬 실패가 없음을 확인한 뒤
+`p=quarantine` 이상으로 올리는 것은 별도 변경으로 한다. 검증은 `p`로 `none`, `quarantine`,
+`reject`만 허용한다.
 
 ### 앱 업로드 복구
 

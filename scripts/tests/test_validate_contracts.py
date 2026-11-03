@@ -106,10 +106,10 @@ class CloudFormationContractTest(unittest.TestCase):
             name = f"values-{environment}.yaml"
             shutil.copy(REPO_ROOT / "charts" / "umc-product-server" / name, chart / name)
 
-    def edit(self, template: str, old: str, new: str) -> None:
+    def edit(self, template: str, old: str, new: str, count: int = 1) -> None:
         path = self.root / "cloud" / "aws" / template
         text = path.read_text(encoding="utf-8")
-        self.assertEqual(text.count(old), 1, f"fixture anchor not unique in {template}")
+        self.assertEqual(text.count(old), count, f"fixture anchor count in {template}")
         path.write_text(text.replace(old, new), encoding="utf-8")
 
     def validate(self, validator) -> None:
@@ -142,6 +142,24 @@ class CloudFormationContractTest(unittest.TestCase):
         with self.assertRaisesRegex(SystemExit, "must not delete object versions"):
             self.validate(validate_app_storage_contract)
 
+    def test_rejects_app_wildcard_action(self) -> None:
+        self.edit(
+            "app-storage-s3.yaml",
+            "                  - s3:DeleteObject\n",
+            "                  - s3:DeleteObject*\n",
+        )
+        with self.assertRaisesRegex(SystemExit, "wildcard actions"):
+            self.validate(validate_app_storage_contract)
+
+    def test_reports_unreviewed_app_policy_change_as_snapshot_drift(self) -> None:
+        self.edit(
+            "app-storage-s3.yaml",
+            "                  - s3:DeleteObject\n",
+            "                  - s3:DeleteObject\n                  - s3:GetObjectTagging\n",
+        )
+        with self.assertRaisesRegex(SystemExit, "differs from the reviewed copy"):
+            self.validate(validate_app_storage_contract)
+
     def test_rejects_changed_noncurrent_version_retention(self) -> None:
         self.edit("app-storage-s3.yaml", "NoncurrentDays: 30", "NoncurrentDays: 3650")
         with self.assertRaisesRegex(SystemExit, "noncurrent versions"):
@@ -152,9 +170,34 @@ class CloudFormationContractTest(unittest.TestCase):
         with self.assertRaisesRegex(SystemExit, "SES Route53 record set"):
             self.validate(validate_ses_contract)
 
-    def test_rejects_enforcing_dmarc_policy_change(self) -> None:
-        self.edit("ses-email.yaml", "v=DMARC1; p=none;", "v=DMARC1; p=reject;")
+    def test_accepts_enforcing_dmarc_policies(self) -> None:
+        previous = "none"
+        for policy in ("quarantine", "reject"):
+            self.edit("ses-email.yaml", f"v=DMARC1; p={previous}", f"v=DMARC1; p={policy}", count=2)
+            self.validate(validate_ses_contract)
+            previous = policy
+
+    def test_rejects_unknown_dmarc_policy(self) -> None:
+        self.edit("ses-email.yaml", "v=DMARC1; p=none", "v=DMARC1; p=monitor", count=2)
         with self.assertRaisesRegex(SystemExit, "SES DMARC TXT record"):
+            self.validate(validate_ses_contract)
+
+    def test_rejects_dmarc_reports_to_feedback_mailbox(self) -> None:
+        self.edit(
+            "ses-email.yaml",
+            "rua=mailto:${DmarcReportEmailAddress}",
+            "rua=mailto:${FeedbackNotificationEmailAddress}",
+        )
+        with self.assertRaisesRegex(SystemExit, "rua only from DmarcReportEmailAddress"):
+            self.validate(validate_ses_contract)
+
+    def test_rejects_default_dmarc_report_address(self) -> None:
+        self.edit(
+            "ses-email.yaml",
+            "  DmarcReportEmailAddress:\n    Type: String\n    Default: \"\"\n",
+            "  DmarcReportEmailAddress:\n    Type: String\n    Default: ops@example.com\n",
+        )
+        with self.assertRaisesRegex(SystemExit, "empty by default"):
             self.validate(validate_ses_contract)
 
     def test_rejects_untagged_iam_role(self) -> None:
@@ -164,6 +207,15 @@ class CloudFormationContractTest(unittest.TestCase):
             "          Value: \"\"\n",
         )
         with self.assertRaisesRegex(SystemExit, "external-secrets-iam.yaml:ProdRole"):
+            self.validate(validate_cloudformation_tags)
+
+    def test_rejects_iam_role_without_environment_tag(self) -> None:
+        self.edit(
+            "external-secrets-iam.yaml",
+            "        - Key: environment\n          Value: dev\n",
+            "",
+        )
+        with self.assertRaisesRegex(SystemExit, "external-secrets-iam.yaml:DevRole"):
             self.validate(validate_cloudformation_tags)
 
 
