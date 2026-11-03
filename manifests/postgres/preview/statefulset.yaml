@@ -24,6 +24,12 @@ spec:
     matchLabels:
       app.kubernetes.io/name: postgres-preview
       app.kubernetes.io/component: database
+  # 기본값이지만 명시한다. StatefulSet 삭제·축소가 데이터 PVC를 지우지 않고 Pod는 하나씩 교체된다.
+  persistentVolumeClaimRetentionPolicy:
+    whenDeleted: Retain
+    whenScaled: Retain
+  updateStrategy:
+    type: RollingUpdate
   template:
     metadata:
       labels:
@@ -65,6 +71,11 @@ spec:
             # 이 DB 는 부트스트랩용이고, PR 별 database 는 createdb Job 이 만든다
             - name: POSTGRES_DB
               value: preview_bootstrap
+            # 빈 데이터 디렉터리의 initdb에만 적용된다. 기존 클러스터의 locale은 바뀌지 않는다.
+            # 한글 정렬은 ICU ko-KR이 맡고, ICU에서도 initdb가 요구하는 libc LC_COLLATE·LC_CTYPE은
+            # image LANG(en_US.utf8)에 기대지 않고 C.UTF-8로 고정한다.
+            - name: POSTGRES_INITDB_ARGS
+              value: "--encoding=UTF8 --locale=C.UTF-8 --locale-provider=icu --icu-locale=ko-KR"
           resources:
             requests:
               cpu: 250m

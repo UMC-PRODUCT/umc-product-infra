@@ -1,5 +1,5 @@
 # 운영 애플리케이션 전용 PostgreSQL role. 앱에는 관리자 postgres-secrets를 주지 않는다.
-# 실행할 때 DB·public schema 소유권과 앱 role 비밀번호·권한을 실제 변경하므로 대상 DB와 Secret을 함께 확인한다.
+# 실행할 때 DB 소유권(관리자)·public schema 소유권(앱)과 앱 role 비밀번호·권한을 실제 변경하므로 대상 DB와 Secret을 함께 확인한다.
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -71,9 +71,12 @@ spec:
               END
               $role_check$;
 
-              ALTER DATABASE :"DBNAME" OWNER TO umc_product_app;
+              -- DB owner는 DROP DATABASE와 DB 설정 변경까지 할 수 있으므로 관리자 role이 갖는다.
+              -- 앱에는 접속과 Flyway 첫 migration의 CREATE SCHEMA IF NOT EXISTS public에 필요한
+              -- CREATE만 준다. public schema 소유는 앱 table 소유와 같은 범위라 앱에 그대로 둔다.
+              ALTER DATABASE :"DBNAME" OWNER TO CURRENT_USER;
               ALTER SCHEMA public OWNER TO umc_product_app;
-              GRANT CONNECT, TEMPORARY ON DATABASE :"DBNAME" TO umc_product_app;
+              GRANT CONNECT, TEMPORARY, CREATE ON DATABASE :"DBNAME" TO umc_product_app;
               SQL
           env:
             - name: PGHOST

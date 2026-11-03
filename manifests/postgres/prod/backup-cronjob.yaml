@@ -1,8 +1,8 @@
 # pg_dump → 노드 밖 전용 AWS S3 버킷 (계획 D14, Phase 9)
-# 컷오버 후 매일 03:00 KST. controller/host 시간대와 무관하게 CronJob 자체에 고정한다.
-# cloud/aws/postgres-backup-s3.yaml과 backup-s3 Secret을 실제 구성하고 수동 restore
-# 리허설을 통과하기 전에는 suspend한다.
-# 첫 restore 리허설 전에는 운영자가 일회성 Job으로 수동 실행해 업로드부터 복구까지 검증한다.
+# 매일 03:00 KST. controller/host 시간대와 무관하게 CronJob 자체에 고정한다.
+# 2026-09-19 PR #2에서 운영자 요청으로 노드 밖 restore 리허설 없이 예약 실행을 켰다.
+# 업로드 성공은 복구 가능성을 뜻하지 않으므로 restore 리허설은 runbook 절차로 따로 수행한다.
+# 중지는 suspend: true PR로 한다. 중지해도 S3 lifecycle 만료는 계속되고 백업 지연 경보도 꺼진다.
 apiVersion: batch/v1
 kind: CronJob
 metadata:
@@ -73,7 +73,8 @@ spec:
                   test "$database_ready" = true
                   backup_name="umc-product-$(date -u +%Y%m%dT%H%M%SZ)-${BACKUP_RUN_ID}.dump"
                   backup_file="/backup/${backup_name}"
-                  pg_dump -Fc -f "$backup_file"
+                  # migration 등이 테이블 lock을 오래 잡으면 무한 대기 대신 실패해 PostgresBackupFailed로 드러낸다.
+                  pg_dump -Fc --lock-wait-timeout=5min -f "$backup_file"
                   test -s "$backup_file"
                   pg_restore --list "$backup_file" >/dev/null
                   (

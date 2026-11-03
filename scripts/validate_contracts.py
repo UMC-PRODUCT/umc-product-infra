@@ -1392,6 +1392,7 @@ def validate_render(
     policies = [item for item in resources if item.get("kind") == "NetworkPolicy"]
     require(len(policies) == (0 if environment == "preview" else 2), f"{environment}: policies")
     if environment == "preview":
+        validate_preview_budget_arithmetic(resources)
         jobs = [item for item in resources if item.get("kind") == "Job"]
         require(len(jobs) == 2, "preview: createdb and dropdb Jobs")
         dropdb = next(
@@ -1441,6 +1442,15 @@ def validate_render(
         require(
             "WITH (FORCE)" in script and "umc-preview-restore-complete" in script,
             "preview: createdb must rebuild only databases without the restore marker",
+        )
+        # 공용 DB 대기 상한(600초)이 Job deadline 안에 들어가야 대기 중 Job이 죽지 않는다.
+        # 시도 횟수로 세면 pg_isready timeout만큼 상한이 늘어나므로 경과 시간으로 끊는지도 본다.
+        require(
+            'wait_for "$$PGHOST" 600' in script
+            and "pg_isready -q -t 1" in script
+            and "while [ \"$$SECONDS\" -lt \"$$deadline\" ]" in script
+            and createdb["spec"]["activeDeadlineSeconds"] >= 900,
+            "preview: createdb must wait 10 minutes for the shared DB within its deadline",
         )
 
 
@@ -1530,10 +1540,39 @@ def validate_postgres() -> None:
             environment_values["POSTGRES_DB"] == expected_database,
             f"{environment}: database name",
         )
+        # 새 데이터 디렉터리는 한글 정렬을 위해 ICU ko-KR로 만든다. libc locale도 image LANG에 기대지 않는다.
+        require(
+            environment_values.get("POSTGRES_INITDB_ARGS")
+            == "--encoding=UTF8 --locale=C.UTF-8 --locale-provider=icu --icu-locale=ko-KR",
+            f"{environment}: initdb must use the ICU ko-KR default collation",
+        )
+        require(
+            statefulset["spec"].get("persistentVolumeClaimRetentionPolicy")
+            == {"whenDeleted": "Retain", "whenScaled": "Retain"}
+            and statefulset["spec"].get("updateStrategy") == {"type": "RollingUpdate"},
+            f"{environment}: StatefulSet must retain data PVCs and roll Pods one at a time",
+        )
+        if environment == "prod":
+            # CPU limit은 checkpoint·vacuum을 throttle한다. memory는 request와 limit을 같게 둔다.
+            resources = container["resources"]
+            require(
+                "cpu" not in resources.get("limits", {})
+                and resources["requests"].get("cpu")
+                and resources["requests"]["memory"] == resources["limits"]["memory"],
+                "prod: PostgreSQL keeps a CPU request without a CPU limit and fixed memory",
+            )
         if environment == "preview":
             require(
                 "max_connections=40" in container.get("args", []),
                 "preview: connection budget must match two slots",
+            )
+            orphan_check = resource(
+                yaml_documents(directory / "orphan-database-check-cronjob.yaml"), "CronJob"
+            )["spec"]
+            require(
+                orphan_check["schedule"] == "0 3 * * *"
+                and orphan_check["timeZone"] == "Asia/Seoul",
+                "preview: orphan DB check runs daily at 03:00 Asia/Seoul",
             )
 
         role_job = resource(yaml_documents(directory / "app-role-job.yaml"), "Job")
@@ -1549,8 +1588,35 @@ def validate_postgres() -> None:
             script = role_container["args"][0]
             require("CREATE EXTENSION IF NOT EXISTS postgis;" in script, f"{environment}: postgis")
             require("CREATE EXTENSION IF NOT EXISTS btree_gist;" in script, f"{environment}: btree_gist")
+            # 앱 role이 DB owner이면 DROP DATABASE가 가능하다. owner는 관리자에게 두고 필요한 권한만 준다.
+            app_role = "umc_product_app" if environment == "prod" else "umc_product_dev_app"
+            require(
+                'ALTER DATABASE :"DBNAME" OWNER TO CURRENT_USER;' in script
+                and f'ALTER DATABASE :"DBNAME" OWNER TO {app_role}' not in script,
+                f"{environment}: database owner must stay the admin role",
+            )
+            require(
+                f'GRANT CONNECT, TEMPORARY, CREATE ON DATABASE :"DBNAME" TO {app_role};' in script,
+                f"{environment}: app role needs CREATE for the Flyway public schema bootstrap",
+            )
 
     prod_directory = ROOT / "manifests" / "postgres" / "prod"
+    readonly_script = resource(
+        yaml_documents(prod_directory / "readonly-role-job.yaml"), "Job"
+    )["spec"]["template"]["spec"]["containers"][0]["args"][0]
+    for statement in (
+        "CONNECTION LIMIT 10;",
+        "ALTER ROLE umc_product_ro SET statement_timeout = '60s';",
+        "ALTER ROLE umc_product_ro SET idle_in_transaction_session_timeout = '5min';",
+    ):
+        require(statement in readonly_script, f"prod: readonly role limit {statement}")
+    backup_dump = resource(
+        yaml_documents(prod_directory / "backup-cronjob.yaml"), "CronJob"
+    )["spec"]["jobTemplate"]["spec"]["template"]["spec"]["initContainers"][0]
+    require(
+        "pg_dump -Fc --lock-wait-timeout=5min " in backup_dump["args"][0],
+        "prod: backup pg_dump must fail instead of waiting forever for table locks",
+    )
     exporter_role_job = resource(
         yaml_documents(prod_directory / "postgres-exporter-role-job.yaml"), "Job"
     )
@@ -1909,21 +1975,111 @@ def validate_secrets(path: Path) -> None:
     require("umc-secrets-shared" not in iam_text, "obsolete shared IAM role remains")
 
 
+def quantity_millicores(value: str) -> int:
+    return int(value[:-1]) if value.endswith("m") else int(float(value) * 1000)
+
+
+def quantity_mebibytes(value: str) -> int:
+    for suffix, factor in (("Gi", 1024), ("Mi", 1)):
+        if value.endswith(suffix):
+            return int(value[: -len(suffix)]) * factor
+    raise SystemExit(f"contract validation failed: unsupported memory quantity {value}")
+
+
+def pod_template_spec(item: dict) -> dict:
+    spec = item["spec"]
+    if item["kind"] == "CronJob":
+        spec = spec["jobTemplate"]["spec"]
+    return spec["template"]["spec"]
+
+
+def container_resource_amounts(container: dict) -> tuple[int, int, int]:
+    resources = container["resources"]
+    return (
+        quantity_millicores(resources["requests"]["cpu"]),
+        quantity_mebibytes(resources["requests"]["memory"]),
+        quantity_mebibytes(resources["limits"]["memory"]),
+    )
+
+
+# quota는 Pod마다 자원별로 max(일반 container 합, 가장 큰 init container)를 센다.
+# init container는 하나씩 끝난 뒤 앱 container가 뜨므로 합하면 quota를 실제보다 크게 잡는다.
+def pod_resource_totals(pod: dict) -> tuple[int, int, int]:
+    init_containers = pod.get("initContainers", [])
+    require(
+        all(container.get("restartPolicy") != "Always" for container in init_containers),
+        "preview: budget arithmetic does not model sidecar init containers",
+    )
+    regular = [container_resource_amounts(item) for item in pod["containers"]]
+    init = [container_resource_amounts(item) for item in init_containers]
+    return tuple(
+        max([sum(amounts[index] for amounts in regular)] + [amounts[index] for amounts in init])
+        for index in range(3)
+    )
+
+
+# quota 합계를 손으로 맞추지 않도록 실제 PR render와 공용 manifest에서 다시 계산한다.
+# PR 한 개의 앱·생성 Job·삭제 Job이 슬롯 2개만큼 동시에 돌고, 공용 DB와 고아 DB 점검이 하나씩 더해진다.
+def validate_preview_budget_arithmetic(pr_resources: list[dict]) -> None:
+    quota = resource(
+        yaml_documents(ROOT / "manifests" / "cluster" / "preview-resourcequota.yaml"),
+        "ResourceQuota",
+    )["spec"]["hard"]
+    preview_directory = ROOT / "manifests" / "postgres" / "preview"
+    shared = [
+        resource(yaml_documents(preview_directory / "statefulset.yaml"), "StatefulSet"),
+        resource(
+            yaml_documents(preview_directory / "orphan-database-check-cronjob.yaml"),
+            "CronJob",
+        ),
+    ]
+    per_slot = [
+        item for item in pr_resources if item.get("kind") in {"Deployment", "Job"}
+    ]
+    require(
+        sorted(item["kind"] for item in per_slot) == ["Deployment", "Job", "Job"],
+        "preview: budget expects one Deployment, createdb and dropdb per PR",
+    )
+    expected = [0, 0, 0]
+    for count, items in ((2, per_slot), (1, shared)):
+        for item in items:
+            for index, value in enumerate(pod_resource_totals(pod_template_spec(item))):
+                expected[index] += count * value
+    actual = [
+        quantity_millicores(quota["requests.cpu"]),
+        quantity_mebibytes(quota["requests.memory"]),
+        quantity_mebibytes(quota["limits.memory"]),
+    ]
+    require(
+        actual == expected,
+        f"preview: quota {actual} must equal two PR slots plus shared workloads {expected}",
+    )
+    storage = shared[0]["spec"]["volumeClaimTemplates"][0]["spec"]["resources"]["requests"]["storage"]
+    require(
+        quota["requests.storage"] == storage
+        and not any(item.get("kind") == "PersistentVolumeClaim" for item in pr_resources),
+        "preview: only the shared PostgreSQL PVC fits the storage quota",
+    )
+
+
 # PR별 앱 수와 공용 DB·wildcard 인증서 구조가 Preview 자원 예산을 넘지 않게 한다.
 def validate_preview_budget() -> None:
     quota = resource(
         yaml_documents(ROOT / "manifests" / "cluster" / "preview-resourcequota.yaml"),
         "ResourceQuota",
     )
+    # CPU·memory 합계는 validate_preview_budget_arithmetic이 render에서 다시 계산해 비교한다.
+    computed = {"requests.cpu", "requests.memory", "limits.memory"}
+    hard = quota["spec"]["hard"]
     require(
-        quota["spec"]["hard"]
+        computed <= hard.keys()
+        and {key: value for key, value in hard.items() if key not in computed}
         == {
             "count/certificates.cert-manager.io": "1",
             "count/services": "4",
             "count/deployments.apps": "2",
-            "requests.cpu": "1060m",
-            "requests.memory": "6624Mi",
-            "limits.memory": "9664Mi",
+            "count/persistentvolumeclaims": "1",
+            "requests.storage": "5Gi",
         },
         "preview: two-slot resource budget",
     )
@@ -1998,6 +2154,13 @@ def validate_preview_budget() -> None:
     )
 
 
+# 일시적인 sync 실패는 platform 앱과 같은 간격으로 재시도한다. createdb는 완료 표시로 재실행에 안전하다.
+SERVER_SYNC_RETRY = {
+    "limit": 5,
+    "backoff": {"duration": "10s", "factor": 2, "maxDuration": "3m"},
+}
+
+
 # Reloader가 바꾸는 annotation만 Git 비교에서 제외해 다른 Deployment 차이는 계속 탐지한다.
 def validate_reloader_argocd_contract() -> None:
     expected_applications = {
@@ -2026,6 +2189,10 @@ def validate_reloader_argocd_contract() -> None:
             in spec["syncPolicy"].get("syncOptions", []),
             f"{namespace}: Argo sync must respect Reloader ignore rule",
         )
+        require(
+            spec["syncPolicy"].get("retry") == SERVER_SYNC_RETRY,
+            f"{namespace}: server Application must retry transient sync failures",
+        )
 
     applicationset = resource(
         yaml_documents(
@@ -2048,6 +2215,10 @@ def validate_reloader_argocd_contract() -> None:
     require(
         "RespectIgnoreDifferences=true" in spec["syncPolicy"].get("syncOptions", []),
         "preview: Argo sync must respect Reloader ignore rule",
+    )
+    require(
+        spec["syncPolicy"].get("retry") == SERVER_SYNC_RETRY,
+        "preview: ApplicationSet must retry transient sync failures",
     )
 
 
