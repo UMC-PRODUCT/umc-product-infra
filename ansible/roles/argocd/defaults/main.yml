@@ -32,9 +32,8 @@ argocd_helm_values_path: >-
 argocd_helm_release_timeout: 15m0s
 argocd_helm_history_max: 10
 
-# 프로젝트와 health 규칙을 먼저 준비한 뒤 root를 생성해 child Application 순서를 제어한다.
-argocd_health_manifest_path: >-
-  {{ playbook_dir }}/../../manifests/cluster/argocd-health.yaml
+# 프로젝트를 먼저 준비한 뒤 root를 생성해 child Application 순서를 제어한다.
+# health 규칙은 Helm values의 configs.cm에 있어 Helm 설치와 함께 적용된다.
 argocd_projects_manifest_path: "{{ playbook_dir }}/../../argocd/projects.yaml"
 argocd_root_app_manifest_path: >-
   {{ playbook_dir }}/../../bootstrap/root-app.yaml

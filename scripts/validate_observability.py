@@ -375,8 +375,9 @@ def validate_grafana_dashboard_startup(resources: list[dict]) -> None:
 
 # 현재 generation의 reconcile과 가용성을 모두 확인해야 Argo CD가 정상으로 판단할 수 있다.
 def validate_alertmanager_health_gate() -> None:
-    config = yaml.safe_load((ROOT / "manifests/cluster/argocd-health.yaml").read_text())
-    health = config.get("data", {}).get("resource.customizations.health.monitoring.coreos.com_Alertmanager", "")
+    values = yaml.safe_load((ROOT / "ansible/roles/argocd/files/argo-cd-values.yaml").read_text())
+    config = {"data": values["configs"]["cm"]}
+    health = config["data"].get("resource.customizations.health.monitoring.coreos.com_Alertmanager", "")
     generation_guard = health.find("condition.observedGeneration ~= obj.metadata.generation")
     healthy = health.find('hs.status = "Healthy"')
     require('ipairs({"Reconciled", "Available"})' in health
