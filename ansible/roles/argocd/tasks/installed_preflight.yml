@@ -1,0 +1,58 @@
+---
+# argocd.yml 전용 사전 검사다. 서버를 바꾸지 않고, 빈 서버면 bootstrap.yml로 돌려보낸다.
+- name: Inspect the K3s and Helm files that bootstrap installs
+  ansible.builtin.stat:
+    path: "{{ item }}"
+  loop:
+    - /usr/local/bin/k3s
+    - "{{ k3s_kubeconfig_path }}"
+    - "{{ argocd_helm_binary_path }}"
+  register: argocd_bootstrap_files
+
+- name: Refuse a server that bootstrap has not prepared
+  ansible.builtin.assert:
+    that:
+      - argocd_bootstrap_files.results | rejectattr('stat.exists') | list | length == 0
+    fail_msg: >-
+      K3s, its administrator kubeconfig, or Helm is missing. Install the
+      server with playbooks/bootstrap.yml instead of playbooks/argocd.yml.
+
+# 이름·상태만 읽는다. check mode에서도 실행해야 아래 판정이 실제 release를 본다.
+- name: Read the installed Argo CD Helm release
+  ansible.builtin.command:
+    argv:
+      - "{{ argocd_helm_binary_path }}"
+      - list
+      - --kubeconfig
+      - "{{ k3s_kubeconfig_path }}"
+      - --namespace
+      - "{{ argocd_namespace }}"
+      - --filter
+      - "^{{ argocd_helm_release_name }}$"
+      - --output
+      - json
+  register: argocd_installed_release
+  changed_when: false
+  check_mode: false
+
+# 진행 중이거나 실패한 release 위에 upgrade를 겹치지 않는다.
+- name: Refuse a missing or unsettled Argo CD release
+  ansible.builtin.assert:
+    that:
+      - argocd_installed_release.stdout | from_json | length == 1
+      - (argocd_installed_release.stdout | from_json | first).status == 'deployed'
+    fail_msg: >-
+      Helm release {{ argocd_helm_release_name }} in {{ argocd_namespace }} is
+      missing or not deployed. Install the server with playbooks/bootstrap.yml,
+      or inspect `helm history` before retrying.
+
+# 마지막으로 적용한 서버의 values 사본과 Git values의 차이를 --diff로 보여준다. 항상 check mode라 쓰지 않는다.
+- name: Preview the Argo CD values change
+  ansible.builtin.copy:
+    src: argo-cd-values.yaml
+    dest: "{{ argocd_helm_values_path }}"
+    owner: root
+    group: root
+    mode: '0600'
+  check_mode: true
+  diff: true

@@ -42,6 +42,7 @@ URL, checksum, 다운로드 경로와 Git manifest 경로는 `defaults/main.yml`
 | `defaults/main.yml` | Helm, 차트, manifest 버전과 경로 |
 | `tasks/main.yml` | Helm 설치와 Argo CD core/bootstrap 정책 적용 |
 | `tasks/root_app.yml` | root Application 적용과 최종 수렴 확인 |
+| `tasks/installed_preflight.yml` | `argocd.yml` 전용 bootstrap 완료 확인과 values 차이 미리보기 |
 | `files/argo-cd-values.yaml` | 검토된 Helm values와 자원 제한 |
 
 ## 주의사항
