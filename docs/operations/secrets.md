@@ -58,6 +58,7 @@ property 목록은 문서에 복사하지 않고 위 코드에서 확인한다.
   Preview 생성 Job이 dev에 접속할 때 쓴다. bootstrap은 두 값이 다르면 거부하며, 다른 DB 비밀번호와는 다른 난수를 쓴다.
 - prod SES 자격증명은 dev/preview와 공유하지 않는다. dev/preview만 nonprod sender를 공유한다.
 - DB URL·username, bucket 이름, region, Spring profile, issuer URL과 발신 주소는 비밀이 아니므로 Helm values에 둔다.
+  예외로 환경마다 달라 토큰과 함께 관리하는 `APPLE_WEB_CLIENT_ID`와 `REPORT_DISCORD_*`의 ID·공개키는 Secret에 둔다.
 
 ## 최초 준비
 
@@ -176,6 +177,42 @@ python3 scripts/bootstrap_aws_secrets.py \
 
 되돌릴 때는 dev 앱의 FCM·Secret 참조 설정을 함께 되돌린 뒤 dev ExternalSecret·AWS source·IAM
 권한을 정리한다. prod 설정과 source는 유지한다.
+
+## 신고 운영 Discord 봇 활성화
+
+앱의 신고 기능은 Discord 봇으로 신고 접수를 채널에 알리고, 처리 완료·반려 버튼의 상호작용을
+`/api/v1/reports/discord/interactions`로 받는다. 설정은 `app-report-discord` source의 다섯 값이다.
+
+| 키 | 뜻 | 비밀 여부 |
+|---|---|---|
+| `REPORT_DISCORD_BOT_TOKEN` | 봇 토큰. Discord 개발자 포털 → Bot → Reset Token | 비밀 |
+| `REPORT_DISCORD_PUBLIC_KEY` | 상호작용 서명 검증용 앱 공개 키. 개발자 포털 → General Information | 공개 |
+| `REPORT_DISCORD_GUILD_ID` | 신고 처리 버튼을 허용할 서버 ID | 공개 |
+| `REPORT_DISCORD_CHANNEL_ID` | 신고 알림을 받을 채널 ID | 공개 |
+| `REPORT_DISCORD_MODERATOR_ROLE_ID` | 신고 처리 권한 역할 ID. 쉼표로 여러 개 | 공개 |
+
+값이 비면 앱은 신고를 전달 대기(PENDING)로 남기고 상호작용 콜백을 거절한다. `.env.prod`는 다섯 값이
+모두 필수이고, 봇을 두지 않는 `.env.dev`만 다섯 값을 함께 비워 둘 수 있다. 일부만 채우면 검증이
+막는다. 네 ID·공개키는 비밀이 아니지만 환경마다 달라 토큰과 같은 source에 둔다. preview는 받지 않는다.
+
+앱 Deployment는 `app-report-discord`를 `optional: false`로 읽고 Recreate 전략이라, Secret이 없으면
+기존 Pod가 내려간 뒤 새 Pod가 시작되지 못한다. umc-secrets와 앱 chart가 같은 머지로 동기화되므로
+아래 1~3단계는 이 변경을 머지하기 전에 끝낸다. 서로 다른 Argo CD Application의 sync wave만으로
+이 순서를 보장하지 않는다.
+
+1. prod와 dev는 서로 다른 Discord 애플리케이션(봇)을 쓴다. Interactions Endpoint URL은 애플리케이션당
+   하나이고 공개키도 각각 다르다. 값을 `.env.prod`(필수)와 `.env.dev`(비워 두어도 됨)에 입력한다.
+2. `cloud/aws/external-secrets-iam.yaml`을 반영해 ProdRole·DevRole에 `app-report-discord` 읽기 권한을 추가한다.
+3. `bootstrap_aws_secrets.py` dry-run으로 기존 source가 worksheet와 일치하는지 확인한 뒤
+   `/umc-product/prod/app-report-discord`와 `/umc-product/dev/app-report-discord`를 생성한다.
+4. 변경을 머지해 반영하고 `app/app-report-discord`·`dev-app/app-report-discord` ExternalSecret이
+   `Ready=True`인지 확인한다. Ready가 아니면 새 Pod가 시작되지 않으므로 source와 IAM부터 되짚는다.
+5. 롤아웃 뒤 개발자 포털의 Interactions Endpoint URL에 해당 환경 API origin 뒤
+   `/api/v1/reports/discord/interactions`를 등록한다. Discord가 저장 시 검증 요청을 보내므로 롤아웃 전에는
+   등록이 실패한다.
+
+봇 토큰이 채팅·로그 등에 노출됐으면 개발자 포털에서 재발급하고 AWS source를 갱신한다. Reloader가
+Pod를 재시작한다.
 
 ## 임시 Gmail SMTP와 SES 복귀
 

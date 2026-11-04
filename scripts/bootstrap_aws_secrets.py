@@ -60,6 +60,15 @@ EMAIL_PROPERTIES = (
     ("SES_SECRET_ACCESS_KEY", "SES_SECRET_ACCESS_KEY"),
 )
 SMTP_PROPERTIES = (("SMTP_PASSWORD", "SMTP_PASSWORD"),)
+# 신고 운영 Discord 봇. 토큰 외 ID·공개키도 환경마다 다르므로 한 source로 묶는다.
+# 다섯 값은 함께 비거나 함께 채워야 한다. 일부만 있으면 알림은 가는데 버튼이 안 되는 상태가 된다.
+REPORT_DISCORD_PROPERTIES = (
+    ("REPORT_DISCORD_BOT_TOKEN", "REPORT_DISCORD_BOT_TOKEN"),
+    ("REPORT_DISCORD_PUBLIC_KEY", "REPORT_DISCORD_PUBLIC_KEY"),
+    ("REPORT_DISCORD_GUILD_ID", "REPORT_DISCORD_GUILD_ID"),
+    ("REPORT_DISCORD_CHANNEL_ID", "REPORT_DISCORD_CHANNEL_ID"),
+    ("REPORT_DISCORD_MODERATOR_ROLE_ID", "REPORT_DISCORD_MODERATOR_ROLE_ID"),
+)
 POSTGRES_PROPERTIES = (
     ("POSTGRES_USER", "POSTGRES_USER"),
     ("POSTGRES_PASSWORD", "POSTGRES_PASSWORD"),
@@ -124,6 +133,7 @@ SECRET_SPECS = (
         (("FIREBASE_CONFIGURATION", "FIREBASE_CONFIGURATION"),),
         "prod",
     ),
+    SecretSpec("/umc-product/prod/app-report-discord", ".env.prod", REPORT_DISCORD_PROPERTIES, "prod"),
     SecretSpec(
         "/umc-product/prod/docs-basic-auth",
         ".env.prod",
@@ -168,6 +178,7 @@ SECRET_SPECS = (
         (("FIREBASE_CONFIGURATION", "FIREBASE_CONFIGURATION"),),
         "dev",
     ),
+    SecretSpec("/umc-product/dev/app-report-discord", ".env.dev", REPORT_DISCORD_PROPERTIES, "dev"),
     SecretSpec(
         "/umc-product/dev/docs-basic-auth",
         ".env.dev",
@@ -307,9 +318,16 @@ def parse_env_text(contents: str, env_file: str) -> dict[str, str]:
             f"{env_file} is missing required assignments: {', '.join(missing)}"
         )
     for key, value in values.items():
-        if value == "" and key not in ALLOWED_EMPTY_KEYS:
+        if value == "" and key not in allowed_empty_keys(env_file):
             raise BootstrapError(f"{env_file} {key} must not be empty")
     return values
+
+
+# 신고 봇은 비면 앱이 전달 대기로 남기므로, 봇을 두지 않는 dev만 다섯 값을 비워 둘 수 있다.
+def allowed_empty_keys(env_file: str) -> set[str]:
+    if env_file == ".env.dev":
+        return ALLOWED_EMPTY_KEYS | {key for key, _ in REPORT_DISCORD_PROPERTIES}
+    return ALLOWED_EMPTY_KEYS
 
 
 # Git 비추적·소유자·0600 권한을 검사하고 파일을 여는 사이 대상이 바뀌지 않았는지도 확인한다.
@@ -391,6 +409,11 @@ def validate_worksheet_values(values: dict[str, dict[str, str]], account_id: str
     database_values.append(values[".env.dev"]["DEV_DB_PREVIEW_DUMP_PASSWORD"])
     if len(set(database_values)) != len(database_values):
         raise BootstrapError("database passwords must differ by role and environment")
+
+    report_keys = [key for key, _ in REPORT_DISCORD_PROPERTIES]
+    report_filled = [bool(values[".env.dev"][key]) for key in report_keys]
+    if any(report_filled) and not all(report_filled):
+        raise BootstrapError(".env.dev REPORT_DISCORD_* must be all empty or all set")
 
     docs_users = [
         values[env_file]["DOCS_BASIC_AUTH_USERS"]
