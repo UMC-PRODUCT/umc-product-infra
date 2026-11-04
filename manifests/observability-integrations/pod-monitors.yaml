@@ -1,0 +1,25 @@
+# K3s 내장 Traefik의 metrics entrypoint(Pod의 metrics port 9100)는 Service로 노출되지 않아 Pod를 직접 수집한다.
+# 대시보드의 429 패널이 쓰는 두 counter만 남긴다.
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: traefik
+  namespace: monitoring
+  labels:
+    release: prometheus
+spec:
+  jobLabel: app.kubernetes.io/name
+  namespaceSelector:
+    matchNames: [kube-system]
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: traefik
+      app.kubernetes.io/instance: traefik-kube-system
+  podMetricsEndpoints:
+    - port: metrics
+      interval: 30s
+      scrapeTimeout: 10s
+      metricRelabelings:
+        - sourceLabels: [__name__]
+          regex: traefik_(entrypoint|service)_requests_total
+          action: keep

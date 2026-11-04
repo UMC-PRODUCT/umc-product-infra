@@ -22,6 +22,8 @@ from validate_observability import (
     selector_matches,
     validate_alertmanager_config,
     validate_grafana_dashboard_startup,
+    validate_k3s_traefik_metrics,
+    validate_traefik_pod_monitor_job,
     validate_loki_ingestion_limits,
     validate_loki_memory,
     validate_loki_query_budget,
@@ -90,6 +92,62 @@ class OperatorContractsTest(unittest.TestCase):
         self.service["spec"]["ports"][0]["name"] = "http"
         with self.assertRaisesRegex(SystemExit, "missing from selected Service"):
             validate_monitor_selection(self.prometheus, [self.monitor], [self.service])
+
+    def test_pod_monitor_needs_a_selected_pod_with_the_named_container_port(self) -> None:
+        self.prometheus["spec"].update(
+            podMonitorSelector={"matchLabels": {"release": "prometheus"}},
+            podMonitorNamespaceSelector={"matchLabels": {"kubernetes.io/metadata.name": "monitoring"}})
+        monitor = {
+            "kind": "PodMonitor",
+            "metadata": {"name": "traefik", "namespace": "monitoring", "labels": {"release": "prometheus"}},
+            "spec": {"namespaceSelector": {"matchNames": ["kube-system"]},
+                     "selector": {"matchLabels": {"app.kubernetes.io/name": "traefik"}},
+                     "podMetricsEndpoints": [{"port": "metrics"}]},
+        }
+        pod = {"kind": "Pod", "metadata": {"name": "traefik", "namespace": "kube-system",
+                                            "labels": {"app.kubernetes.io/name": "traefik"}},
+               "spec": {"containers": [{"name": "traefik", "ports": [{"name": "metrics", "containerPort": 9100}]}]}}
+        validate_monitor_selection(self.prometheus, [monitor], [], [pod])
+        mutations = {
+            "matches no Pod": lambda m, p: p["metadata"].update(namespace="monitoring"),
+            "missing from selected Pod": lambda m, p: p["spec"]["containers"][0]["ports"][0].update(name="web"),
+            "named container port": lambda m, p: m["spec"]["podMetricsEndpoints"][0].update(port=9100),
+        }
+        for message, mutate in mutations.items():
+            broken_monitor, broken_pod = copy.deepcopy(monitor), copy.deepcopy(pod)
+            mutate(broken_monitor, broken_pod)
+            with self.subTest(message), self.assertRaisesRegex(SystemExit, message):
+                validate_monitor_selection(self.prometheus, [broken_monitor], [], [broken_pod])
+
+    def test_traefik_pod_model_must_be_rechecked_when_k3s_or_its_metrics_values_change(self) -> None:
+        k3s_version = yaml.safe_load((ROOT / "ansible/roles/k3s/defaults/main.yml").read_text())["k3s_version"]
+        config = yaml.safe_load((ROOT / "ansible/roles/k3s/templates/traefik-config.yaml.j2").read_text())
+        validate_k3s_traefik_metrics(k3s_version, config)
+        values = yaml.safe_load(config["spec"]["valuesContent"])
+        overrides = {
+            "metrics": {**values, "metrics": {"prometheus": None}},
+            "ports.metrics": {**values, "ports": {**values["ports"], "metrics": {"port": 9200}}},
+        }
+        for name, broken in overrides.items():
+            broken_config = copy.deepcopy(config)
+            broken_config["spec"]["valuesContent"] = yaml.safe_dump(broken)
+            with self.subTest(name), self.assertRaisesRegex(SystemExit, "HelmChartConfig"):
+                validate_k3s_traefik_metrics(k3s_version, broken_config)
+        with self.assertRaisesRegex(SystemExit, "K3S_TRAEFIK_VERIFIED_VERSION"):
+            validate_k3s_traefik_metrics("v0.0.0+k3s1", config)
+
+    def test_traefik_pod_monitor_job_label_matches_the_missing_metrics_alert(self) -> None:
+        monitor = next(resource for resource in yaml.safe_load_all(
+            (ROOT / "manifests/observability-integrations/pod-monitors.yaml").read_text())
+            if resource and resource["metadata"]["name"] == "traefik")
+        validate_traefik_pod_monitor_job(monitor)
+        dropped = copy.deepcopy(monitor)
+        del dropped["spec"]["jobLabel"]
+        instance = copy.deepcopy(monitor)
+        instance["spec"]["jobLabel"] = "app.kubernetes.io/instance"
+        for name, broken in {"dropped": dropped, "instance label": instance}.items():
+            with self.subTest(name), self.assertRaisesRegex(SystemExit, "jobLabel"):
+                validate_traefik_pod_monitor_job(broken)
 
     def test_operator_workload_remains_in_image_resource_and_network_checks(self) -> None:
         workload = pod_spec(self.prometheus)

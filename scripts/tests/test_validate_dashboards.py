@@ -6,6 +6,7 @@ from __future__ import annotations
 import io
 import json
 import shutil
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -19,11 +20,14 @@ from validate_dashboards import (  # noqa: E402
     PanelQuery,
     check_metric_names,
     check_promql,
+    check_traefik_keep,
     dashboard_variables,
     deployed_dashboards,
     metric_names,
     panel_queries,
+    raw_queries,
     read_metric_names,
+    read_traefik_pod_monitor,
     refresh_metric_names,
     substitute_variables,
 )
@@ -99,6 +103,14 @@ class MetricNamesFileTest(unittest.TestCase):
             self.assertEqual(read_metric_names(path), {"live_total": None, "lazy_total": "첫 사건 뒤 생성"})
 
 
+class TraefikKeepTest(unittest.TestCase):
+    def test_PodMonitor가_버리는_traefik_메트릭을_그리면_실패한다(self) -> None:
+        monitor = read_traefik_pod_monitor()
+        queries = [PanelQuery("d.json", "panel-1", "A", "traefik_entrypoint_requests_total - traefik_service_requests_total"),
+                   PanelQuery("d.json", "panel-2", "A", "traefik_router_requests_total + up")]
+        self.assertEqual(check_traefik_keep(queries, monitor), ["d.json panel-2 A: traefik_router_requests_total"])
+
+
 class PromqlCheckTest(unittest.TestCase):
     def test_잘못된_문자열_이스케이프를_잡는다(self) -> None:
         promtool = shutil.which("promtool")
@@ -113,6 +125,72 @@ class PromqlCheckTest(unittest.TestCase):
         self.assertIn("a.json", problems[0])
         self.assertIn("panel_1_A", problems[0])
         self.assertIn("unknown escape sequence", problems[0])
+
+
+ENTRYPOINT_429 = 'traefik_entrypoint_requests_total{code="429", entrypoint="websecure", method="GET", protocol="http"}'
+SERVICE_429 = 'traefik_service_requests_total{code="429", service="app-umc-product-server-http@kubernetes", method="GET", protocol="http"}'
+APP_BLOCKED = 'api_rate_limit_requests_total{application="prod-umc-product", instance="a", result="blocked", rule="login"}'
+APP_ALLOWED = 'api_rate_limit_requests_total{application="prod-umc-product", instance="a", result="allowed", rule="login"}'
+APP_RULE = '{application="prod-umc-product", rule="login"}'
+RATE_LIMIT_PANELS = {("panel-34", "A"): "app_rate", ("panel-34", "B"): "edge_rate",
+                     ("panel-35", "A"): "app_total", ("panel-35", "B"): "edge_total"}
+# 30초 scrape를 흉내 낸다. series 값 '0+600x20'은 30초마다 600씩, 10분 동안 늘어나는 counter다.
+# 기대값의 [] 는 No data, {} 는 label 없는 합계 한 줄이다. 외삽 오차 때문에 소수 셋째 자리로 반올림해 비교한다.
+RATE_LIMIT_SCENARIOS = {
+    "edge는_Traefik_429에서_앱_429를_뺀_값이고_앱은_blocked만_센다": ("10m", {
+        ENTRYPOINT_429: "0+600x20", SERVICE_429: "0+240x20", APP_BLOCKED: "0+240x20", APP_ALLOWED: "0+3000x20",
+    }, {"edge_rate": [("{}", 12)], "edge_total": [("{}", 7200)],
+        "app_rate": [(APP_RULE, 8)], "app_total": [("{}", 4800)]}),
+    "앱_429가_한_번도_없으면_Traefik_429_전부가_edge다": ("10m", {
+        ENTRYPOINT_429: "0+600x20",
+        SERVICE_429.replace('code="429"', 'code="200"'): "0+1000x20",
+    }, {"edge_rate": [("{}", 20)], "edge_total": [("{}", 12000)]}),
+    # series마다 외삽이 달라 service 429가 entrypoint 429보다 크게 계산되는 구간이 있다.
+    "뺀_값이_음수면_0이다": ("10m", {
+        ENTRYPOINT_429: "0+60x20", SERVICE_429: "0+240x20",
+    }, {"edge_rate": [("{}", 0)], "edge_total": [("{}", 0)]}),
+    "수집되는_중_차단이_없으면_선택_범위_건수는_0이다": ("10m", {
+        ENTRYPOINT_429.replace('code="429"', 'code="200"'): "0+1000x20", APP_ALLOWED: "0+3000x20",
+    }, {"edge_total": [("{}", 0)], "app_total": [("{}", 0)]}),
+    "수집하지_못하면_0이_아니라_No_data다": ("10m", {
+        'up{job="prometheus"}': "1x20",
+    }, {"edge_rate": [], "edge_total": [], "app_rate": [], "app_total": []}),
+    # 패널 설명에 적은 한계다. Traefik 재시작 뒤 앱이 처음 429를 돌려주면 새 service series의 첫 수집값
+    # (30초 동안의 앱 429 300건) 중 외삽이 메우지 못한 155건이 edge로 넘친다. 실제 edge 차단은 0건이다.
+    "재시작_뒤_첫_앱_429_구간은_edge로_넘친다": ("6m", {
+        ENTRYPOINT_429: "5x10 305+300x9", SERVICE_429: "_x11 300+300x9",
+    }, {"edge_rate": [("{}", 1.292)], "edge_total": [("{}", 155)]}),
+}
+
+
+# 429 패널 쿼리를 대시보드에서 그대로 꺼내 promtool에 가상 series를 넣고 값을 확인한다.
+class RateLimitPanelsTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self.promtool = shutil.which("promtool")
+        if self.promtool is None:
+            self.skipTest("promtool not installed; 429 panel behaviour tests skipped")
+        path = Path(__file__).resolve().parents[2] / "observability/dashboards/server-default.json"
+        dashboard = json.loads(path.read_text(encoding="utf-8"))
+        variables = {**dashboard_variables(dashboard),
+                     "__rate_interval": "2m", "__range": "10m", "service": ".+", "instance": ".+"}
+        self.exprs = {RATE_LIMIT_PANELS[(panel, ref)]: substitute_variables(expr, variables)
+                      for panel, ref, expr in raw_queries(dashboard) if (panel, ref) in RATE_LIMIT_PANELS}
+        self.assertEqual(set(self.exprs), set(RATE_LIMIT_PANELS.values()))
+
+    def test_429_패널_값(self) -> None:
+        for name, (eval_time, series, expected) in RATE_LIMIT_SCENARIOS.items():
+            test = {"interval": "30s",
+                    "input_series": [{"series": key, "values": values} for key, values in series.items()],
+                    "promql_expr_test": [
+                        {"expr": f"round(({self.exprs[query]}), 0.001)", "eval_time": eval_time,
+                         "exp_samples": [{"labels": labels, "value": value} for labels, value in samples]}
+                        for query, samples in expected.items()]}
+            with self.subTest(name), tempfile.TemporaryDirectory() as directory:
+                path = Path(directory, "panels.test.json")
+                path.write_text(json.dumps({"rule_files": [], "tests": [test]}), encoding="utf-8")
+                result = subprocess.run([self.promtool, "test", "rules", str(path)],
+                                        capture_output=True, text=True, check=False)
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
 
 if __name__ == "__main__":

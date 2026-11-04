@@ -69,7 +69,7 @@
         "spec": {
           "id": 2,
           "title": "선택 API 완료 로그 · $window",
-          "description": "선택 조건에 일치해 실제 수집된 완료 로그 수. 인증 필터 등 MVC 인터셉터 이전 요청과 유실 로그를 포함하지 않는다. No data를 0으로 치환하지 않는다.",
+          "description": "선택 조건에 일치해 실제 수집된 완료 로그 수. 인증 필터 등 MVC 인터셉터 이전 요청과 유실 로그를 포함하지 않는다. REST 요청 제한(429)에 막힌 요청도 로그를 남기지 않아 빠진다. 차단 수는 Application Detail의 429 차단 패널에서 본다. No data를 0으로 치환하지 않는다.",
           "links": [],
           "data": {
             "kind": "QueryGroup",
@@ -277,7 +277,7 @@
         "spec": {
           "id": 5,
           "title": "API별 관측 호출 수 · $window",
-          "description": "전체 API 목록이 아니라 이 기간에 관측된 API 목록이다. 목록에 없는 API는 미관측 상태로 별도 검토한다. Loki series 제한 오류가 나면 클라이언트·메서드·경로 조건을 좁힌다.",
+          "description": "전체 API 목록이 아니라 이 기간에 관측된 API 목록이다. REST 요청 제한(429)에 막힌 호출은 세지 않는다. 목록에 없는 API는 미관측 상태로 별도 검토한다. Loki series 제한 오류가 나면 클라이언트·메서드·경로 조건을 좁힌다.",
           "links": [],
           "data": {
             "kind": "QueryGroup",

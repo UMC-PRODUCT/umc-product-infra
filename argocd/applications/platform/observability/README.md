@@ -42,7 +42,7 @@ trace가 없는 로그(기동 실패 등)는 표본 추출 없이 보낸다. Pre
 ## 파일을 읽는 순서
 
 1. [`prometheus.yaml`](prometheus.yaml): kube-prometheus-stack 버전, Operator·CRD, 수집·알림·권한
-2. [`integrations.yaml`](integrations.yaml): UMC ServiceMonitor와 생성된 PrometheusRule
+2. [`integrations.yaml`](integrations.yaml): UMC ServiceMonitor·PodMonitor와 생성된 PrometheusRule
 3. [`config.yaml`](config.yaml): NetworkPolicy, UMC dashboard와 Loki rule ConfigMap
 4. [`otel-collector.yaml`](otel-collector.yaml): 앱 신호를 받는 입구와 exporter
 5. [`loki.yaml`](loki.yaml), [`tempo.yaml`](tempo.yaml): log와 trace 저장
@@ -61,7 +61,8 @@ Prometheus, Alertmanager, node-exporter, kube-state-metrics와 Kubernetes 기본
 
 Operator가 `monitoring` 안의 Prometheus·Alertmanager custom resource를 읽어 StatefulSet을 만든다.
 Prometheus는 같은 namespace의 `release: prometheus` monitor·rule만 선택하며 ServiceMonitor가
-대상 namespace의 Service label과 이름 있는 port를 선택한다. kubelet/cAdvisor와 kube-state-metrics로
+대상 namespace의 Service label과 이름 있는 port를 선택한다. K3s 내장 Traefik은 metrics Service가 없어
+`traefik` PodMonitor가 kube-system Pod의 `metrics` port를 직접 수집한다. kubelet/cAdvisor와 kube-state-metrics로
 클러스터 workload 사용량과 상태를 수집한다. SQLite K3s에 없는 etcd·scheduler·controller-manager·
 kube-proxy 독립 endpoint와 관련 rule은 끈다.
 
@@ -82,7 +83,7 @@ SecretKeySelector로 읽어 runtime 설정을 생성한다. `useExistingSecret: 
 | Application | 역할 | 보존 |
 |---|---|---|
 | `monitoring-config` | NetworkPolicy, UMC dashboard와 Loki rule ConfigMap | 해당 없음 |
-| `monitoring-integrations` | UMC ServiceMonitor·PrometheusRule | 해당 없음 |
+| `monitoring-integrations` | UMC ServiceMonitor·PodMonitor·PrometheusRule | 해당 없음 |
 | `otel-collector` | 중앙 OTLP gateway | 저장하지 않음 |
 | `prometheus` | Operator·CRD, metrics, Alertmanager, node-exporter, kube-state-metrics | 14일 / 4GB 중 먼저 도달하는 조건 |
 | `loki` | logs와 Loki ruler | 운영 90일 (`2160h`), dev 30일, Preview 7일 |

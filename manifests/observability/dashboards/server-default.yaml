@@ -1154,6 +1154,254 @@ data:
               }
             }
           },
+          "panel-34": {
+            "kind": "Panel",
+            "spec": {
+              "data": {
+                "kind": "QueryGroup",
+                "spec": {
+                  "queries": [
+                    {
+                      "kind": "PanelQuery",
+                      "spec": {
+                        "hidden": false,
+                        "query": {
+                          "datasource": {
+                            "name": "prometheus"
+                          },
+                          "group": "prometheus",
+                          "kind": "DataQuery",
+                          "spec": {
+                            "editorMode": "code",
+                            "expr": "sum by (application, rule) (rate(api_rate_limit_requests_total{application=~\"$service\", instance=~\"$instance\", result=\"blocked\"}[$__rate_interval]))",
+                            "interval": "$http_requests_interval",
+                            "legendFormat": "앱 limiter · {{application}} · {{rule}}",
+                            "range": true
+                          },
+                          "version": "v0"
+                        },
+                        "refId": "A"
+                      }
+                    },
+                    {
+                      "kind": "PanelQuery",
+                      "spec": {
+                        "hidden": false,
+                        "query": {
+                          "datasource": {
+                            "name": "prometheus"
+                          },
+                          "group": "prometheus",
+                          "kind": "DataQuery",
+                          "spec": {
+                            "editorMode": "code",
+                            "expr": "clamp_min(sum(rate(traefik_entrypoint_requests_total{code=\"429\"}[$__rate_interval])) - (sum(rate(traefik_service_requests_total{code=\"429\"}[$__rate_interval])) or vector(0)), 0)",
+                            "interval": "$http_requests_interval",
+                            "legendFormat": "Traefik edge · 모든 host",
+                            "range": true
+                          },
+                          "version": "v0"
+                        },
+                        "refId": "B"
+                      }
+                    }
+                  ],
+                  "queryOptions": {},
+                  "transformations": []
+                }
+              },
+              "description": "초당 429로 막힌 요청 수. 앱 limiter는 Service·Instance 변수를 따르며 앱 counter의 rule별로 나눈다. Traefik edge는 Traefik이 보낸 429에서 앱이 돌려준 429를 뺀 값으로, 변수와 관계없이 모든 host의 합계다. Traefik과 REST limiter가 막은 요청은 Loki의 api_request_completed 로그에 남지 않는다. Traefik이 재시작된 뒤 처음 생긴 429 counter는 첫 수집 구간(약 30초)의 차단을 세지 못한다. 그래서 재시작 뒤 앱이 처음 429를 돌려준 구간은 앱 429가 edge로 넘쳐 보이고, edge 차단이 처음 난 구간은 edge가 적게 보이거나 0으로 깎인다. edge가 튀면 같은 시각의 앱 limiter 선과 겹쳐 보고, Traefik 재시작 직후 약 30초는 조심해서 읽는다.",
+              "id": 34,
+              "links": [],
+              "title": "429 차단 — 출처별",
+              "vizConfig": {
+                "group": "timeseries",
+                "kind": "VizConfig",
+                "spec": {
+                  "fieldConfig": {
+                    "defaults": {
+                      "color": {
+                        "mode": "palette-classic"
+                      },
+                      "custom": {
+                        "axisBorderShow": false,
+                        "axisCenteredZero": false,
+                        "axisColorMode": "text",
+                        "axisLabel": "",
+                        "axisPlacement": "auto",
+                        "barAlignment": 0,
+                        "barWidthFactor": 0.6,
+                        "drawStyle": "line",
+                        "fillOpacity": 20,
+                        "gradientMode": "none",
+                        "hideFrom": {
+                          "legend": false,
+                          "tooltip": false,
+                          "viz": false
+                        },
+                        "insertNulls": false,
+                        "lineInterpolation": "linear",
+                        "lineWidth": 2,
+                        "pointSize": 5,
+                        "scaleDistribution": {
+                          "type": "linear"
+                        },
+                        "showPoints": "never",
+                        "showValues": false,
+                        "spanNulls": false,
+                        "stacking": {
+                          "group": "A",
+                          "mode": "none"
+                        },
+                        "thresholdsStyle": {
+                          "mode": "off"
+                        }
+                      },
+                      "thresholds": {
+                        "mode": "absolute",
+                        "steps": [
+                          {
+                            "color": "green",
+                            "value": 0
+                          },
+                          {
+                            "color": "red",
+                            "value": 1
+                          }
+                        ]
+                      },
+                      "unit": "reqps"
+                    },
+                    "overrides": []
+                  },
+                  "options": {
+                    "annotations": {
+                      "clustering": -1,
+                      "multiLane": false
+                    },
+                    "legend": {
+                      "calcs": [],
+                      "displayMode": "list",
+                      "placement": "bottom",
+                      "showLegend": true
+                    },
+                    "tooltip": {
+                      "hideZeros": false,
+                      "mode": "multi",
+                      "sort": "desc"
+                    }
+                  }
+                },
+                "version": "13.0.1"
+              }
+            }
+          },
+          "panel-35": {
+            "kind": "Panel",
+            "spec": {
+              "data": {
+                "kind": "QueryGroup",
+                "spec": {
+                  "queries": [
+                    {
+                      "kind": "PanelQuery",
+                      "spec": {
+                        "hidden": false,
+                        "query": {
+                          "datasource": {
+                            "name": "prometheus"
+                          },
+                          "group": "prometheus",
+                          "kind": "DataQuery",
+                          "spec": {
+                            "editorMode": "code",
+                            "expr": "sum(increase(api_rate_limit_requests_total{application=~\"$service\", instance=~\"$instance\", result=\"blocked\"}[$__range])) or sum(increase(api_rate_limit_requests_total{application=~\"$service\", instance=~\"$instance\"}[$__range])) * 0",
+                            "format": "time_series",
+                            "instant": true,
+                            "legendFormat": "앱 limiter",
+                            "range": false
+                          },
+                          "version": "v0"
+                        },
+                        "refId": "A"
+                      }
+                    },
+                    {
+                      "kind": "PanelQuery",
+                      "spec": {
+                        "hidden": false,
+                        "query": {
+                          "datasource": {
+                            "name": "prometheus"
+                          },
+                          "group": "prometheus",
+                          "kind": "DataQuery",
+                          "spec": {
+                            "editorMode": "code",
+                            "expr": "clamp_min(sum(increase(traefik_entrypoint_requests_total{code=\"429\"}[$__range])) - (sum(increase(traefik_service_requests_total{code=\"429\"}[$__range])) or vector(0)), 0) or sum(increase(traefik_entrypoint_requests_total[$__range])) * 0",
+                            "format": "time_series",
+                            "instant": true,
+                            "legendFormat": "Traefik edge · 모든 host",
+                            "range": false
+                          },
+                          "version": "v0"
+                        },
+                        "refId": "B"
+                      }
+                    }
+                  ],
+                  "queryOptions": {},
+                  "transformations": []
+                }
+              },
+              "description": "선택한 시간 범위에 429로 막힌 요청 수. 0은 counter가 수집되는 중 차단이 없었다는 뜻이고 No data는 counter를 수집하지 못했다는 뜻이다. Traefik이 재시작된 뒤 처음 생긴 429 counter는 첫 수집 구간(약 30초)의 차단을 세지 못한다. 그래서 재시작 뒤 앱이 처음 429를 돌려준 구간은 앱 429가 edge로 넘쳐 보이고, edge 차단이 처음 난 구간은 edge가 적게 보이거나 0으로 깎인다. edge가 튀면 같은 시각의 앱 limiter 선과 겹쳐 보고, Traefik 재시작 직후 약 30초는 조심해서 읽는다.",
+              "id": 35,
+              "links": [],
+              "title": "429 차단 수 · 선택 범위",
+              "vizConfig": {
+                "group": "stat",
+                "kind": "VizConfig",
+                "spec": {
+                  "fieldConfig": {
+                    "defaults": {
+                      "color": {
+                        "mode": "thresholds"
+                      },
+                      "thresholds": {
+                        "mode": "absolute",
+                        "steps": [
+                          {
+                            "color": "green",
+                            "value": 0
+                          }
+                        ]
+                      },
+                      "unit": "short"
+                    },
+                    "overrides": []
+                  },
+                  "options": {
+                    "colorMode": "value",
+                    "graphMode": "none",
+                    "justifyMode": "auto",
+                    "orientation": "auto",
+                    "percentChangeColorMode": "standard",
+                    "reduceOptions": {
+                      "calcs": [
+                        "lastNotNull"
+                      ],
+                      "fields": "",
+                      "values": false
+                    },
+                    "showPercentChange": false,
+                    "textMode": "value_and_name",
+                    "wideLayout": true
+                  }
+                },
+                "version": "13.0.1"
+              }
+            }
+          },
           "panel-4": {
             "kind": "Panel",
             "spec": {
@@ -3060,6 +3308,32 @@ data:
                             "width": 12,
                             "x": 12,
                             "y": 8
+                          }
+                        },
+                        {
+                          "kind": "GridLayoutItem",
+                          "spec": {
+                            "element": {
+                              "kind": "ElementReference",
+                              "name": "panel-34"
+                            },
+                            "height": 8,
+                            "width": 16,
+                            "x": 0,
+                            "y": 16
+                          }
+                        },
+                        {
+                          "kind": "GridLayoutItem",
+                          "spec": {
+                            "element": {
+                              "kind": "ElementReference",
+                              "name": "panel-35"
+                            },
+                            "height": 8,
+                            "width": 8,
+                            "x": 16,
+                            "y": 16
                           }
                         }
                       ]

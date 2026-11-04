@@ -2,6 +2,7 @@
 # 갱신: python3 scripts/validate_dashboards.py --refresh-metric-names <prometheus-url>
 # 이름 뒤에 '# 이유'가 있으면 운영에 아직 없어도 허용한다. 첫 사건 뒤에 생기는 counter가 그렇다.
 
+api_rate_limit_requests_total  # 요청 제한 정책이 걸린 첫 요청 뒤에 생성된다
 cache_evictions_total
 cache_gets_total
 cache_size
@@ -90,4 +91,6 @@ system_cpu_usage
 tomcat_sessions_active_current
 tomcat_sessions_created_total
 tomcat_sessions_rejected_total
+traefik_entrypoint_requests_total  # Traefik이 시작된 뒤 첫 요청을 받아야 생성된다
+traefik_service_requests_total  # Traefik이 시작된 뒤 첫 요청을 앱에 전달해야 생성된다
 up
