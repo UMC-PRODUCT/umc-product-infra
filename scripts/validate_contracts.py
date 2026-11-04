@@ -1868,13 +1868,6 @@ def validate_postgres() -> None:
         "ALTER ROLE umc_product_ro SET idle_in_transaction_session_timeout = '5min';",
     ):
         require(statement in readonly_script, f"prod: readonly role limit {statement}")
-    backup_dump = resource(
-        yaml_documents(prod_directory / "backup-cronjob.yaml"), "CronJob"
-    )["spec"]["jobTemplate"]["spec"]["template"]["spec"]["initContainers"][0]
-    require(
-        "pg_dump -Fc --lock-wait-timeout=5min " in backup_dump["args"][0],
-        "prod: backup pg_dump must fail instead of waiting forever for table locks",
-    )
     exporter_role_script = role_job_script(
         prod_directory / "postgres-exporter-role-job.yaml",
         "EXPORTER_PASSWORD",
@@ -2089,7 +2082,8 @@ $role_check$;
 """
 
 
-# 443 송신이 있는 backup Pod에는 관리자 Secret 대신 조회 전용 role만 주고, 그 role은 한 transaction 안에서 최종 권한 검사를 통과해야만 반영되게 한다.
+# 443 송신이 있는 backup Pod의 dump는 관리자 Secret 대신 조회 전용 role만 쓰고 table lock을 무한정 기다리지 않는다.
+# 그 role은 한 transaction 안에서 최종 권한 검사를 통과해야만 반영되게 한다.
 def validate_backup_role(prod_directory: Path) -> None:
     role_job_path = prod_directory / "postgres-backup-role-job.yaml"
     role_script = role_job_script(
@@ -2137,18 +2131,29 @@ def validate_backup_role(prod_directory: Path) -> None:
     )
 
     backup_cronjob = resource(yaml_documents(prod_directory / "backup-cronjob.yaml"), "CronJob")
-    dump_env = {
-        item["name"]: item
-        for item in backup_cronjob["spec"]["jobTemplate"]["spec"]["template"]["spec"][
-            "initContainers"
-        ][0]["env"]
-    }
+    backup_dump = next(
+        (
+            item
+            for item in backup_cronjob["spec"]["jobTemplate"]["spec"]["template"]["spec"].get(
+                "initContainers", []
+            )
+            if item["name"] == "dump"
+        ),
+        None,
+    )
+    require(backup_dump is not None, "prod: pg-backup must have an init container named dump")
+    require(
+        "pg_dump -Fc --lock-wait-timeout=5min " in backup_dump["args"][0],
+        "prod: backup pg_dump must fail instead of waiting forever for table locks",
+    )
+    dump_env = {item["name"]: item for item in backup_dump["env"]}
     require(
         dump_env["PGUSER"].get("value") == "umc_product_backup"
         and dump_env["PGPASSWORD"]["valueFrom"]["secretKeyRef"]
         == {"name": "postgres-backup", "key": "POSTGRES_BACKUP_PASSWORD"}
         and "postgres-secrets" not in yaml.safe_dump(backup_cronjob),
-        "prod: pg-backup must dump with the read-only backup role, not the admin Secret",
+        "prod: pg-backup must dump with the read-only backup role "
+        "(umc_product_backup, postgres-backup Secret) and never reference postgres-secrets",
     )
 
     policies = {
