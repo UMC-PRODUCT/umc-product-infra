@@ -424,7 +424,7 @@ data:
                           "kind": "DataQuery",
                           "spec": {
                             "editorMode": "code",
-                            "expr": "max(1 - (node_filesystem_avail_bytes{job=\"node-exporter\", os=\"linux\", device_error=\"\", fstype!~\"tmpfs|overlay|squashfs|devtmpfs|proc|sysfs|cgroup2?|pstore|tracefs|debugfs|securityfs|configfs|nsfs|autofs|fuse\\..*|ramfs|binfmt_misc|rpc_pipefs\", mountpoint!~\"^/(dev|proc|sys|run|var/lib/docker|var/lib/containers|var/lib/kubelet|snap)($|/)\"} / node_filesystem_size_bytes{job=\"node-exporter\", os=\"linux\", device_error=\"\", fstype!~\"tmpfs|overlay|squashfs|devtmpfs|proc|sysfs|cgroup2?|pstore|tracefs|debugfs|securityfs|configfs|nsfs|autofs|fuse\\..*|ramfs|binfmt_misc|rpc_pipefs\", mountpoint!~\"^/(dev|proc|sys|run|var/lib/docker|var/lib/containers|var/lib/kubelet|snap)($|/)\"}))",
+                            "expr": "max(1 - (node_filesystem_avail_bytes{job=\"node-exporter\", os=\"linux\", device_error=\"\", fstype!~\"tmpfs|overlay|squashfs|devtmpfs|proc|sysfs|cgroup2?|pstore|tracefs|debugfs|securityfs|configfs|nsfs|autofs|fuse\\\\..*|ramfs|binfmt_misc|rpc_pipefs\", mountpoint!~\"^/(dev|proc|sys|run|var/lib/docker|var/lib/containers|var/lib/kubelet|snap)($|/)\"} / node_filesystem_size_bytes{job=\"node-exporter\", os=\"linux\", device_error=\"\", fstype!~\"tmpfs|overlay|squashfs|devtmpfs|proc|sysfs|cgroup2?|pstore|tracefs|debugfs|securityfs|configfs|nsfs|autofs|fuse\\\\..*|ramfs|binfmt_misc|rpc_pipefs\", mountpoint!~\"^/(dev|proc|sys|run|var/lib/docker|var/lib/containers|var/lib/kubelet|snap)($|/)\"}))",
                             "legendFormat": "worst eligible filesystem",
                             "range": true
                           },

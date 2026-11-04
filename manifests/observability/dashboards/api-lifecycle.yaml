@@ -234,7 +234,7 @@ data:
                           "kind": "DataQuery",
                           "spec": {
                             "editorMode": "code",
-                            "expr": "sum(increase(otelcol_exporter_send_failed_log_records[5m]))",
+                            "expr": "sum(increase(otelcol_exporter_send_failed_log_records[5m])) or sum(otelcol_exporter_sent_log_records) * 0",
                             "format": "time_series",
                             "instant": true,
                             "legendFormat": "",
@@ -252,7 +252,7 @@ data:
                   "transformations": []
                 }
               },
-              "description": "모든 서비스의 Collector 실패 건수 참고값. 0이어도 수신 거부·앱 내 유실·과거 공백을 배제할 수 없다. No data는 Collector 상태 확인이 필요하다.",
+              "description": "모든 서비스의 Collector 실패 건수 참고값. Collector가 수집되는 동안 실패가 없으면 0이다. 0이어도 수신 거부·앱 내 유실·과거 공백을 배제할 수 없다. No data는 Collector가 수집되지 않는 상태이므로 확인이 필요하다.",
               "id": 4,
               "links": [],
               "title": "전체 Collector 로그 전송 실패 · 최근 5분",

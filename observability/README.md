@@ -83,8 +83,9 @@ Overview는 prod/dev만 비교한다. 원본 변경 시 이 변수와 dashboard 
 
 `api-lifecycle.json`은 native OTLP structured metadata를 직접 조회한다. `clientVersion`은
 인덱스 label이나 Prometheus label로 추가하지 않는다. 기본 7일로 시작하며 14/30일과 점검용
-1시간·6시간·1일 선택지를 제공하고 자동 새로고침을 끈다. No data를 0으로 대체하거나 미관측 API를 삭제 가능으로
-표시하지 않는다. 조회·제거 검토 절차는 [API 호환성 사용 가이드](../docs/guides/api-lifecycle.md)를 본다.
+1시간·6시간·1일 선택지를 제공하고 자동 새로고침을 끈다. Loki 호출 집계는 No data를 0으로 대체하거나 미관측 API를 삭제 가능으로
+표시하지 않는다. Collector 실패 counter만 예외로, Collector가 수집되는 동안에는 0으로 보인다.
+그 counter는 첫 실패 전까지 생기지 않기 때문이다. 조회·제거 검토 절차는 [API 호환성 사용 가이드](../docs/guides/api-lifecycle.md)를 본다.
 
 다음 원본은 저장소에 보관하지만 초기 배포에서는 제외한다.
 
@@ -112,6 +113,19 @@ Overview는 prod/dev만 비교한다. 원본 변경 시 이 변수와 dashboard 
 원본의 필수 group이나 변환 대상 alert 이름이 사라지면 생성 스크립트가 실패한다. 원본을
 바꿀 때는 생성 결과뿐 아니라 제외·추가되는 rule도 함께 검토한다.
 
+## Dashboard 쿼리 검사
+
+운영에 없는 메트릭을 그리는 패널은 항상 비어 있고, 잘못된 PromQL은 Grafana를 열어야 드러난다.
+`scripts/validate_dashboards.py`가 배포 허용 목록의 Prometheus 패널 쿼리를 두 가지로 검사한다.
+
+- 메트릭 존재. 쿼리가 참조하는 이름이 [`prometheus-metric-names.txt`](prometheus-metric-names.txt)에
+  있어야 한다. 이 파일은 운영 Prometheus에서 확인한 이름의 기록이다. 새 메트릭을 그리면 운영
+  Prometheus에 port-forward한 뒤 `--refresh-metric-names http://127.0.0.1:9090`으로 갱신한다.
+  첫 사건 뒤에야 생기는 counter는 운영에 없어도 되므로 파일에 `이름  # 이유`로 직접 남긴다.
+- PromQL 문법. promtool이 있으면 dashboard 변수를 자리값으로 바꾼 뒤 `promtool check rules`로 파싱한다.
+
+Loki·Tempo 쿼리와 변수 정의 쿼리는 검사하지 않는다.
+
 ## 변경 순서
 
 모든 명령은 저장소 루트에서 실행한다.
@@ -119,13 +133,15 @@ Overview는 prod/dev만 비교한다. 원본 변경 시 이 변수와 dashboard 
 1. `observability/dashboards/` 또는 `observability/rules/`의 원본을 수정한다.
 2. ConfigMap과 PrometheusRule을 다시 생성한다.
 3. 원본과 생성물 diff를 함께 검토한다.
-4. drift 검사와 전체 저장소 검증을 실행한다.
+4. dashboard 쿼리 검사, drift 검사와 전체 저장소 검증을 실행한다.
 
 ```bash
 python3 scripts/gen-configmaps.py
 
 git diff -- observability manifests/observability manifests/observability-integrations
 
+python3 scripts/validate_dashboards.py
+python3 scripts/validate_dashboards.py --promql
 python3 scripts/gen-configmaps.py --check
 ./scripts/validate.sh
 ```
@@ -136,5 +152,6 @@ python3 scripts/gen-configmaps.py --check
 - [ ] dashboard datasource UID와 service 변수 유지
 - [ ] alert expression이 현재 scrape·OTLP label과 일치
 - [ ] secret, token, 실제 사용자 정보가 JSON·annotation·panel text에 없음
+- [ ] 새 메트릭을 그리면 `prometheus-metric-names.txt`를 운영 Prometheus 기준으로 갱신
 - [ ] `python3 scripts/gen-configmaps.py --check` 성공
 - [ ] `./scripts/validate.sh` 성공하며 필요한 검사 도구가 skip되지 않음

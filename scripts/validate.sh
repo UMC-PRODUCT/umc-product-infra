@@ -39,6 +39,8 @@ common_args=(
 
 # 원본/생성물 불일치와 Python 회귀를 먼저 잡아 뒤의 chart 렌더 실패와 구분한다.
 python3 scripts/gen-configmaps.py --check
+# 운영에 없는 메트릭을 그리는 패널은 항상 비어 있으므로 기록 파일과 대조해 PR 단계에서 막는다.
+python3 scripts/validate_dashboards.py
 python3 scripts/validate_preview_releases.py
 # 비교할 base가 없는 clone에서는 chart version guard를 건너뛴 검사로 남긴다.
 chart_base_ref="${VALIDATE_BASE_REF:-origin/main}"
@@ -464,6 +466,11 @@ if optional_check "Kubernetes schema validation" command -v kubeconform; then
   kubeconform -strict -summary \
     -schema-location "$validation_dir/monitoring-schemas/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json" \
     "$validation_dir/monitoring-resources.yaml"
+fi
+
+# Grafana를 열어야 드러나는 PromQL 문법 오류를 원본 단계에서 잡는다.
+if optional_check "dashboard PromQL parse" command -v promtool; then
+  python3 scripts/validate_dashboards.py --promql
 fi
 
 if optional_check "Prometheus rule validation" command -v promtool; then

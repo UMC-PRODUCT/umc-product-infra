@@ -155,8 +155,8 @@ capacity·used·available 값일 수 있다. 개별 PVC 폴더의 실제 점유�
 해석하지 않는다. 선언된 요청 용량은 PostgreSQL Detail에서, 노드 전체 디스크 여유는
 `Node Exporter Host Metrics`에서 확인한다.
 
-호스트 화면은 같은 노드를 공유하는 모든 workload의 영향을 포함한다. OS 기본값은 운영 target인
-`Linux`이며 `macOS`는 로컬 Homebrew exporter를 연결해 확인할 때만 선택한다.
+호스트 화면은 같은 노드를 공유하는 모든 workload의 영향을 포함한다. 운영 Linux node-exporter가
+내는 메트릭만 그리며, 전원·배터리처럼 Linux 서버에 없는 패널은 두지 않는다.
 
 ## 관련 문서
 

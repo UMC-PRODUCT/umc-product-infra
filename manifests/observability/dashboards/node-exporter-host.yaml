@@ -40,7 +40,7 @@ data:
           }
         ],
         "cursorSync": "Crosshair",
-        "description": "node_exporter default collector dashboard. 실제 운영 Linux target을 기본으로 선택하며, 로컬 macOS Homebrew exporter는 필요할 때 OS 변수에서 선택한다.",
+        "description": "node_exporter default collector dashboard for the production Linux host.",
         "editable": true,
         "elements": {
           "panel-1": {
@@ -62,7 +62,7 @@ data:
                           "kind": "DataQuery",
                           "spec": {
                             "editorMode": "code",
-                            "expr": "up{job=\"node-exporter\", os=\"$os\", instance=~\"$instance\"}",
+                            "expr": "up{job=\"node-exporter\", os=\"linux\", instance=~\"$instance\"}",
                             "legendFormat": "{{instance}}",
                             "range": true
                           },
@@ -76,7 +76,7 @@ data:
                   "transformations": []
                 }
               },
-              "description": "Prometheus scrape availability for the selected OS node_exporter target.",
+              "description": "Prometheus scrape availability for the node_exporter target.",
               "id": 1,
               "links": [],
               "title": "Exporter Up",
@@ -149,7 +149,7 @@ data:
                           "kind": "DataQuery",
                           "spec": {
                             "editorMode": "code",
-                            "expr": "node_filesystem_purgeable_bytes{job=\"node-exporter\", os=\"$os\", instance=~\"$instance\", mountpoint=~\"$mountpoint\", device_error=\"\"} or node_filesystem_avail_bytes{job=\"node-exporter\", os=\"$os\", instance=~\"$instance\", mountpoint=~\"$mountpoint\", device_error=\"\", fstype!~\"tmpfs|overlay|squashfs|devfs\"}",
+                            "expr": "node_filesystem_avail_bytes{job=\"node-exporter\", os=\"linux\", instance=~\"$instance\", mountpoint=~\"$mountpoint\", device_error=\"\", fstype!~\"tmpfs|overlay|squashfs|devfs\"}",
                             "legendFormat": "{{instance}} {{mountpoint}} available",
                             "range": true
                           },
@@ -170,7 +170,7 @@ data:
                           "kind": "DataQuery",
                           "spec": {
                             "editorMode": "code",
-                            "expr": "node_filesystem_size_bytes{job=\"node-exporter\", os=\"$os\", instance=~\"$instance\", mountpoint=~\"$mountpoint\", device_error=\"\", fstype!~\"tmpfs|overlay|squashfs|devfs\"}",
+                            "expr": "node_filesystem_size_bytes{job=\"node-exporter\", os=\"linux\", instance=~\"$instance\", mountpoint=~\"$mountpoint\", device_error=\"\", fstype!~\"tmpfs|overlay|squashfs|devfs\"}",
                             "legendFormat": "{{instance}} {{mountpoint}} size",
                             "range": true
                           },
@@ -254,7 +254,7 @@ data:
                           "kind": "DataQuery",
                           "spec": {
                             "editorMode": "code",
-                            "expr": "sum by (instance, device) (rate(node_disk_read_bytes_total{job=\"node-exporter\", os=\"$os\", instance=~\"$instance\", device=~\"$disk_device\"}[$__rate_interval]))",
+                            "expr": "sum by (instance, device) (rate(node_disk_read_bytes_total{job=\"node-exporter\", os=\"linux\", instance=~\"$instance\", device=~\"$disk_device\"}[$__rate_interval]))",
                             "legendFormat": "{{instance}} {{device}} read",
                             "range": true
                           },
@@ -275,7 +275,7 @@ data:
                           "kind": "DataQuery",
                           "spec": {
                             "editorMode": "code",
-                            "expr": "sum by (instance, device) (rate(node_disk_written_bytes_total{job=\"node-exporter\", os=\"$os\", instance=~\"$instance\", device=~\"$disk_device\"}[$__rate_interval]))",
+                            "expr": "sum by (instance, device) (rate(node_disk_written_bytes_total{job=\"node-exporter\", os=\"linux\", instance=~\"$instance\", device=~\"$disk_device\"}[$__rate_interval]))",
                             "legendFormat": "{{instance}} {{device}} write",
                             "range": true
                           },
@@ -359,7 +359,7 @@ data:
                           "kind": "DataQuery",
                           "spec": {
                             "editorMode": "code",
-                            "expr": "sum by (instance, device) (rate(node_disk_reads_completed_total{job=\"node-exporter\", os=\"$os\", instance=~\"$instance\", device=~\"$disk_device\"}[$__rate_interval]))",
+                            "expr": "sum by (instance, device) (rate(node_disk_reads_completed_total{job=\"node-exporter\", os=\"linux\", instance=~\"$instance\", device=~\"$disk_device\"}[$__rate_interval]))",
                             "legendFormat": "{{instance}} {{device}} reads",
                             "range": true
                           },
@@ -380,7 +380,7 @@ data:
                           "kind": "DataQuery",
                           "spec": {
                             "editorMode": "code",
-                            "expr": "sum by (instance, device) (rate(node_disk_writes_completed_total{job=\"node-exporter\", os=\"$os\", instance=~\"$instance\", device=~\"$disk_device\"}[$__rate_interval]))",
+                            "expr": "sum by (instance, device) (rate(node_disk_writes_completed_total{job=\"node-exporter\", os=\"linux\", instance=~\"$instance\", device=~\"$disk_device\"}[$__rate_interval]))",
                             "legendFormat": "{{instance}} {{device}} writes",
                             "range": true
                           },
@@ -464,7 +464,7 @@ data:
                           "kind": "DataQuery",
                           "spec": {
                             "editorMode": "code",
-                            "expr": "sum by (instance, device) (rate(node_network_receive_bytes_total{job=\"node-exporter\", os=\"$os\", instance=~\"$instance\", device=~\"$network_device\"}[$__rate_interval]))",
+                            "expr": "sum by (instance, device) (rate(node_network_receive_bytes_total{job=\"node-exporter\", os=\"linux\", instance=~\"$instance\", device=~\"$network_device\"}[$__rate_interval]))",
                             "legendFormat": "{{instance}} {{device}} receive",
                             "range": true
                           },
@@ -485,7 +485,7 @@ data:
                           "kind": "DataQuery",
                           "spec": {
                             "editorMode": "code",
-                            "expr": "sum by (instance, device) (rate(node_network_transmit_bytes_total{job=\"node-exporter\", os=\"$os\", instance=~\"$instance\", device=~\"$network_device\"}[$__rate_interval]))",
+                            "expr": "sum by (instance, device) (rate(node_network_transmit_bytes_total{job=\"node-exporter\", os=\"linux\", instance=~\"$instance\", device=~\"$network_device\"}[$__rate_interval]))",
                             "legendFormat": "{{instance}} {{device}} transmit",
                             "range": true
                           },
@@ -569,7 +569,7 @@ data:
                           "kind": "DataQuery",
                           "spec": {
                             "editorMode": "code",
-                            "expr": "sum by (instance, device) (rate(node_network_receive_errs_total{job=\"node-exporter\", os=\"$os\", instance=~\"$instance\", device=~\"$network_device\"}[$__rate_interval]))",
+                            "expr": "sum by (instance, device) (rate(node_network_receive_errs_total{job=\"node-exporter\", os=\"linux\", instance=~\"$instance\", device=~\"$network_device\"}[$__rate_interval]))",
                             "legendFormat": "{{instance}} {{device}} receive errors",
                             "range": true
                           },
@@ -590,7 +590,7 @@ data:
                           "kind": "DataQuery",
                           "spec": {
                             "editorMode": "code",
-                            "expr": "sum by (instance, device) (rate(node_network_transmit_errs_total{job=\"node-exporter\", os=\"$os\", instance=~\"$instance\", device=~\"$network_device\"}[$__rate_interval]))",
+                            "expr": "sum by (instance, device) (rate(node_network_transmit_errs_total{job=\"node-exporter\", os=\"linux\", instance=~\"$instance\", device=~\"$network_device\"}[$__rate_interval]))",
                             "legendFormat": "{{instance}} {{device}} transmit errors",
                             "range": true
                           },
@@ -611,7 +611,7 @@ data:
                           "kind": "DataQuery",
                           "spec": {
                             "editorMode": "code",
-                            "expr": "sum by (instance, device) (rate(node_network_receive_drop_total{job=\"node-exporter\", os=\"$os\", instance=~\"$instance\", device=~\"$network_device\"}[$__rate_interval]))",
+                            "expr": "sum by (instance, device) (rate(node_network_receive_drop_total{job=\"node-exporter\", os=\"linux\", instance=~\"$instance\", device=~\"$network_device\"}[$__rate_interval]))",
                             "legendFormat": "{{instance}} {{device}} receive drops",
                             "range": true
                           },
@@ -632,7 +632,7 @@ data:
                           "kind": "DataQuery",
                           "spec": {
                             "editorMode": "code",
-                            "expr": "sum by (instance, device) (rate(node_network_transmit_drop_total{job=\"node-exporter\", os=\"$os\", instance=~\"$instance\", device=~\"$network_device\"}[$__rate_interval]))",
+                            "expr": "sum by (instance, device) (rate(node_network_transmit_drop_total{job=\"node-exporter\", os=\"linux\", instance=~\"$instance\", device=~\"$network_device\"}[$__rate_interval]))",
                             "legendFormat": "{{instance}} {{device}} transmit drops",
                             "range": true
                           },
@@ -716,7 +716,7 @@ data:
                           "kind": "DataQuery",
                           "spec": {
                             "editorMode": "code",
-                            "expr": "(node_memory_swap_used_bytes{job=\"node-exporter\", os=\"$os\", instance=~\"$instance\"} / clamp_min(node_memory_swap_total_bytes{job=\"node-exporter\", os=\"$os\", instance=~\"$instance\"}, 1)) or ((node_memory_SwapTotal_bytes{job=\"node-exporter\", os=\"$os\", instance=~\"$instance\"} - node_memory_SwapFree_bytes{job=\"node-exporter\", os=\"$os\", instance=~\"$instance\"}) / clamp_min(node_memory_SwapTotal_bytes{job=\"node-exporter\", os=\"$os\", instance=~\"$instance\"}, 1))",
+                            "expr": "(node_memory_SwapTotal_bytes{job=\"node-exporter\", os=\"linux\", instance=~\"$instance\"} - node_memory_SwapFree_bytes{job=\"node-exporter\", os=\"linux\", instance=~\"$instance\"}) / clamp_min(node_memory_SwapTotal_bytes{job=\"node-exporter\", os=\"linux\", instance=~\"$instance\"}, 1)",
                             "legendFormat": "{{instance}}",
                             "range": true
                           },
@@ -730,7 +730,7 @@ data:
                   "transformations": []
                 }
               },
-              "description": "Swap used ratio from default node_exporter memory metrics. macOS uses swap_used_bytes; Linux uses SwapTotal/SwapFree when present.",
+              "description": "Swap used ratio from SwapTotal and SwapFree.",
               "id": 15,
               "links": [],
               "title": "Swap Usage",
@@ -791,111 +791,6 @@ data:
               }
             }
           },
-          "panel-16": {
-            "kind": "Panel",
-            "spec": {
-              "data": {
-                "kind": "QueryGroup",
-                "spec": {
-                  "queries": [
-                    {
-                      "kind": "PanelQuery",
-                      "spec": {
-                        "hidden": false,
-                        "query": {
-                          "datasource": {
-                            "name": "prometheus"
-                          },
-                          "group": "prometheus",
-                          "kind": "DataQuery",
-                          "spec": {
-                            "editorMode": "code",
-                            "expr": "rate(node_memory_swapped_in_bytes_total{job=\"node-exporter\", os=\"$os\", instance=~\"$instance\"}[$__rate_interval])",
-                            "legendFormat": "{{instance}} in",
-                            "range": true
-                          },
-                          "version": "v0"
-                        },
-                        "refId": "A"
-                      }
-                    },
-                    {
-                      "kind": "PanelQuery",
-                      "spec": {
-                        "hidden": false,
-                        "query": {
-                          "datasource": {
-                            "name": "prometheus"
-                          },
-                          "group": "prometheus",
-                          "kind": "DataQuery",
-                          "spec": {
-                            "editorMode": "code",
-                            "expr": "rate(node_memory_swapped_out_bytes_total{job=\"node-exporter\", os=\"$os\", instance=~\"$instance\"}[$__rate_interval])",
-                            "legendFormat": "{{instance}} out",
-                            "range": true
-                          },
-                          "version": "v0"
-                        },
-                        "refId": "B"
-                      }
-                    }
-                  ],
-                  "queryOptions": {},
-                  "transformations": []
-                }
-              },
-              "description": "macOS default swap-in and swap-out byte counters exposed by node_exporter.",
-              "id": 16,
-              "links": [],
-              "title": "Swap I/O",
-              "vizConfig": {
-                "group": "timeseries",
-                "kind": "VizConfig",
-                "spec": {
-                  "fieldConfig": {
-                    "defaults": {
-                      "color": {
-                        "mode": "palette-classic"
-                      },
-                      "custom": {
-                        "drawStyle": "line",
-                        "fillOpacity": 10,
-                        "lineWidth": 2,
-                        "showPoints": "never",
-                        "stacking": {
-                          "mode": "none"
-                        }
-                      },
-                      "thresholds": {
-                        "mode": "absolute",
-                        "steps": [
-                          {
-                            "color": "green",
-                            "value": 0
-                          }
-                        ]
-                      },
-                      "unit": "Bps"
-                    },
-                    "overrides": []
-                  },
-                  "options": {
-                    "legend": {
-                      "displayMode": "list",
-                      "placement": "bottom",
-                      "showLegend": true
-                    },
-                    "tooltip": {
-                      "mode": "multi",
-                      "sort": "desc"
-                    }
-                  }
-                },
-                "version": ""
-              }
-            }
-          },
           "panel-17": {
             "kind": "Panel",
             "spec": {
@@ -915,7 +810,7 @@ data:
                           "kind": "DataQuery",
                           "spec": {
                             "editorMode": "code",
-                            "expr": "1 - (node_filesystem_files_free{job=\"node-exporter\", os=\"$os\", instance=~\"$instance\", mountpoint=~\"$mountpoint\", device_error=\"\", fstype!~\"tmpfs|overlay|squashfs|devfs\"} / node_filesystem_files{job=\"node-exporter\", os=\"$os\", instance=~\"$instance\", mountpoint=~\"$mountpoint\", device_error=\"\", fstype!~\"tmpfs|overlay|squashfs|devfs\"})",
+                            "expr": "1 - (node_filesystem_files_free{job=\"node-exporter\", os=\"linux\", instance=~\"$instance\", mountpoint=~\"$mountpoint\", device_error=\"\", fstype!~\"tmpfs|overlay|squashfs|devfs\"} / node_filesystem_files{job=\"node-exporter\", os=\"linux\", instance=~\"$instance\", mountpoint=~\"$mountpoint\", device_error=\"\", fstype!~\"tmpfs|overlay|squashfs|devfs\"})",
                             "legendFormat": "{{instance}} {{mountpoint}}",
                             "range": true
                           },
@@ -1009,7 +904,7 @@ data:
                           "kind": "DataQuery",
                           "spec": {
                             "editorMode": "code",
-                            "expr": "node_filesystem_readonly{job=\"node-exporter\", os=\"$os\", instance=~\"$instance\", mountpoint=~\"$mountpoint\", device_error=\"\"}",
+                            "expr": "node_filesystem_readonly{job=\"node-exporter\", os=\"linux\", instance=~\"$instance\", mountpoint=~\"$mountpoint\", device_error=\"\"}",
                             "legendFormat": "{{instance}} {{mountpoint}} readonly",
                             "range": true
                           },
@@ -1030,7 +925,7 @@ data:
                           "kind": "DataQuery",
                           "spec": {
                             "editorMode": "code",
-                            "expr": "node_filesystem_device_error{job=\"node-exporter\", os=\"$os\", instance=~\"$instance\", mountpoint=~\"$mountpoint\", device_error=\"\"}",
+                            "expr": "node_filesystem_device_error{job=\"node-exporter\", os=\"linux\", instance=~\"$instance\", mountpoint=~\"$mountpoint\", device_error=\"\"}",
                             "legendFormat": "{{instance}} {{mountpoint}} device_error",
                             "range": true
                           },
@@ -1101,153 +996,6 @@ data:
               }
             }
           },
-          "panel-19": {
-            "kind": "Panel",
-            "spec": {
-              "data": {
-                "kind": "QueryGroup",
-                "spec": {
-                  "queries": [
-                    {
-                      "kind": "PanelQuery",
-                      "spec": {
-                        "hidden": false,
-                        "query": {
-                          "datasource": {
-                            "name": "prometheus"
-                          },
-                          "group": "prometheus",
-                          "kind": "DataQuery",
-                          "spec": {
-                            "editorMode": "code",
-                            "expr": "sum by (instance, device) (rate(node_disk_read_errors_total{job=\"node-exporter\", os=\"$os\", instance=~\"$instance\", device=~\"$disk_device\"}[$__rate_interval]))",
-                            "legendFormat": "{{instance}} {{device}} read errors",
-                            "range": true
-                          },
-                          "version": "v0"
-                        },
-                        "refId": "A"
-                      }
-                    },
-                    {
-                      "kind": "PanelQuery",
-                      "spec": {
-                        "hidden": false,
-                        "query": {
-                          "datasource": {
-                            "name": "prometheus"
-                          },
-                          "group": "prometheus",
-                          "kind": "DataQuery",
-                          "spec": {
-                            "editorMode": "code",
-                            "expr": "sum by (instance, device) (rate(node_disk_write_errors_total{job=\"node-exporter\", os=\"$os\", instance=~\"$instance\", device=~\"$disk_device\"}[$__rate_interval]))",
-                            "legendFormat": "{{instance}} {{device}} write errors",
-                            "range": true
-                          },
-                          "version": "v0"
-                        },
-                        "refId": "B"
-                      }
-                    },
-                    {
-                      "kind": "PanelQuery",
-                      "spec": {
-                        "hidden": false,
-                        "query": {
-                          "datasource": {
-                            "name": "prometheus"
-                          },
-                          "group": "prometheus",
-                          "kind": "DataQuery",
-                          "spec": {
-                            "editorMode": "code",
-                            "expr": "sum by (instance, device) (rate(node_disk_read_retries_total{job=\"node-exporter\", os=\"$os\", instance=~\"$instance\", device=~\"$disk_device\"}[$__rate_interval]))",
-                            "legendFormat": "{{instance}} {{device}} read retries",
-                            "range": true
-                          },
-                          "version": "v0"
-                        },
-                        "refId": "C"
-                      }
-                    },
-                    {
-                      "kind": "PanelQuery",
-                      "spec": {
-                        "hidden": false,
-                        "query": {
-                          "datasource": {
-                            "name": "prometheus"
-                          },
-                          "group": "prometheus",
-                          "kind": "DataQuery",
-                          "spec": {
-                            "editorMode": "code",
-                            "expr": "sum by (instance, device) (rate(node_disk_write_retries_total{job=\"node-exporter\", os=\"$os\", instance=~\"$instance\", device=~\"$disk_device\"}[$__rate_interval]))",
-                            "legendFormat": "{{instance}} {{device}} write retries",
-                            "range": true
-                          },
-                          "version": "v0"
-                        },
-                        "refId": "D"
-                      }
-                    }
-                  ],
-                  "queryOptions": {},
-                  "transformations": []
-                }
-              },
-              "description": "Disk read/write error and retry rates from default diskstats collector.",
-              "id": 19,
-              "links": [],
-              "title": "Disk Errors / Retries",
-              "vizConfig": {
-                "group": "timeseries",
-                "kind": "VizConfig",
-                "spec": {
-                  "fieldConfig": {
-                    "defaults": {
-                      "color": {
-                        "mode": "palette-classic"
-                      },
-                      "custom": {
-                        "drawStyle": "line",
-                        "fillOpacity": 10,
-                        "lineWidth": 2,
-                        "showPoints": "never",
-                        "stacking": {
-                          "mode": "none"
-                        }
-                      },
-                      "thresholds": {
-                        "mode": "absolute",
-                        "steps": [
-                          {
-                            "color": "green",
-                            "value": 0
-                          }
-                        ]
-                      },
-                      "unit": "ops"
-                    },
-                    "overrides": []
-                  },
-                  "options": {
-                    "legend": {
-                      "displayMode": "list",
-                      "placement": "bottom",
-                      "showLegend": true
-                    },
-                    "tooltip": {
-                      "mode": "multi",
-                      "sort": "desc"
-                    }
-                  }
-                },
-                "version": ""
-              }
-            }
-          },
           "panel-2": {
             "kind": "Panel",
             "spec": {
@@ -1267,7 +1015,7 @@ data:
                           "kind": "DataQuery",
                           "spec": {
                             "editorMode": "code",
-                            "expr": "time() - node_boot_time_seconds{job=\"node-exporter\", os=\"$os\", instance=~\"$instance\"}",
+                            "expr": "time() - node_boot_time_seconds{job=\"node-exporter\", os=\"linux\", instance=~\"$instance\"}",
                             "legendFormat": "{{instance}}",
                             "range": true
                           },
@@ -1348,7 +1096,7 @@ data:
                           "kind": "DataQuery",
                           "spec": {
                             "editorMode": "code",
-                            "expr": "sum by (instance, device) (rate(node_disk_read_time_seconds_total{job=\"node-exporter\", os=\"$os\", instance=~\"$instance\", device=~\"$disk_device\"}[$__rate_interval]))",
+                            "expr": "sum by (instance, device) (rate(node_disk_read_time_seconds_total{job=\"node-exporter\", os=\"linux\", instance=~\"$instance\", device=~\"$disk_device\"}[$__rate_interval]))",
                             "legendFormat": "{{instance}} {{device}} read time",
                             "range": true
                           },
@@ -1369,7 +1117,7 @@ data:
                           "kind": "DataQuery",
                           "spec": {
                             "editorMode": "code",
-                            "expr": "sum by (instance, device) (rate(node_disk_write_time_seconds_total{job=\"node-exporter\", os=\"$os\", instance=~\"$instance\", device=~\"$disk_device\"}[$__rate_interval]))",
+                            "expr": "sum by (instance, device) (rate(node_disk_write_time_seconds_total{job=\"node-exporter\", os=\"linux\", instance=~\"$instance\", device=~\"$disk_device\"}[$__rate_interval]))",
                             "legendFormat": "{{instance}} {{device}} write time",
                             "range": true
                           },
@@ -1453,7 +1201,7 @@ data:
                           "kind": "DataQuery",
                           "spec": {
                             "editorMode": "code",
-                            "expr": "sum by (instance, device) (rate(node_network_receive_packets_total{job=\"node-exporter\", os=\"$os\", instance=~\"$instance\", device=~\"$network_device\"}[$__rate_interval]))",
+                            "expr": "sum by (instance, device) (rate(node_network_receive_packets_total{job=\"node-exporter\", os=\"linux\", instance=~\"$instance\", device=~\"$network_device\"}[$__rate_interval]))",
                             "legendFormat": "{{instance}} {{device}} receive",
                             "range": true
                           },
@@ -1474,7 +1222,7 @@ data:
                           "kind": "DataQuery",
                           "spec": {
                             "editorMode": "code",
-                            "expr": "sum by (instance, device) (rate(node_network_transmit_packets_total{job=\"node-exporter\", os=\"$os\", instance=~\"$instance\", device=~\"$network_device\"}[$__rate_interval]))",
+                            "expr": "sum by (instance, device) (rate(node_network_transmit_packets_total{job=\"node-exporter\", os=\"linux\", instance=~\"$instance\", device=~\"$network_device\"}[$__rate_interval]))",
                             "legendFormat": "{{instance}} {{device}} transmit",
                             "range": true
                           },
@@ -1539,232 +1287,6 @@ data:
               }
             }
           },
-          "panel-22": {
-            "kind": "Panel",
-            "spec": {
-              "data": {
-                "kind": "QueryGroup",
-                "spec": {
-                  "queries": [
-                    {
-                      "kind": "PanelQuery",
-                      "spec": {
-                        "hidden": false,
-                        "query": {
-                          "datasource": {
-                            "name": "prometheus"
-                          },
-                          "group": "prometheus",
-                          "kind": "DataQuery",
-                          "spec": {
-                            "editorMode": "code",
-                            "expr": "node_power_supply_current_capacity{job=\"node-exporter\", os=\"$os\", instance=~\"$instance\"} / clamp_min(node_power_supply_max_capacity{job=\"node-exporter\", os=\"$os\", instance=~\"$instance\"}, 1)",
-                            "legendFormat": "{{instance}} {{power_supply}}",
-                            "range": true
-                          },
-                          "version": "v0"
-                        },
-                        "refId": "A"
-                      }
-                    }
-                  ],
-                  "queryOptions": {},
-                  "transformations": []
-                }
-              },
-              "description": "Battery capacity ratio when node_exporter powersupplyclass metrics are present.",
-              "id": 22,
-              "links": [],
-              "title": "Power Supply Capacity",
-              "vizConfig": {
-                "group": "timeseries",
-                "kind": "VizConfig",
-                "spec": {
-                  "fieldConfig": {
-                    "defaults": {
-                      "color": {
-                        "mode": "palette-classic"
-                      },
-                      "custom": {
-                        "drawStyle": "line",
-                        "fillOpacity": 10,
-                        "lineWidth": 2,
-                        "showPoints": "never",
-                        "stacking": {
-                          "mode": "none"
-                        }
-                      },
-                      "max": 1,
-                      "min": 0,
-                      "thresholds": {
-                        "mode": "absolute",
-                        "steps": [
-                          {
-                            "color": "red",
-                            "value": 0
-                          },
-                          {
-                            "color": "yellow",
-                            "value": 0.2
-                          },
-                          {
-                            "color": "green",
-                            "value": 0.5
-                          }
-                        ]
-                      },
-                      "unit": "percentunit"
-                    },
-                    "overrides": []
-                  },
-                  "options": {
-                    "legend": {
-                      "displayMode": "list",
-                      "placement": "bottom",
-                      "showLegend": true
-                    },
-                    "tooltip": {
-                      "mode": "multi",
-                      "sort": "desc"
-                    }
-                  }
-                },
-                "version": ""
-              }
-            }
-          },
-          "panel-23": {
-            "kind": "Panel",
-            "spec": {
-              "data": {
-                "kind": "QueryGroup",
-                "spec": {
-                  "queries": [
-                    {
-                      "kind": "PanelQuery",
-                      "spec": {
-                        "hidden": false,
-                        "query": {
-                          "datasource": {
-                            "name": "prometheus"
-                          },
-                          "group": "prometheus",
-                          "kind": "DataQuery",
-                          "spec": {
-                            "editorMode": "code",
-                            "expr": "node_power_supply_charging{job=\"node-exporter\", os=\"$os\", instance=~\"$instance\"}",
-                            "legendFormat": "{{instance}} {{power_supply}} charging",
-                            "range": true
-                          },
-                          "version": "v0"
-                        },
-                        "refId": "A"
-                      }
-                    },
-                    {
-                      "kind": "PanelQuery",
-                      "spec": {
-                        "hidden": false,
-                        "query": {
-                          "datasource": {
-                            "name": "prometheus"
-                          },
-                          "group": "prometheus",
-                          "kind": "DataQuery",
-                          "spec": {
-                            "editorMode": "code",
-                            "expr": "node_power_supply_power_source_state{job=\"node-exporter\", os=\"$os\", instance=~\"$instance\"}",
-                            "legendFormat": "{{instance}} {{power_supply}} {{state}}",
-                            "range": true
-                          },
-                          "version": "v0"
-                        },
-                        "refId": "B"
-                      }
-                    },
-                    {
-                      "kind": "PanelQuery",
-                      "spec": {
-                        "hidden": false,
-                        "query": {
-                          "datasource": {
-                            "name": "prometheus"
-                          },
-                          "group": "prometheus",
-                          "kind": "DataQuery",
-                          "spec": {
-                            "editorMode": "code",
-                            "expr": "node_power_supply_battery_health{job=\"node-exporter\", os=\"$os\", instance=~\"$instance\"}",
-                            "legendFormat": "{{instance}} {{power_supply}} health={{state}}",
-                            "range": true
-                          },
-                          "version": "v0"
-                        },
-                        "refId": "C"
-                      }
-                    }
-                  ],
-                  "queryOptions": {},
-                  "transformations": []
-                }
-              },
-              "description": "Charging, AC/Battery state, and battery health one-hot gauges from powersupplyclass.",
-              "id": 23,
-              "links": [],
-              "title": "Power Supply State",
-              "vizConfig": {
-                "group": "timeseries",
-                "kind": "VizConfig",
-                "spec": {
-                  "fieldConfig": {
-                    "defaults": {
-                      "color": {
-                        "mode": "palette-classic"
-                      },
-                      "custom": {
-                        "drawStyle": "line",
-                        "fillOpacity": 10,
-                        "lineWidth": 2,
-                        "showPoints": "never",
-                        "stacking": {
-                          "mode": "none"
-                        }
-                      },
-                      "max": 1,
-                      "min": 0,
-                      "thresholds": {
-                        "mode": "absolute",
-                        "steps": [
-                          {
-                            "color": "red",
-                            "value": 0
-                          },
-                          {
-                            "color": "green",
-                            "value": 1
-                          }
-                        ]
-                      },
-                      "unit": "none"
-                    },
-                    "overrides": []
-                  },
-                  "options": {
-                    "legend": {
-                      "displayMode": "list",
-                      "placement": "bottom",
-                      "showLegend": true
-                    },
-                    "tooltip": {
-                      "mode": "multi",
-                      "sort": "desc"
-                    }
-                  }
-                },
-                "version": ""
-              }
-            }
-          },
           "panel-24": {
             "kind": "Panel",
             "spec": {
@@ -1784,7 +1306,7 @@ data:
                           "kind": "DataQuery",
                           "spec": {
                             "editorMode": "code",
-                            "expr": "node_scrape_collector_success{job=\"node-exporter\", os=\"$os\", instance=~\"$instance\", collector=~\"cpu|meminfo|filesystem|diskstats|netdev|powersupplyclass|thermal|textfile\"}",
+                            "expr": "node_scrape_collector_success{job=\"node-exporter\", os=\"linux\", instance=~\"$instance\", collector=~\"cpu|meminfo|filesystem|diskstats|netdev|powersupplyclass|thermal|textfile\"}",
                             "legendFormat": "{{instance}} {{collector}}",
                             "range": true
                           },
@@ -1798,7 +1320,7 @@ data:
                   "transformations": []
                 }
               },
-              "description": "Default node_exporter collector success gauges. Thermal may report 0 on macOS when the OS does not expose CPU power status.",
+              "description": "Default node_exporter collector success gauges.",
               "id": 24,
               "links": [],
               "title": "Collector Success",
@@ -1874,7 +1396,7 @@ data:
                           "kind": "DataQuery",
                           "spec": {
                             "editorMode": "code",
-                            "expr": "node_scrape_collector_duration_seconds{job=\"node-exporter\", os=\"$os\", instance=~\"$instance\", collector=~\"cpu|meminfo|filesystem|diskstats|netdev|powersupplyclass|thermal|textfile\"}",
+                            "expr": "node_scrape_collector_duration_seconds{job=\"node-exporter\", os=\"linux\", instance=~\"$instance\", collector=~\"cpu|meminfo|filesystem|diskstats|netdev|powersupplyclass|thermal|textfile\"}",
                             "legendFormat": "{{instance}} {{collector}}",
                             "range": true
                           },
@@ -1939,366 +1461,6 @@ data:
               }
             }
           },
-          "panel-26": {
-            "kind": "Panel",
-            "spec": {
-              "data": {
-                "kind": "QueryGroup",
-                "spec": {
-                  "queries": [
-                    {
-                      "kind": "PanelQuery",
-                      "spec": {
-                        "hidden": false,
-                        "query": {
-                          "datasource": {
-                            "name": "prometheus"
-                          },
-                          "group": "prometheus",
-                          "kind": "DataQuery",
-                          "spec": {
-                            "editorMode": "code",
-                            "expr": "node_power_supply_current_ampere{job=\"node-exporter\", os=\"$os\", instance=~\"$instance\"}",
-                            "legendFormat": "{{instance}} {{power_supply}}",
-                            "range": true
-                          },
-                          "version": "v0"
-                        },
-                        "refId": "A"
-                      }
-                    }
-                  ],
-                  "queryOptions": {},
-                  "transformations": []
-                }
-              },
-              "description": "Battery charge/discharge current in amperes from node_exporter powersupplyclass. This is current, not wattage, because node_exporter does not expose battery voltage by default.",
-              "id": 26,
-              "links": [],
-              "title": "Power Supply Current",
-              "vizConfig": {
-                "group": "timeseries",
-                "kind": "VizConfig",
-                "spec": {
-                  "fieldConfig": {
-                    "defaults": {
-                      "color": {
-                        "mode": "palette-classic"
-                      },
-                      "custom": {
-                        "drawStyle": "line",
-                        "fillOpacity": 10,
-                        "lineWidth": 2,
-                        "showPoints": "never",
-                        "stacking": {
-                          "mode": "none"
-                        }
-                      },
-                      "thresholds": {
-                        "mode": "absolute",
-                        "steps": [
-                          {
-                            "color": "green",
-                            "value": 0
-                          }
-                        ]
-                      },
-                      "unit": "amp"
-                    },
-                    "overrides": []
-                  },
-                  "options": {
-                    "legend": {
-                      "displayMode": "list",
-                      "placement": "bottom",
-                      "showLegend": true
-                    },
-                    "tooltip": {
-                      "mode": "multi",
-                      "sort": "desc"
-                    }
-                  }
-                },
-                "version": ""
-              }
-            }
-          },
-          "panel-27": {
-            "kind": "Panel",
-            "spec": {
-              "data": {
-                "kind": "QueryGroup",
-                "spec": {
-                  "queries": [
-                    {
-                      "kind": "PanelQuery",
-                      "spec": {
-                        "hidden": false,
-                        "query": {
-                          "datasource": {
-                            "name": "prometheus"
-                          },
-                          "group": "prometheus",
-                          "kind": "DataQuery",
-                          "spec": {
-                            "editorMode": "code",
-                            "expr": "node_power_supply_time_to_full_seconds{job=\"node-exporter\", os=\"$os\", instance=~\"$instance\"}",
-                            "legendFormat": "{{instance}} {{power_supply}} to full",
-                            "range": true
-                          },
-                          "version": "v0"
-                        },
-                        "refId": "A"
-                      }
-                    },
-                    {
-                      "kind": "PanelQuery",
-                      "spec": {
-                        "hidden": false,
-                        "query": {
-                          "datasource": {
-                            "name": "prometheus"
-                          },
-                          "group": "prometheus",
-                          "kind": "DataQuery",
-                          "spec": {
-                            "editorMode": "code",
-                            "expr": "node_power_supply_time_to_empty_seconds{job=\"node-exporter\", os=\"$os\", instance=~\"$instance\"}",
-                            "legendFormat": "{{instance}} {{power_supply}} to empty",
-                            "range": true
-                          },
-                          "version": "v0"
-                        },
-                        "refId": "B"
-                      }
-                    }
-                  ],
-                  "queryOptions": {},
-                  "transformations": []
-                }
-              },
-              "description": "Estimated seconds to full or empty from node_exporter powersupplyclass metrics when available.",
-              "id": 27,
-              "links": [],
-              "title": "Power Supply Time Estimate",
-              "vizConfig": {
-                "group": "timeseries",
-                "kind": "VizConfig",
-                "spec": {
-                  "fieldConfig": {
-                    "defaults": {
-                      "color": {
-                        "mode": "palette-classic"
-                      },
-                      "custom": {
-                        "drawStyle": "line",
-                        "fillOpacity": 10,
-                        "lineWidth": 2,
-                        "showPoints": "never",
-                        "stacking": {
-                          "mode": "none"
-                        }
-                      },
-                      "min": 0,
-                      "thresholds": {
-                        "mode": "absolute",
-                        "steps": [
-                          {
-                            "color": "green",
-                            "value": 0
-                          }
-                        ]
-                      },
-                      "unit": "s"
-                    },
-                    "overrides": []
-                  },
-                  "options": {
-                    "legend": {
-                      "displayMode": "list",
-                      "placement": "bottom",
-                      "showLegend": true
-                    },
-                    "tooltip": {
-                      "mode": "multi",
-                      "sort": "desc"
-                    }
-                  }
-                },
-                "version": ""
-              }
-            }
-          },
-          "panel-28": {
-            "kind": "Panel",
-            "spec": {
-              "data": {
-                "kind": "QueryGroup",
-                "spec": {
-                  "queries": [
-                    {
-                      "kind": "PanelQuery",
-                      "spec": {
-                        "hidden": false,
-                        "query": {
-                          "datasource": {
-                            "name": "prometheus"
-                          },
-                          "group": "prometheus",
-                          "kind": "DataQuery",
-                          "spec": {
-                            "editorMode": "code",
-                            "expr": "node_memory_compressed_bytes{job=\"node-exporter\", os=\"$os\", instance=~\"$instance\"} / clamp_min(node_memory_total_bytes{job=\"node-exporter\", os=\"$os\", instance=~\"$instance\"}, 1)",
-                            "legendFormat": "{{instance}} compressed",
-                            "range": true
-                          },
-                          "version": "v0"
-                        },
-                        "refId": "A"
-                      }
-                    },
-                    {
-                      "kind": "PanelQuery",
-                      "spec": {
-                        "hidden": false,
-                        "query": {
-                          "datasource": {
-                            "name": "prometheus"
-                          },
-                          "group": "prometheus",
-                          "kind": "DataQuery",
-                          "spec": {
-                            "editorMode": "code",
-                            "expr": "node_memory_wired_bytes{job=\"node-exporter\", os=\"$os\", instance=~\"$instance\"} / clamp_min(node_memory_total_bytes{job=\"node-exporter\", os=\"$os\", instance=~\"$instance\"}, 1)",
-                            "legendFormat": "{{instance}} wired",
-                            "range": true
-                          },
-                          "version": "v0"
-                        },
-                        "refId": "B"
-                      }
-                    },
-                    {
-                      "kind": "PanelQuery",
-                      "spec": {
-                        "hidden": false,
-                        "query": {
-                          "datasource": {
-                            "name": "prometheus"
-                          },
-                          "group": "prometheus",
-                          "kind": "DataQuery",
-                          "spec": {
-                            "editorMode": "code",
-                            "expr": "node_memory_internal_bytes{job=\"node-exporter\", os=\"$os\", instance=~\"$instance\"} / clamp_min(node_memory_total_bytes{job=\"node-exporter\", os=\"$os\", instance=~\"$instance\"}, 1)",
-                            "legendFormat": "{{instance}} internal",
-                            "range": true
-                          },
-                          "version": "v0"
-                        },
-                        "refId": "C"
-                      }
-                    },
-                    {
-                      "kind": "PanelQuery",
-                      "spec": {
-                        "hidden": false,
-                        "query": {
-                          "datasource": {
-                            "name": "prometheus"
-                          },
-                          "group": "prometheus",
-                          "kind": "DataQuery",
-                          "spec": {
-                            "editorMode": "code",
-                            "expr": "node_memory_purgeable_bytes{job=\"node-exporter\", os=\"$os\", instance=~\"$instance\"} / clamp_min(node_memory_total_bytes{job=\"node-exporter\", os=\"$os\", instance=~\"$instance\"}, 1)",
-                            "legendFormat": "{{instance}} purgeable",
-                            "range": true
-                          },
-                          "version": "v0"
-                        },
-                        "refId": "D"
-                      }
-                    },
-                    {
-                      "kind": "PanelQuery",
-                      "spec": {
-                        "hidden": false,
-                        "query": {
-                          "datasource": {
-                            "name": "prometheus"
-                          },
-                          "group": "prometheus",
-                          "kind": "DataQuery",
-                          "spec": {
-                            "editorMode": "code",
-                            "expr": "node_memory_swap_used_bytes{job=\"node-exporter\", os=\"$os\", instance=~\"$instance\"} / clamp_min(node_memory_swap_total_bytes{job=\"node-exporter\", os=\"$os\", instance=~\"$instance\"}, 1)",
-                            "legendFormat": "{{instance}} swap used",
-                            "range": true
-                          },
-                          "version": "v0"
-                        },
-                        "refId": "E"
-                      }
-                    }
-                  ],
-                  "queryOptions": {},
-                  "transformations": []
-                }
-              },
-              "description": "macOS memory component ratios derived from node_memory_*_bytes. These are pressure proxies, not macOS memory_pressure output.",
-              "id": 28,
-              "links": [],
-              "title": "Memory Ratios",
-              "vizConfig": {
-                "group": "timeseries",
-                "kind": "VizConfig",
-                "spec": {
-                  "fieldConfig": {
-                    "defaults": {
-                      "color": {
-                        "mode": "palette-classic"
-                      },
-                      "custom": {
-                        "drawStyle": "line",
-                        "fillOpacity": 10,
-                        "lineWidth": 2,
-                        "showPoints": "never",
-                        "stacking": {
-                          "mode": "none"
-                        }
-                      },
-                      "max": 1,
-                      "min": 0,
-                      "thresholds": {
-                        "mode": "absolute",
-                        "steps": [
-                          {
-                            "color": "green",
-                            "value": 0
-                          }
-                        ]
-                      },
-                      "unit": "percentunit"
-                    },
-                    "overrides": []
-                  },
-                  "options": {
-                    "legend": {
-                      "displayMode": "list",
-                      "placement": "bottom",
-                      "showLegend": true
-                    },
-                    "tooltip": {
-                      "mode": "multi",
-                      "sort": "desc"
-                    }
-                  }
-                },
-                "version": ""
-              }
-            }
-          },
           "panel-29": {
             "kind": "Panel",
             "spec": {
@@ -2318,7 +1480,7 @@ data:
                           "kind": "DataQuery",
                           "spec": {
                             "editorMode": "code",
-                            "expr": "node_filesystem_free_bytes{job=\"node-exporter\", os=\"$os\", instance=~\"$instance\", mountpoint=~\"$mountpoint\", device_error=\"\", fstype!~\"tmpfs|overlay|squashfs|devfs\"}",
+                            "expr": "node_filesystem_free_bytes{job=\"node-exporter\", os=\"linux\", instance=~\"$instance\", mountpoint=~\"$mountpoint\", device_error=\"\", fstype!~\"tmpfs|overlay|squashfs|devfs\"}",
                             "legendFormat": "{{instance}} {{mountpoint}} free",
                             "range": true
                           },
@@ -2339,7 +1501,7 @@ data:
                           "kind": "DataQuery",
                           "spec": {
                             "editorMode": "code",
-                            "expr": "node_filesystem_avail_bytes{job=\"node-exporter\", os=\"$os\", instance=~\"$instance\", mountpoint=~\"$mountpoint\", device_error=\"\", fstype!~\"tmpfs|overlay|squashfs|devfs\"}",
+                            "expr": "node_filesystem_avail_bytes{job=\"node-exporter\", os=\"linux\", instance=~\"$instance\", mountpoint=~\"$mountpoint\", device_error=\"\", fstype!~\"tmpfs|overlay|squashfs|devfs\"}",
                             "legendFormat": "{{instance}} {{mountpoint}} available",
                             "range": true
                           },
@@ -2347,37 +1509,16 @@ data:
                         },
                         "refId": "B"
                       }
-                    },
-                    {
-                      "kind": "PanelQuery",
-                      "spec": {
-                        "hidden": false,
-                        "query": {
-                          "datasource": {
-                            "name": "prometheus"
-                          },
-                          "group": "prometheus",
-                          "kind": "DataQuery",
-                          "spec": {
-                            "editorMode": "code",
-                            "expr": "node_filesystem_purgeable_bytes{job=\"node-exporter\", os=\"$os\", instance=~\"$instance\", mountpoint=~\"$mountpoint\", device_error=\"\", fstype!~\"tmpfs|overlay|squashfs|devfs\"}",
-                            "legendFormat": "{{instance}} {{mountpoint}} purgeable",
-                            "range": true
-                          },
-                          "version": "v0"
-                        },
-                        "refId": "C"
-                      }
                     }
                   ],
                   "queryOptions": {},
                   "transformations": []
                 }
               },
-              "description": "macOS APFS exposes purgeable bytes separately. Available can include space reclaimable by the OS, while free is immediately free space.",
+              "description": "Free counts root-reserved blocks. Available is what non-root processes can use.",
               "id": 29,
               "links": [],
-              "title": "Filesystem Free / Available / Purgeable",
+              "title": "Filesystem Free / Available",
               "vizConfig": {
                 "group": "timeseries",
                 "kind": "VizConfig",
@@ -2445,7 +1586,7 @@ data:
                           "kind": "DataQuery",
                           "spec": {
                             "editorMode": "code",
-                            "expr": "count by (instance) (count by (instance, cpu) (node_cpu_seconds_total{job=\"node-exporter\", os=\"$os\", instance=~\"$instance\", mode=\"idle\"}))",
+                            "expr": "count by (instance) (count by (instance, cpu) (node_cpu_seconds_total{job=\"node-exporter\", os=\"linux\", instance=~\"$instance\", mode=\"idle\"}))",
                             "legendFormat": "{{instance}}",
                             "range": true
                           },
@@ -2527,7 +1668,7 @@ data:
                           "kind": "DataQuery",
                           "spec": {
                             "editorMode": "code",
-                            "expr": "node_filesystem_mount_info{job=\"node-exporter\", os=\"$os\", instance=~\"$instance\", mountpoint=~\"$mountpoint\", device_error=\"\", fstype!~\"tmpfs|overlay|squashfs|devfs\"}",
+                            "expr": "node_filesystem_mount_info{job=\"node-exporter\", os=\"linux\", instance=~\"$instance\", mountpoint=~\"$mountpoint\", device_error=\"\", fstype!~\"tmpfs|overlay|squashfs|devfs\"}",
                             "format": "table",
                             "instant": true,
                             "range": false
@@ -2623,7 +1764,7 @@ data:
                           "kind": "DataQuery",
                           "spec": {
                             "editorMode": "code",
-                            "expr": "sum by (instance, device) (rate(node_network_receive_multicast_total{job=\"node-exporter\", os=\"$os\", instance=~\"$instance\", device=~\"$network_device\", device!~\"lo0?|docker.*|veth.*|br.*|bridge.*|utun.*\"}[$__rate_interval]))",
+                            "expr": "sum by (instance, device) (rate(node_network_receive_multicast_total{job=\"node-exporter\", os=\"linux\", instance=~\"$instance\", device=~\"$network_device\", device!~\"lo0?|docker.*|veth.*|br.*|bridge.*|utun.*\"}[$__rate_interval]))",
                             "legendFormat": "{{instance}} {{device}} rx multicast",
                             "range": true
                           },
@@ -2644,49 +1785,7 @@ data:
                           "kind": "DataQuery",
                           "spec": {
                             "editorMode": "code",
-                            "expr": "sum by (instance, device) (rate(node_network_transmit_multicast_total{job=\"node-exporter\", os=\"$os\", instance=~\"$instance\", device=~\"$network_device\", device!~\"lo0?|docker.*|veth.*|br.*|bridge.*|utun.*\"}[$__rate_interval]))",
-                            "legendFormat": "{{instance}} {{device}} tx multicast",
-                            "range": true
-                          },
-                          "version": "v0"
-                        },
-                        "refId": "B"
-                      }
-                    },
-                    {
-                      "kind": "PanelQuery",
-                      "spec": {
-                        "hidden": false,
-                        "query": {
-                          "datasource": {
-                            "name": "prometheus"
-                          },
-                          "group": "prometheus",
-                          "kind": "DataQuery",
-                          "spec": {
-                            "editorMode": "code",
-                            "expr": "sum by (instance, device) (rate(node_network_noproto_total{job=\"node-exporter\", os=\"$os\", instance=~\"$instance\", device=~\"$network_device\", device!~\"lo0?|docker.*|veth.*|br.*|bridge.*|utun.*\"}[$__rate_interval]))",
-                            "legendFormat": "{{instance}} {{device}} no proto",
-                            "range": true
-                          },
-                          "version": "v0"
-                        },
-                        "refId": "C"
-                      }
-                    },
-                    {
-                      "kind": "PanelQuery",
-                      "spec": {
-                        "hidden": false,
-                        "query": {
-                          "datasource": {
-                            "name": "prometheus"
-                          },
-                          "group": "prometheus",
-                          "kind": "DataQuery",
-                          "spec": {
-                            "editorMode": "code",
-                            "expr": "sum by (instance, device) (rate(node_network_transmit_colls_total{job=\"node-exporter\", os=\"$os\", instance=~\"$instance\", device=~\"$network_device\", device!~\"lo0?|docker.*|veth.*|br.*|bridge.*|utun.*\"}[$__rate_interval]))",
+                            "expr": "sum by (instance, device) (rate(node_network_transmit_colls_total{job=\"node-exporter\", os=\"linux\", instance=~\"$instance\", device=~\"$network_device\", device!~\"lo0?|docker.*|veth.*|br.*|bridge.*|utun.*\"}[$__rate_interval]))",
                             "legendFormat": "{{instance}} {{device}} tx collisions",
                             "range": true
                           },
@@ -2700,10 +1799,10 @@ data:
                   "transformations": []
                 }
               },
-              "description": "Additional netdev counters exposed by node_exporter: multicast packets, unknown protocol packets, and transmit collisions.",
+              "description": "Multicast packets received and transmit collisions from netdev counters.",
               "id": 31,
               "links": [],
-              "title": "Network Advanced Packets",
+              "title": "Network Multicast / Collisions",
               "vizConfig": {
                 "group": "timeseries",
                 "kind": "VizConfig",
@@ -2752,419 +1851,6 @@ data:
               }
             }
           },
-          "panel-32": {
-            "kind": "Panel",
-            "spec": {
-              "data": {
-                "kind": "QueryGroup",
-                "spec": {
-                  "queries": [
-                    {
-                      "kind": "PanelQuery",
-                      "spec": {
-                        "hidden": false,
-                        "query": {
-                          "datasource": {
-                            "name": "prometheus"
-                          },
-                          "group": "prometheus",
-                          "kind": "DataQuery",
-                          "spec": {
-                            "editorMode": "code",
-                            "expr": "node_power_supply_present{job=\"node-exporter\", os=\"$os\", instance=~\"$instance\"}",
-                            "legendFormat": "{{instance}} {{power_supply}} present",
-                            "range": true
-                          },
-                          "version": "v0"
-                        },
-                        "refId": "A"
-                      }
-                    },
-                    {
-                      "kind": "PanelQuery",
-                      "spec": {
-                        "hidden": false,
-                        "query": {
-                          "datasource": {
-                            "name": "prometheus"
-                          },
-                          "group": "prometheus",
-                          "kind": "DataQuery",
-                          "spec": {
-                            "editorMode": "code",
-                            "expr": "node_power_supply_charging{job=\"node-exporter\", os=\"$os\", instance=~\"$instance\"}",
-                            "legendFormat": "{{instance}} {{power_supply}} charging",
-                            "range": true
-                          },
-                          "version": "v0"
-                        },
-                        "refId": "B"
-                      }
-                    },
-                    {
-                      "kind": "PanelQuery",
-                      "spec": {
-                        "hidden": false,
-                        "query": {
-                          "datasource": {
-                            "name": "prometheus"
-                          },
-                          "group": "prometheus",
-                          "kind": "DataQuery",
-                          "spec": {
-                            "editorMode": "code",
-                            "expr": "node_power_supply_battery_health{job=\"node-exporter\", os=\"$os\", instance=~\"$instance\"}",
-                            "legendFormat": "{{instance}} {{power_supply}} {{state}} health",
-                            "range": true
-                          },
-                          "version": "v0"
-                        },
-                        "refId": "C"
-                      }
-                    }
-                  ],
-                  "queryOptions": {},
-                  "transformations": []
-                }
-              },
-              "description": "Power supply presence, charging status, and health state from the default macOS powersupplyclass collector.",
-              "id": 32,
-              "links": [],
-              "title": "Power Supply Present / Health",
-              "vizConfig": {
-                "group": "timeseries",
-                "kind": "VizConfig",
-                "spec": {
-                  "fieldConfig": {
-                    "defaults": {
-                      "color": {
-                        "mode": "palette-classic"
-                      },
-                      "custom": {
-                        "drawStyle": "line",
-                        "fillOpacity": 10,
-                        "lineWidth": 2,
-                        "showPoints": "never",
-                        "stacking": {
-                          "mode": "none"
-                        }
-                      },
-                      "max": 1,
-                      "min": 0,
-                      "thresholds": {
-                        "mode": "absolute",
-                        "steps": [
-                          {
-                            "color": "green",
-                            "value": 0
-                          }
-                        ]
-                      },
-                      "unit": "none"
-                    },
-                    "overrides": []
-                  },
-                  "options": {
-                    "legend": {
-                      "displayMode": "list",
-                      "placement": "bottom",
-                      "showLegend": true
-                    },
-                    "tooltip": {
-                      "mode": "multi",
-                      "sort": "desc"
-                    }
-                  }
-                },
-                "version": ""
-              }
-            }
-          },
-          "panel-33": {
-            "kind": "Panel",
-            "spec": {
-              "data": {
-                "kind": "QueryGroup",
-                "spec": {
-                  "queries": [
-                    {
-                      "kind": "PanelQuery",
-                      "spec": {
-                        "hidden": false,
-                        "query": {
-                          "datasource": {
-                            "name": "prometheus"
-                          },
-                          "group": "prometheus",
-                          "kind": "DataQuery",
-                          "spec": {
-                            "editorMode": "code",
-                            "expr": "max without (serial_number, id) (node_power_supply_info{job=\"node-exporter\", os=\"$os\", instance=~\"$instance\"})",
-                            "format": "table",
-                            "instant": true,
-                            "range": false
-                          },
-                          "version": "v0"
-                        },
-                        "refId": "A"
-                      }
-                    }
-                  ],
-                  "queryOptions": {},
-                  "transformations": [
-                    {
-                      "group": "organize",
-                      "kind": "Transformation",
-                      "spec": {
-                        "options": {
-                          "excludeByName": {
-                            "Time": true,
-                            "Value": true,
-                            "__name__": true,
-                            "job": true,
-                            "os": true
-                          },
-                          "indexByName": {
-                            "instance": 0,
-                            "power_supply": 1,
-                            "transport_type": 3,
-                            "type": 2
-                          },
-                          "renameByName": {}
-                        }
-                      }
-                    }
-                  ]
-                }
-              },
-              "description": "Power supply metadata with serial_number and id labels intentionally dropped before display.",
-              "id": 33,
-              "links": [],
-              "title": "Power Supply Info",
-              "vizConfig": {
-                "group": "table",
-                "kind": "VizConfig",
-                "spec": {
-                  "fieldConfig": {
-                    "defaults": {
-                      "custom": {
-                        "align": "auto",
-                        "cellOptions": {
-                          "type": "auto"
-                        },
-                        "inspect": false
-                      },
-                      "unit": "short"
-                    },
-                    "overrides": []
-                  },
-                  "options": {
-                    "cellHeight": "sm",
-                    "footer": {
-                      "countRows": false,
-                      "fields": "",
-                      "reducer": [
-                        "sum"
-                      ],
-                      "show": false
-                    },
-                    "showHeader": true
-                  }
-                },
-                "version": "13.0.1"
-              }
-            }
-          },
-          "panel-34": {
-            "kind": "Panel",
-            "spec": {
-              "data": {
-                "kind": "QueryGroup",
-                "spec": {
-                  "queries": [
-                    {
-                      "kind": "PanelQuery",
-                      "spec": {
-                        "hidden": false,
-                        "query": {
-                          "datasource": {
-                            "name": "prometheus"
-                          },
-                          "group": "prometheus",
-                          "kind": "DataQuery",
-                          "spec": {
-                            "editorMode": "code",
-                            "expr": "abs(node_power_supply_current_ampere{job=\"node-exporter\", os=\"$os\", instance=~\"$instance\"}) * on (instance, power_supply) group_left node_power_supply_voltage_volt{job=\"node-exporter\", os=\"$os\", instance=~\"$instance\"}",
-                            "legendFormat": "{{instance}} {{power_supply}} watts",
-                            "range": true
-                          },
-                          "version": "v0"
-                        },
-                        "refId": "A"
-                      }
-                    }
-                  ],
-                  "queryOptions": {},
-                  "transformations": []
-                }
-              },
-              "description": "Computed watts from node_power_supply_voltage_volt and node_power_supply_current_ampere when the macOS IOKit voltage field is exposed. Many Macs expose current but omit voltage, so this panel may be empty.",
-              "id": 34,
-              "links": [],
-              "title": "Power Draw Estimate",
-              "vizConfig": {
-                "group": "timeseries",
-                "kind": "VizConfig",
-                "spec": {
-                  "fieldConfig": {
-                    "defaults": {
-                      "color": {
-                        "mode": "palette-classic"
-                      },
-                      "custom": {
-                        "drawStyle": "line",
-                        "fillOpacity": 10,
-                        "lineWidth": 2,
-                        "showPoints": "never",
-                        "stacking": {
-                          "mode": "none"
-                        }
-                      },
-                      "min": 0,
-                      "thresholds": {
-                        "mode": "absolute",
-                        "steps": [
-                          {
-                            "color": "green",
-                            "value": 0
-                          }
-                        ]
-                      },
-                      "unit": "watt"
-                    },
-                    "overrides": []
-                  },
-                  "options": {
-                    "legend": {
-                      "displayMode": "list",
-                      "placement": "bottom",
-                      "showLegend": true
-                    },
-                    "tooltip": {
-                      "mode": "multi",
-                      "sort": "desc"
-                    }
-                  }
-                },
-                "version": ""
-              }
-            }
-          },
-          "panel-35": {
-            "kind": "Panel",
-            "spec": {
-              "data": {
-                "kind": "QueryGroup",
-                "spec": {
-                  "queries": [
-                    {
-                      "kind": "PanelQuery",
-                      "spec": {
-                        "hidden": false,
-                        "query": {
-                          "datasource": {
-                            "name": "prometheus"
-                          },
-                          "group": "prometheus",
-                          "kind": "DataQuery",
-                          "spec": {
-                            "editorMode": "code",
-                            "expr": "node_power_supply_voltage_volt{job=\"node-exporter\", os=\"$os\", instance=~\"$instance\"}",
-                            "legendFormat": "{{instance}} {{power_supply}} voltage",
-                            "range": true
-                          },
-                          "version": "v0"
-                        },
-                        "refId": "A"
-                      }
-                    },
-                    {
-                      "kind": "PanelQuery",
-                      "spec": {
-                        "hidden": false,
-                        "query": {
-                          "datasource": {
-                            "name": "prometheus"
-                          },
-                          "group": "prometheus",
-                          "kind": "DataQuery",
-                          "spec": {
-                            "editorMode": "code",
-                            "expr": "node_power_supply_temp_celsius{job=\"node-exporter\", os=\"$os\", instance=~\"$instance\"}",
-                            "legendFormat": "{{instance}} {{power_supply}} temp",
-                            "range": true
-                          },
-                          "version": "v0"
-                        },
-                        "refId": "B"
-                      }
-                    }
-                  ],
-                  "queryOptions": {},
-                  "transformations": []
-                }
-              },
-              "description": "Optional power supply voltage and temperature fields from node_exporter powersupplyclass. These appear only when IOKit returns the source fields.",
-              "id": 35,
-              "links": [],
-              "title": "Power Supply Optional Sensors",
-              "vizConfig": {
-                "group": "timeseries",
-                "kind": "VizConfig",
-                "spec": {
-                  "fieldConfig": {
-                    "defaults": {
-                      "color": {
-                        "mode": "palette-classic"
-                      },
-                      "custom": {
-                        "drawStyle": "line",
-                        "fillOpacity": 10,
-                        "lineWidth": 2,
-                        "showPoints": "never",
-                        "stacking": {
-                          "mode": "none"
-                        }
-                      },
-                      "thresholds": {
-                        "mode": "absolute",
-                        "steps": [
-                          {
-                            "color": "green",
-                            "value": 0
-                          }
-                        ]
-                      },
-                      "unit": "short"
-                    },
-                    "overrides": []
-                  },
-                  "options": {
-                    "legend": {
-                      "displayMode": "list",
-                      "placement": "bottom",
-                      "showLegend": true
-                    },
-                    "tooltip": {
-                      "mode": "multi",
-                      "sort": "desc"
-                    }
-                  }
-                },
-                "version": ""
-              }
-            }
-          },
           "panel-36": {
             "kind": "Panel",
             "spec": {
@@ -3184,7 +1870,7 @@ data:
                           "kind": "DataQuery",
                           "spec": {
                             "editorMode": "code",
-                            "expr": "abs(time() - node_time_seconds{job=\"node-exporter\", os=\"$os\", instance=~\"$instance\"})",
+                            "expr": "abs(time() - node_time_seconds{job=\"node-exporter\", os=\"linux\", instance=~\"$instance\"})",
                             "legendFormat": "{{instance}}",
                             "range": true
                           },
@@ -3273,7 +1959,7 @@ data:
                           "kind": "DataQuery",
                           "spec": {
                             "editorMode": "code",
-                            "expr": "node_os_info{job=\"node-exporter\", os=\"$os\", instance=~\"$instance\"}",
+                            "expr": "node_os_info{job=\"node-exporter\", os=\"linux\", instance=~\"$instance\"}",
                             "format": "table",
                             "instant": true,
                             "range": false
@@ -3295,7 +1981,7 @@ data:
                           "kind": "DataQuery",
                           "spec": {
                             "editorMode": "code",
-                            "expr": "node_uname_info{job=\"node-exporter\", os=\"$os\", instance=~\"$instance\"}",
+                            "expr": "node_uname_info{job=\"node-exporter\", os=\"linux\", instance=~\"$instance\"}",
                             "format": "table",
                             "instant": true,
                             "range": false
@@ -3317,7 +2003,7 @@ data:
                           "kind": "DataQuery",
                           "spec": {
                             "editorMode": "code",
-                            "expr": "node_exporter_build_info{job=\"node-exporter\", os=\"$os\", instance=~\"$instance\"}",
+                            "expr": "node_exporter_build_info{job=\"node-exporter\", os=\"linux\", instance=~\"$instance\"}",
                             "format": "table",
                             "instant": true,
                             "range": false
@@ -3416,7 +2102,7 @@ data:
                           "kind": "DataQuery",
                           "spec": {
                             "editorMode": "code",
-                            "expr": "node_time_zone_offset_seconds{job=\"node-exporter\", os=\"$os\", instance=~\"$instance\"}",
+                            "expr": "node_time_zone_offset_seconds{job=\"node-exporter\", os=\"linux\", instance=~\"$instance\"}",
                             "legendFormat": "{{instance}} {{time_zone}}",
                             "range": true
                           },
@@ -3497,7 +2183,7 @@ data:
                           "kind": "DataQuery",
                           "spec": {
                             "editorMode": "code",
-                            "expr": "node_load1{job=\"node-exporter\", os=\"$os\", instance=~\"$instance\"}",
+                            "expr": "node_load1{job=\"node-exporter\", os=\"linux\", instance=~\"$instance\"}",
                             "legendFormat": "{{instance}} load1",
                             "range": true
                           },
@@ -3518,7 +2204,7 @@ data:
                           "kind": "DataQuery",
                           "spec": {
                             "editorMode": "code",
-                            "expr": "node_load5{job=\"node-exporter\", os=\"$os\", instance=~\"$instance\"}",
+                            "expr": "node_load5{job=\"node-exporter\", os=\"linux\", instance=~\"$instance\"}",
                             "legendFormat": "{{instance}} load5",
                             "range": true
                           },
@@ -3539,7 +2225,7 @@ data:
                           "kind": "DataQuery",
                           "spec": {
                             "editorMode": "code",
-                            "expr": "node_load15{job=\"node-exporter\", os=\"$os\", instance=~\"$instance\"}",
+                            "expr": "node_load15{job=\"node-exporter\", os=\"linux\", instance=~\"$instance\"}",
                             "legendFormat": "{{instance}} load15",
                             "range": true
                           },
@@ -3623,7 +2309,7 @@ data:
                           "kind": "DataQuery",
                           "spec": {
                             "editorMode": "code",
-                            "expr": "1 - avg by (instance) (rate(node_cpu_seconds_total{job=\"node-exporter\", os=\"$os\", instance=~\"$instance\", mode=\"idle\"}[$__rate_interval]))",
+                            "expr": "1 - avg by (instance) (rate(node_cpu_seconds_total{job=\"node-exporter\", os=\"linux\", instance=~\"$instance\", mode=\"idle\"}[$__rate_interval]))",
                             "legendFormat": "{{instance}}",
                             "range": true
                           },
@@ -3637,7 +2323,7 @@ data:
                   "transformations": []
                 }
               },
-              "description": "CPU busy ratio. Uses node_cpu_seconds_total for both macOS and Linux.",
+              "description": "CPU busy ratio from node_cpu_seconds_total.",
               "id": 5,
               "links": [],
               "title": "CPU Usage",
@@ -3717,7 +2403,7 @@ data:
                           "kind": "DataQuery",
                           "spec": {
                             "editorMode": "code",
-                            "expr": "avg by (instance, mode) (rate(node_cpu_seconds_total{job=\"node-exporter\", os=\"$os\", instance=~\"$instance\"}[$__rate_interval]))",
+                            "expr": "avg by (instance, mode) (rate(node_cpu_seconds_total{job=\"node-exporter\", os=\"linux\", instance=~\"$instance\"}[$__rate_interval]))",
                             "legendFormat": "{{instance}} {{mode}}",
                             "range": true
                           },
@@ -3803,7 +2489,7 @@ data:
                           "kind": "DataQuery",
                           "spec": {
                             "editorMode": "code",
-                            "expr": "(1 - ((node_memory_free_bytes{job=\"node-exporter\", os=\"$os\", instance=~\"$instance\"} + node_memory_inactive_bytes{job=\"node-exporter\", os=\"$os\", instance=~\"$instance\"} + node_memory_purgeable_bytes{job=\"node-exporter\", os=\"$os\", instance=~\"$instance\"}) / node_memory_total_bytes{job=\"node-exporter\", os=\"$os\", instance=~\"$instance\"})) or (1 - (node_memory_MemAvailable_bytes{job=\"node-exporter\", os=\"$os\", instance=~\"$instance\"} / node_memory_MemTotal_bytes{job=\"node-exporter\", os=\"$os\", instance=~\"$instance\"}))",
+                            "expr": "1 - (node_memory_MemAvailable_bytes{job=\"node-exporter\", os=\"linux\", instance=~\"$instance\"} / node_memory_MemTotal_bytes{job=\"node-exporter\", os=\"linux\", instance=~\"$instance\"})",
                             "legendFormat": "{{instance}}",
                             "range": true
                           },
@@ -3817,7 +2503,7 @@ data:
                   "transformations": []
                 }
               },
-              "description": "macOS uses free + inactive + purgeable bytes. Linux uses MemAvailable bytes.",
+              "description": "Used ratio from MemTotal and MemAvailable.",
               "id": 7,
               "links": [],
               "title": "Memory Usage",
@@ -3897,154 +2583,7 @@ data:
                           "kind": "DataQuery",
                           "spec": {
                             "editorMode": "code",
-                            "expr": "node_memory_active_bytes{job=\"node-exporter\", os=\"$os\", instance=~\"$instance\"}",
-                            "legendFormat": "{{instance}} active",
-                            "range": true
-                          },
-                          "version": "v0"
-                        },
-                        "refId": "A"
-                      }
-                    },
-                    {
-                      "kind": "PanelQuery",
-                      "spec": {
-                        "hidden": false,
-                        "query": {
-                          "datasource": {
-                            "name": "prometheus"
-                          },
-                          "group": "prometheus",
-                          "kind": "DataQuery",
-                          "spec": {
-                            "editorMode": "code",
-                            "expr": "node_memory_wired_bytes{job=\"node-exporter\", os=\"$os\", instance=~\"$instance\"}",
-                            "legendFormat": "{{instance}} wired",
-                            "range": true
-                          },
-                          "version": "v0"
-                        },
-                        "refId": "B"
-                      }
-                    },
-                    {
-                      "kind": "PanelQuery",
-                      "spec": {
-                        "hidden": false,
-                        "query": {
-                          "datasource": {
-                            "name": "prometheus"
-                          },
-                          "group": "prometheus",
-                          "kind": "DataQuery",
-                          "spec": {
-                            "editorMode": "code",
-                            "expr": "node_memory_compressed_bytes{job=\"node-exporter\", os=\"$os\", instance=~\"$instance\"}",
-                            "legendFormat": "{{instance}} compressed",
-                            "range": true
-                          },
-                          "version": "v0"
-                        },
-                        "refId": "C"
-                      }
-                    },
-                    {
-                      "kind": "PanelQuery",
-                      "spec": {
-                        "hidden": false,
-                        "query": {
-                          "datasource": {
-                            "name": "prometheus"
-                          },
-                          "group": "prometheus",
-                          "kind": "DataQuery",
-                          "spec": {
-                            "editorMode": "code",
-                            "expr": "node_memory_internal_bytes{job=\"node-exporter\", os=\"$os\", instance=~\"$instance\"}",
-                            "legendFormat": "{{instance}} internal",
-                            "range": true
-                          },
-                          "version": "v0"
-                        },
-                        "refId": "I"
-                      }
-                    },
-                    {
-                      "kind": "PanelQuery",
-                      "spec": {
-                        "hidden": false,
-                        "query": {
-                          "datasource": {
-                            "name": "prometheus"
-                          },
-                          "group": "prometheus",
-                          "kind": "DataQuery",
-                          "spec": {
-                            "editorMode": "code",
-                            "expr": "node_memory_inactive_bytes{job=\"node-exporter\", os=\"$os\", instance=~\"$instance\"}",
-                            "legendFormat": "{{instance}} inactive",
-                            "range": true
-                          },
-                          "version": "v0"
-                        },
-                        "refId": "D"
-                      }
-                    },
-                    {
-                      "kind": "PanelQuery",
-                      "spec": {
-                        "hidden": false,
-                        "query": {
-                          "datasource": {
-                            "name": "prometheus"
-                          },
-                          "group": "prometheus",
-                          "kind": "DataQuery",
-                          "spec": {
-                            "editorMode": "code",
-                            "expr": "node_memory_free_bytes{job=\"node-exporter\", os=\"$os\", instance=~\"$instance\"}",
-                            "legendFormat": "{{instance}} free",
-                            "range": true
-                          },
-                          "version": "v0"
-                        },
-                        "refId": "E"
-                      }
-                    },
-                    {
-                      "kind": "PanelQuery",
-                      "spec": {
-                        "hidden": false,
-                        "query": {
-                          "datasource": {
-                            "name": "prometheus"
-                          },
-                          "group": "prometheus",
-                          "kind": "DataQuery",
-                          "spec": {
-                            "editorMode": "code",
-                            "expr": "node_memory_purgeable_bytes{job=\"node-exporter\", os=\"$os\", instance=~\"$instance\"}",
-                            "legendFormat": "{{instance}} purgeable",
-                            "range": true
-                          },
-                          "version": "v0"
-                        },
-                        "refId": "F"
-                      }
-                    },
-                    {
-                      "kind": "PanelQuery",
-                      "spec": {
-                        "hidden": false,
-                        "query": {
-                          "datasource": {
-                            "name": "prometheus"
-                          },
-                          "group": "prometheus",
-                          "kind": "DataQuery",
-                          "spec": {
-                            "editorMode": "code",
-                            "expr": "node_memory_MemTotal_bytes{job=\"node-exporter\", os=\"$os\", instance=~\"$instance\"} - node_memory_MemAvailable_bytes{job=\"node-exporter\", os=\"$os\", instance=~\"$instance\"}",
+                            "expr": "node_memory_MemTotal_bytes{job=\"node-exporter\", os=\"linux\", instance=~\"$instance\"} - node_memory_MemAvailable_bytes{job=\"node-exporter\", os=\"linux\", instance=~\"$instance\"}",
                             "legendFormat": "{{instance}} used",
                             "range": true
                           },
@@ -4065,7 +2604,7 @@ data:
                           "kind": "DataQuery",
                           "spec": {
                             "editorMode": "code",
-                            "expr": "node_memory_MemAvailable_bytes{job=\"node-exporter\", os=\"$os\", instance=~\"$instance\"}",
+                            "expr": "node_memory_MemAvailable_bytes{job=\"node-exporter\", os=\"linux\", instance=~\"$instance\"}",
                             "legendFormat": "{{instance}} available",
                             "range": true
                           },
@@ -4079,7 +2618,7 @@ data:
                   "transformations": []
                 }
               },
-              "description": "Memory components. macOS exposes active, wired, compressed, internal, inactive, free, and purgeable memory; Linux exposes MemTotal/MemAvailable-style metrics.",
+              "description": "Used and available memory from MemTotal and MemAvailable.",
               "id": 8,
               "links": [],
               "title": "Memory Breakdown",
@@ -4149,7 +2688,7 @@ data:
                           "kind": "DataQuery",
                           "spec": {
                             "editorMode": "code",
-                            "expr": "(1 - (node_filesystem_purgeable_bytes{job=\"node-exporter\", os=\"$os\", instance=~\"$instance\", mountpoint=~\"$mountpoint\", device_error=\"\"} / node_filesystem_size_bytes{job=\"node-exporter\", os=\"$os\", instance=~\"$instance\", mountpoint=~\"$mountpoint\", device_error=\"\"})) or (1 - (node_filesystem_avail_bytes{job=\"node-exporter\", os=\"$os\", instance=~\"$instance\", mountpoint=~\"$mountpoint\", device_error=\"\", fstype!~\"tmpfs|overlay|squashfs|devfs\"} / node_filesystem_size_bytes{job=\"node-exporter\", os=\"$os\", instance=~\"$instance\", mountpoint=~\"$mountpoint\", device_error=\"\", fstype!~\"tmpfs|overlay|squashfs|devfs\"}))",
+                            "expr": "1 - (node_filesystem_avail_bytes{job=\"node-exporter\", os=\"linux\", instance=~\"$instance\", mountpoint=~\"$mountpoint\", device_error=\"\", fstype!~\"tmpfs|overlay|squashfs|devfs\"} / node_filesystem_size_bytes{job=\"node-exporter\", os=\"linux\", instance=~\"$instance\", mountpoint=~\"$mountpoint\", device_error=\"\", fstype!~\"tmpfs|overlay|squashfs|devfs\"})",
                             "legendFormat": "{{instance}} {{mountpoint}}",
                             "range": true
                           },
@@ -4163,7 +2702,7 @@ data:
                   "transformations": []
                 }
               },
-              "description": "macOS uses purgeable capacity when available. Linux uses non-root available capacity.",
+              "description": "Used ratio from non-root available capacity and size by mountpoint.",
               "id": 9,
               "links": [],
               "title": "Filesystem Usage",
@@ -4381,32 +2920,6 @@ data:
                             "x": 0,
                             "y": 8
                           }
-                        },
-                        {
-                          "kind": "GridLayoutItem",
-                          "spec": {
-                            "element": {
-                              "kind": "ElementReference",
-                              "name": "panel-16"
-                            },
-                            "height": 8,
-                            "width": 12,
-                            "x": 12,
-                            "y": 8
-                          }
-                        },
-                        {
-                          "kind": "GridLayoutItem",
-                          "spec": {
-                            "element": {
-                              "kind": "ElementReference",
-                              "name": "panel-28"
-                            },
-                            "height": 8,
-                            "width": 24,
-                            "x": 0,
-                            "y": 16
-                          }
                         }
                       ]
                     }
@@ -4545,24 +3058,11 @@ data:
                           "spec": {
                             "element": {
                               "kind": "ElementReference",
-                              "name": "panel-19"
-                            },
-                            "height": 8,
-                            "width": 12,
-                            "x": 0,
-                            "y": 8
-                          }
-                        },
-                        {
-                          "kind": "GridLayoutItem",
-                          "spec": {
-                            "element": {
-                              "kind": "ElementReference",
                               "name": "panel-20"
                             },
                             "height": 8,
-                            "width": 12,
-                            "x": 12,
+                            "width": 24,
+                            "x": 0,
                             "y": 8
                           }
                         },
@@ -4637,38 +3137,12 @@ data:
                           "spec": {
                             "element": {
                               "kind": "ElementReference",
-                              "name": "panel-22"
-                            },
-                            "height": 8,
-                            "width": 12,
-                            "x": 0,
-                            "y": 0
-                          }
-                        },
-                        {
-                          "kind": "GridLayoutItem",
-                          "spec": {
-                            "element": {
-                              "kind": "ElementReference",
-                              "name": "panel-23"
-                            },
-                            "height": 8,
-                            "width": 12,
-                            "x": 12,
-                            "y": 0
-                          }
-                        },
-                        {
-                          "kind": "GridLayoutItem",
-                          "spec": {
-                            "element": {
-                              "kind": "ElementReference",
                               "name": "panel-24"
                             },
                             "height": 8,
                             "width": 12,
                             "x": 0,
-                            "y": 8
+                            "y": 0
                           }
                         },
                         {
@@ -4681,91 +3155,13 @@ data:
                             "height": 8,
                             "width": 12,
                             "x": 12,
-                            "y": 8
-                          }
-                        },
-                        {
-                          "kind": "GridLayoutItem",
-                          "spec": {
-                            "element": {
-                              "kind": "ElementReference",
-                              "name": "panel-26"
-                            },
-                            "height": 8,
-                            "width": 12,
-                            "x": 0,
-                            "y": 16
-                          }
-                        },
-                        {
-                          "kind": "GridLayoutItem",
-                          "spec": {
-                            "element": {
-                              "kind": "ElementReference",
-                              "name": "panel-27"
-                            },
-                            "height": 8,
-                            "width": 12,
-                            "x": 12,
-                            "y": 16
-                          }
-                        },
-                        {
-                          "kind": "GridLayoutItem",
-                          "spec": {
-                            "element": {
-                              "kind": "ElementReference",
-                              "name": "panel-32"
-                            },
-                            "height": 8,
-                            "width": 12,
-                            "x": 0,
-                            "y": 24
-                          }
-                        },
-                        {
-                          "kind": "GridLayoutItem",
-                          "spec": {
-                            "element": {
-                              "kind": "ElementReference",
-                              "name": "panel-33"
-                            },
-                            "height": 8,
-                            "width": 12,
-                            "x": 12,
-                            "y": 24
-                          }
-                        },
-                        {
-                          "kind": "GridLayoutItem",
-                          "spec": {
-                            "element": {
-                              "kind": "ElementReference",
-                              "name": "panel-34"
-                            },
-                            "height": 8,
-                            "width": 12,
-                            "x": 0,
-                            "y": 32
-                          }
-                        },
-                        {
-                          "kind": "GridLayoutItem",
-                          "spec": {
-                            "element": {
-                              "kind": "ElementReference",
-                              "name": "panel-35"
-                            },
-                            "height": 8,
-                            "width": 12,
-                            "x": 12,
-                            "y": 32
+                            "y": 0
                           }
                         }
                       ]
                     }
                   },
-                  "title": "Power and Collectors"
+                  "title": "Collectors"
                 }
               },
               {
@@ -4890,36 +3286,6 @@ data:
             }
           },
           {
-            "kind": "CustomVariable",
-            "spec": {
-              "allowCustomValue": false,
-              "current": {
-                "selected": true,
-                "text": "Linux",
-                "value": "linux"
-              },
-              "hide": "dontHide",
-              "includeAll": false,
-              "label": "OS",
-              "multi": false,
-              "name": "os",
-              "options": [
-                {
-                  "selected": false,
-                  "text": "macOS",
-                  "value": "macos"
-                },
-                {
-                  "selected": true,
-                  "text": "Linux",
-                  "value": "linux"
-                }
-              ],
-              "query": "macOS : macos,Linux : linux",
-              "skipUrlSync": false
-            }
-          },
-          {
             "kind": "QueryVariable",
             "spec": {
               "allValue": ".*",
@@ -4930,7 +3296,7 @@ data:
                   "$__all"
                 ]
               },
-              "definition": "label_values(node_exporter_build_info{job=\"node-exporter\", os=\"$os\"}, instance)",
+              "definition": "label_values(node_exporter_build_info{job=\"node-exporter\", os=\"linux\"}, instance)",
               "hide": "dontHide",
               "includeAll": true,
               "label": "Instance",
@@ -4944,7 +3310,7 @@ data:
                 "group": "prometheus",
                 "kind": "DataQuery",
                 "spec": {
-                  "query": "label_values(node_exporter_build_info{job=\"node-exporter\", os=\"$os\"}, instance)",
+                  "query": "label_values(node_exporter_build_info{job=\"node-exporter\", os=\"linux\"}, instance)",
                   "refId": "StandardVariableQuery"
                 },
                 "version": "v0"
@@ -4967,7 +3333,7 @@ data:
                   "$__all"
                 ]
               },
-              "definition": "label_values(node_filesystem_size_bytes{job=\"node-exporter\", os=\"$os\", instance=~\"$instance\"}, mountpoint)",
+              "definition": "label_values(node_filesystem_size_bytes{job=\"node-exporter\", os=\"linux\", instance=~\"$instance\"}, mountpoint)",
               "hide": "dontHide",
               "includeAll": true,
               "label": "Mountpoint",
@@ -4981,7 +3347,7 @@ data:
                 "group": "prometheus",
                 "kind": "DataQuery",
                 "spec": {
-                  "query": "label_values(node_filesystem_size_bytes{job=\"node-exporter\", os=\"$os\", instance=~\"$instance\"}, mountpoint)",
+                  "query": "label_values(node_filesystem_size_bytes{job=\"node-exporter\", os=\"linux\", instance=~\"$instance\"}, mountpoint)",
                   "refId": "StandardVariableQuery"
                 },
                 "version": "v0"
@@ -5004,7 +3370,7 @@ data:
                   "$__all"
                 ]
               },
-              "definition": "label_values(node_disk_read_bytes_total{job=\"node-exporter\", os=\"$os\", instance=~\"$instance\"}, device)",
+              "definition": "label_values(node_disk_read_bytes_total{job=\"node-exporter\", os=\"linux\", instance=~\"$instance\"}, device)",
               "hide": "dontHide",
               "includeAll": true,
               "label": "Disk device",
@@ -5018,7 +3384,7 @@ data:
                 "group": "prometheus",
                 "kind": "DataQuery",
                 "spec": {
-                  "query": "label_values(node_disk_read_bytes_total{job=\"node-exporter\", os=\"$os\", instance=~\"$instance\"}, device)",
+                  "query": "label_values(node_disk_read_bytes_total{job=\"node-exporter\", os=\"linux\", instance=~\"$instance\"}, device)",
                   "refId": "StandardVariableQuery"
                 },
                 "version": "v0"
@@ -5041,7 +3407,7 @@ data:
                   "$__all"
                 ]
               },
-              "definition": "label_values(node_network_receive_bytes_total{job=\"node-exporter\", os=\"$os\", instance=~\"$instance\"}, device)",
+              "definition": "label_values(node_network_receive_bytes_total{job=\"node-exporter\", os=\"linux\", instance=~\"$instance\"}, device)",
               "hide": "dontHide",
               "includeAll": true,
               "label": "Network device",
@@ -5055,7 +3421,7 @@ data:
                 "group": "prometheus",
                 "kind": "DataQuery",
                 "spec": {
-                  "query": "label_values(node_network_receive_bytes_total{job=\"node-exporter\", os=\"$os\", instance=~\"$instance\"}, device)",
+                  "query": "label_values(node_network_receive_bytes_total{job=\"node-exporter\", os=\"linux\", instance=~\"$instance\"}, device)",
                   "refId": "StandardVariableQuery"
                 },
                 "version": "v0"
