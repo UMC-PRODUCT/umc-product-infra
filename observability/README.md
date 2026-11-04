@@ -27,7 +27,7 @@ observability/
 
 scripts/gen-configmaps.py             # 원본 → ConfigMap / PrometheusRule
 manifests/observability/              # dashboard·Loki ConfigMap, NetworkPolicy
-manifests/observability-integrations/ # ServiceMonitor, 생성된 PrometheusRule
+manifests/observability-integrations/ # ServiceMonitor, Traefik PodMonitor, 생성된 PrometheusRule
 ```
 
 관측 stack의 배포 구조는

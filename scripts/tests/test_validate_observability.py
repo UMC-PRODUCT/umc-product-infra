@@ -91,6 +91,32 @@ class OperatorContractsTest(unittest.TestCase):
         with self.assertRaisesRegex(SystemExit, "missing from selected Service"):
             validate_monitor_selection(self.prometheus, [self.monitor], [self.service])
 
+    def test_pod_monitor_needs_a_selected_pod_with_the_named_container_port(self) -> None:
+        self.prometheus["spec"].update(
+            podMonitorSelector={"matchLabels": {"release": "prometheus"}},
+            podMonitorNamespaceSelector={"matchLabels": {"kubernetes.io/metadata.name": "monitoring"}})
+        monitor = {
+            "kind": "PodMonitor",
+            "metadata": {"name": "traefik", "namespace": "monitoring", "labels": {"release": "prometheus"}},
+            "spec": {"namespaceSelector": {"matchNames": ["kube-system"]},
+                     "selector": {"matchLabels": {"app.kubernetes.io/name": "traefik"}},
+                     "podMetricsEndpoints": [{"port": "metrics"}]},
+        }
+        pod = {"kind": "Pod", "metadata": {"name": "traefik", "namespace": "kube-system",
+                                            "labels": {"app.kubernetes.io/name": "traefik"}},
+               "spec": {"containers": [{"name": "traefik", "ports": [{"name": "metrics", "containerPort": 9100}]}]}}
+        validate_monitor_selection(self.prometheus, [monitor], [], [pod])
+        mutations = {
+            "matches no Pod": lambda m, p: p["metadata"].update(namespace="monitoring"),
+            "missing from selected Pod": lambda m, p: p["spec"]["containers"][0]["ports"][0].update(name="web"),
+            "named container port": lambda m, p: m["spec"]["podMetricsEndpoints"][0].update(port=9100),
+        }
+        for message, mutate in mutations.items():
+            broken_monitor, broken_pod = copy.deepcopy(monitor), copy.deepcopy(pod)
+            mutate(broken_monitor, broken_pod)
+            with self.subTest(message), self.assertRaisesRegex(SystemExit, message):
+                validate_monitor_selection(self.prometheus, [broken_monitor], [], [broken_pod])
+
     def test_operator_workload_remains_in_image_resource_and_network_checks(self) -> None:
         workload = pod_spec(self.prometheus)
         self.assertEqual(workload["containers"][0]["image"], self.prometheus["spec"]["image"])

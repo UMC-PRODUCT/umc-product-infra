@@ -115,5 +115,34 @@ class PromqlCheckTest(unittest.TestCase):
         self.assertIn("unknown escape sequence", problems[0])
 
 
+# 429 패널이 두 출처를 섞거나 Traefik이 전달만 한 앱 429를 edge 차단으로 세면 실패해야 한다.
+class RateLimitPanelsTest(unittest.TestCase):
+    def setUp(self) -> None:
+        dashboard = Path(__file__).resolve().parents[2] / "observability/dashboards/server-default.json"
+        self.queries = [query for query in panel_queries(dashboard)
+                        if "api_rate_limit_requests_total" in query.expr or "traefik_" in query.expr]
+
+    def test_앱_limiter와_traefik_edge를_따로_센다(self) -> None:
+        self.assertEqual(len(self.queries), 4, self.queries)
+        for query in self.queries:
+            with self.subTest(query.location):
+                if "api_rate_limit_requests_total" in query.expr:
+                    self.assertIn('result="blocked"', query.expr)
+                    self.assertNotIn("traefik_", query.expr)
+                else:
+                    # rateLimit·inFlightReq가 만든 429만 남기려면 앱이 돌려준 service 429를 빼야 한다.
+                    self.assertIn('traefik_entrypoint_requests_total{code="429"}', query.expr)
+                    self.assertIn('- (sum(', query.expr)
+                    self.assertIn('traefik_service_requests_total{code="429"}', query.expr)
+
+    def test_수집되지_않으면_0이_아니라_no_data다(self) -> None:
+        # 0은 기준 counter가 수집되는 동안에만 만든다. 바깥에 맨 vector(0)을 두면 수집 실패가 0건으로 보인다.
+        for query in self.queries:
+            with self.subTest(query.location):
+                self.assertFalse(query.expr.rstrip().endswith("vector(0)"), query.expr)
+                if "increase(" in query.expr:
+                    self.assertTrue(query.expr.endswith("* 0"), query.expr)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -23,6 +23,10 @@ PREVIEW_SPRING_APP_PATTERN = "preview-umc-product-pr[0-9]+"
 PREVIEW_ARGOCD_APP_PATTERN = "umc-product-preview-[0-9]+"
 # ServiceMonitor에 jobLabel이 없어 job label은 metrics Service 이름이다.
 ARGOCD_METRICS_JOB = "argocd-application-controller-metrics"
+# K3s가 설치하는 Traefik Pod의 label. Grafana Ingress policy와 Traefik PodMonitor가 같은 Pod를 가리켜야 한다.
+K3S_TRAEFIK_POD_LABELS = {"app.kubernetes.io/name": "traefik", "app.kubernetes.io/instance": "traefik-kube-system"}
+# main()의 Traefik Pod 모델(metrics port 이름·label)을 내장 chart에서 확인한 K3s 버전. K3s를 올리면 다시 확인한다.
+K3S_TRAEFIK_VERIFIED_VERSION = "v1.36.3+k3s1"
 MONITORING_CLUSTER_KINDS = {
     "ClusterRole", "ClusterRoleBinding", "CustomResourceDefinition"
 }
@@ -576,8 +580,9 @@ def validate_alertmanager_config(resources: list[dict]) -> None:
             "alertmanager: native global configuration must replace the legacy base Secret")
 
 
-# Prometheus → Monitor → Service의 selector와 named port가 모두 연결돼야 수집 대상으로 인정한다.
-def validate_monitor_selection(prometheus: dict, monitors: list[dict], services: list[dict]) -> None:
+# Prometheus → Monitor → Service(PodMonitor는 Pod)의 selector와 named port가 모두 연결돼야 수집 대상으로 인정한다.
+def validate_monitor_selection(prometheus: dict, monitors: list[dict], services: list[dict],
+                               workloads: tuple[dict, ...] | list[dict] = ()) -> None:
     spec = prometheus["spec"]
     prefixes = {"ServiceMonitor": "serviceMonitor", "PodMonitor": "podMonitor", "PrometheusRule": "rule"}
     for monitor in monitors:
@@ -592,14 +597,31 @@ def validate_monitor_selection(prometheus: dict, monitors: list[dict], services:
                 and selector_matches(spec[f"{prefix}NamespaceSelector"],
                                      {"kubernetes.io/metadata.name": namespace}),
                 f"{identity}: not selected by Prometheus")
-        if kind != "ServiceMonitor":
+        if kind == "PrometheusRule":
             continue
         monitor_spec = monitor["spec"]
         namespace_selector = monitor_spec.get("namespaceSelector", {})
         selected_namespaces = namespace_selector.get("matchNames", [namespace])
+
+        def in_scope(resource: dict) -> bool:
+            return bool(namespace_selector.get("any")) or \
+                resource.get("metadata", {}).get("namespace", "monitoring") in selected_namespaces
+
+        if kind == "PodMonitor":
+            pods = [pod for workload in workloads
+                    if in_scope(workload) and (pod := pod_spec(workload)) is not None
+                    and selector_matches(monitor_spec["selector"], workload_labels(workload))]
+            require(pods, f"{identity}: selector matches no Pod")
+            for endpoint in monitor_spec.get("podMetricsEndpoints", []):
+                port = endpoint.get("port")
+                require(isinstance(port, str) and port,
+                        f"{identity}: endpoint must reference a named container port")
+                require(any(item.get("name") == port for pod in pods
+                            for container in pod.get("containers", []) for item in container.get("ports", [])),
+                        f"{identity}: endpoint port {port} missing from selected Pod")
+            continue
         selected = [service for service in services
-                    if (namespace_selector.get("any") or
-                        service.get("metadata", {}).get("namespace", "monitoring") in selected_namespaces)
+                    if in_scope(service)
                     and selector_matches(monitor_spec["selector"],
                                          service["metadata"].get("labels", {}))]
         require(selected, f"{identity}: selector matches no Service")
@@ -853,6 +875,9 @@ def main() -> int:
                 "cert-manager", "cert-manager-cainjector", "cert-manager-webhook", "external-dns",
                 "argocd-application-controller"},
             "monitoring-integrations: required platform scrape targets must be preserved")
+    require({resource["metadata"]["name"] for resource in integrations
+             if resource.get("kind") == "PodMonitor"} == {"traefik"},
+            "monitoring-integrations: Traefik edge 429 dashboard needs the traefik PodMonitor")
     all_resources = [resource for resources in rendered.values() for resource in resources] + integrations
     write_monitoring_schemas(prometheus_resources, output_dir)
     (output_dir / "monitoring-resources.yaml").write_text(yaml.safe_dump_all(
@@ -884,8 +909,16 @@ def main() -> int:
          "labels": {"k8s-app": "kube-dns"}},
          "spec": {"ports": [{"name": "metrics", "port": 9153}]}},
     ])
+    # K3s가 설치하는 Traefik Pod다. 내장 traefik chart 40.1.4+up40.1.0이 ports.metrics(9100)를 이름 metrics로 연다.
+    k3s_version = yaml.safe_load((ROOT / "ansible/roles/k3s/defaults/main.yml").read_text())["k3s_version"]
+    require(k3s_version == K3S_TRAEFIK_VERIFIED_VERSION,
+            f"K3s {k3s_version}: re-check the bundled Traefik metrics port and labels, then update K3S_TRAEFIK_VERIFIED_VERSION")
+    traefik_pod = {"kind": "Pod", "metadata": {"name": "traefik", "namespace": "kube-system",
+                   "labels": K3S_TRAEFIK_POD_LABELS},
+                   "spec": {"containers": [{"name": "traefik", "ports": [{"name": "metrics", "containerPort": 9100}]}]}}
     prometheus = named_resource(prometheus_resources, "Prometheus", PROMETHEUS_NAME)
-    validate_monitor_selection(prometheus, all_resources, services)
+    validate_monitor_selection(prometheus, all_resources, services,
+                               all_resources + external_resources + [traefik_pod])
     rules = [resource for resource in all_resources if resource.get("kind") == "PrometheusRule"]
     require(any(resource in integrations for resource in rules)
             and any(resource in prometheus_resources for resource in rules),
@@ -975,12 +1008,7 @@ def main() -> int:
                                 "kubernetes.io/metadata.name": "kube-system"
                             }
                         },
-                        "podSelector": {
-                            "matchLabels": {
-                                "app.kubernetes.io/name": "traefik",
-                                "app.kubernetes.io/instance": "traefik-kube-system",
-                            }
-                        },
+                        "podSelector": {"matchLabels": K3S_TRAEFIK_POD_LABELS},
                     }
                 ],
                 "ports": [{"protocol": "TCP", "port": 3000}],

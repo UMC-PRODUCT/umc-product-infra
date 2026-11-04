@@ -52,7 +52,8 @@ WebSocket `/ws`는 연결이 열려 있는 동안 계속 동시 요청으로 세
 이 동시 요청 제한은 Tomcat 스레드 200개를 지키지 않는다. 행사 사용자를 막지 않는 쪽을 택했다.
 초당 3000건을 계속 보내는 IP는 bucket이 약 0.74초 만에 비고(2000 ÷ (3000 − 300)), 그 뒤 초당 2700건이 `429`가 된다.
 1000건짜리 몰림이 약 3.3초(1000 ÷ 300)보다 자주 오면 bucket이 결국 비므로 `average`도 올려야 한다.
-모든 값은 측정이 아닌 추정치다. 첫 행사 뒤 Traefik accessLog의 IP별 요청 수와 `429`를 보고 다시 정한다. 환경 하나만 바꿀 때는
+모든 값은 측정이 아닌 추정치다. 첫 행사 뒤 Traefik accessLog의 IP별 요청 수와 `429`를 보고 다시 정한다.
+출처별 `429` 수는 Grafana `Application Detail`의 `429 차단` 패널이 Traefik edge와 앱 limiter로 나눠 보여 준다. 환경 하나만 바꿀 때는
 `values-prod.yaml`·`values-dev.yaml`·`values-preview.yaml`에 `edgeProtection`의 바꿀 키만 덮어쓴다.
 값은 1 이상의 정수여야 하고, 0은 Traefik에서 무제한이라 렌더가 실패한다. Grafana도 public HTTPS로 열지만 익명 접근과 회원가입은 끄고 운영자가
 발급한 사람별 Grafana 계정만 사용한다. 기본 Organization role은 `Viewer`다.
