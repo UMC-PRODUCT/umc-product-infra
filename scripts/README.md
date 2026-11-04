@@ -93,20 +93,25 @@ python3 scripts/gen-configmaps.py --check
 
 Helm, PyYAML과 Git 작업 트리는 필수다. `cfn-lint`, `ansible-playbook`, `ansible-lint`,
 `kubeconform`, `promtool`, Docker가 없거나 chart version을 비교할 base ref가 없으면 관련 검사를
-건너뛰고, 마지막 줄에 건너뛴 검사를 모두 적는다. ruff·mypy는 `python3` 환경에
-[`requirements-lint.txt`](requirements-lint.txt)와 같은 버전이 있을 때만 실행한다. 설정은 루트
-`pyproject.toml`에 있고, 로컬에서는 가상환경에 같은 목록을 설치한다.
-
-```bash
-python3 -m pip install --require-hashes --only-binary :all: -r scripts/requirements-lint.txt
-```
-
-버전을 올릴 때는 [`requirements-lint.in`](requirements-lint.in)을 고치고 `requirements-lint.txt`
-첫 줄에 적힌 `uv pip compile` 명령으로 hash 목록을 다시 만든다.
+건너뛰고, 마지막 줄에 건너뛴 검사를 모두 적는다.
 
 ```text
 umc-infra validation passed (skipped: CloudFormation lint, Kubernetes schema validation)
 ```
+
+ruff·mypy는 `VALIDATE_LINT_PYTHON`(기본 `python3`)이 가리키는 Python에
+[`requirements-lint.txt`](requirements-lint.txt)와 같은 버전이 있을 때만 실행하고, 다르면 고정 버전과
+찾은 버전을 skip 줄에 적는다. 설정은 루트 `pyproject.toml`에 있다. hash 고정 목록에는 PyYAML이 없으므로
+CI처럼 lint 도구만 별도 가상환경에 설치하고, PyYAML은 `validate.sh`를 실행하는 `python3`에 그대로 둔다.
+
+```bash
+python3 -m venv ~/.venvs/umc-infra-lint
+~/.venvs/umc-infra-lint/bin/python -m pip install --require-hashes --only-binary :all: -r scripts/requirements-lint.txt
+VALIDATE_LINT_PYTHON=~/.venvs/umc-infra-lint/bin/python ./scripts/validate.sh
+```
+
+버전을 올릴 때는 [`requirements-lint.in`](requirements-lint.in)을 고치고 `requirements-lint.txt`
+첫 줄에 적힌 `uv pip compile` 명령으로 hash 목록을 다시 만든다.
 
 `VALIDATE_STRICT=1`이면 건너뛴 검사가 하나라도 있을 때 실패한다. CI는 모든 도구를 설치하고
 이 모드로 실행한다.

@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -44,6 +46,22 @@ class ValidationSkipTests(unittest.TestCase):
         self.assertIn("cfn check skipped: 'command -v umc-fake-cfn' failed", lines)
         self.assertEqual(lines[-1], "umc-infra validation passed (skipped: cfn check, docker check)")
 
+    # site-packages를 끈 python에는 lint 도구가 없으므로 고정 버전과 찾은 결과가 함께 나와야 한다.
+    def test_lint_도구가_고정_버전이_아니면_기대와_실제를_적고_건너뜀(self) -> None:
+        pinned = re.search(r"^ruff==(\S+)", (SCRIPTS / "requirements-lint.txt").read_text(encoding="utf-8"), re.M)
+        assert pinned is not None
+        with tempfile.TemporaryDirectory() as directory:
+            bare_python = Path(directory) / "python"
+            bare_python.write_text(f'#!/bin/sh\nexec "{sys.executable}" -S "$@"\n', encoding="utf-8")
+            bare_python.chmod(0o755)
+            result = run_bash(
+                f"if status=\"$(pinned_python_tools '{bare_python}' ruff)\"; then exit 9; fi\n"
+                "skip_check 'Python lint' \"$status\"",
+                path="/usr/bin:/bin", strict=False,
+            )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn(f"Python lint skipped: ruff {pinned.group(1)} required, found none in ", result.stdout)
+
     def test_strict_모드는_skip이_하나라도_있으면_실패(self) -> None:
         result = run_bash("if optional_check 'promtool check' false; then exit 9; fi", path="/usr/bin:/bin", strict=True)
         self.assertNotEqual(result.returncode, 0)
@@ -66,7 +84,9 @@ class ValidationSkipTests(unittest.TestCase):
             self.assertTrue(lines[-1].startswith("umc-infra validation passed (skipped: "), lines[-1])
             summary = lines[-1].removeprefix("umc-infra validation passed (skipped: ").removesuffix(")").split(", ")
             self.assertEqual(len(reported), len(summary), "요약에 빠진 skip 출력이 있음")
-            self.assertGreaterEqual(len(summary), 6)
+            self.assertGreaterEqual(len(summary), 9)
+            self.assertIn("Python lint", summary)
+            self.assertIn("Python type check", summary)
             strict = run_bash(section, path=directory, strict=True)
             self.assertNotEqual(strict.returncode, 0)
             self.assertNotIn("validation passed", strict.stdout)
