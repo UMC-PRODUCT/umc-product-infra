@@ -140,7 +140,11 @@ class ManifestLoader(yaml.SafeLoader):
     pass
 
 
-ManifestLoader.add_constructor("tag:yaml.org,2002:value", ManifestLoader.construct_scalar)  # type: ignore[type-var]
+def construct_value_tag(loader: ManifestLoader, node: yaml.ScalarNode) -> str:
+    return loader.construct_scalar(node)
+
+
+ManifestLoader.add_constructor("tag:yaml.org,2002:value", construct_value_tag)
 
 
 def load_yaml(path: Path) -> list[dict]:

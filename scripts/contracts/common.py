@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import TypeVar
 
 import yaml
 
 
 ROOT = Path(__file__).resolve().parents[2]
+T = TypeVar("T")
 
 
 class CloudFormationLoader(yaml.SafeLoader):
@@ -31,6 +33,13 @@ CloudFormationLoader.add_multi_constructor("!", construct_cloudformation_tag)
 def require(condition: bool, message: str) -> None:
     if not condition:
         raise SystemExit(f"contract validation failed: {message}")
+
+
+def present(value: T | None, message: str) -> T:
+    """require(value is not None)처럼 실패하고, 통과한 값은 None이 아닌 타입으로 돌려준다."""
+    require(value is not None, message)
+    assert value is not None
+    return value
 
 
 def yaml_documents(path: Path) -> list[dict]:

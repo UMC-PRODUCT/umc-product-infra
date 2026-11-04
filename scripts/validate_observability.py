@@ -8,11 +8,13 @@ import re
 import subprocess
 import sys
 from pathlib import Path
+from typing import TypeVar
 
 import yaml
 
 
 ROOT = Path(__file__).resolve().parent.parent
+T = TypeVar("T")
 APPLICATION_DIR = ROOT / "argocd" / "applications" / "platform" / "observability"
 EXPECTED_APPLICATIONS = {"grafana", "loki", "otel-collector", "prometheus", "tempo"}
 PROMETHEUS_NAME = "prometheus-kube-prometheus-prometheus"
@@ -69,12 +71,23 @@ class ManifestLoader(yaml.SafeLoader):
     """Accept the literal '=' enum in Operator CRDs (YAML 1.1 value tag)."""
 
 
-ManifestLoader.add_constructor("tag:yaml.org,2002:value", ManifestLoader.construct_scalar)  # type: ignore[type-var]
+def construct_value_tag(loader: ManifestLoader, node: yaml.ScalarNode) -> str:
+    return loader.construct_scalar(node)
+
+
+ManifestLoader.add_constructor("tag:yaml.org,2002:value", construct_value_tag)
 
 
 def require(condition: bool, message: str) -> None:
     if not condition:
         raise SystemExit(f"observability validation failed: {message}")
+
+
+def present(value: T | None, message: str) -> T:
+    """require(value is not None)처럼 실패하고, 통과한 값은 None이 아닌 타입으로 돌려준다."""
+    require(value is not None, message)
+    assert value is not None
+    return value
 
 
 def pod_spec(resource: dict) -> dict | None:
@@ -381,9 +394,9 @@ def validate_loki_query_budget(config: dict) -> None:
 def byte_size(value: object) -> float:
     if isinstance(value, (int, float)) and not isinstance(value, bool):
         return value
-    match = re.fullmatch(r"([0-9]+(?:\.[0-9]+)?)([A-Za-z]*)", str(value))
-    require(match is not None and match.group(2) in BYTE_UNITS, f"unsupported byte size: {value!r}")
-    assert match is not None
+    match = present(re.fullmatch(r"([0-9]+(?:\.[0-9]+)?)([A-Za-z]*)", str(value)),
+                    f"unsupported byte size: {value!r}")
+    require(match.group(2) in BYTE_UNITS, f"unsupported byte size: {value!r}")
     return float(match.group(1)) * BYTE_UNITS[match.group(2)]
 
 
@@ -401,10 +414,9 @@ def validate_loki_ingestion_limits(config: dict) -> None:
 def validate_loki_retention(config: dict) -> None:
     limits = config.get("limits_config") or {}
     require(str(limits.get("retention_period")) == "2160h", "Loki: retention must remain 90 days")
-    streams = limits.get("retention_stream")
+    streams = present(limits.get("retention_stream"), "Loki: retention_stream must be a list of rules")
     require(isinstance(streams, list) and all(isinstance(item, dict) for item in streams),
             "Loki: retention_stream must be a list of rules")
-    assert isinstance(streams, list)
     rules = [(item.get("selector"), item.get("priority"), item.get("period")) for item in streams]
     require(rules == LOKI_STREAM_RETENTION,
             "Loki: retention_stream must be exactly preview 7 days and dev 30 days")
@@ -412,8 +424,8 @@ def validate_loki_retention(config: dict) -> None:
 
 # GOMEMLIMIT가 limit보다 너무 낮으면 GC가 과열되고, 너무 높으면 GC 전에 cgroup OOM kill이 난다.
 def validate_loki_memory(resources: list[dict], config: dict) -> None:
-    loki = pod_spec(named_resource(resources, "StatefulSet", "loki"))
-    assert loki is not None
+    loki = present(pod_spec(named_resource(resources, "StatefulSet", "loki")),
+                   "Loki: StatefulSet must have a Pod template")
     containers = [item for item in loki["containers"]
                   if item["name"] == "loki"]
     require(len(containers) == 1, "Loki: StatefulSet must run exactly one loki container")
@@ -432,8 +444,8 @@ def validate_loki_memory(resources: list[dict], config: dict) -> None:
 
 # 종료되지 않는 dashboard watcher를 일반 initContainer로 두어 Grafana 시작이 막히는 것을 방지한다.
 def validate_grafana_dashboard_startup(resources: list[dict]) -> None:
-    workload = pod_spec(named_resource(resources, "Deployment", "grafana"))
-    assert workload is not None
+    workload = present(pod_spec(named_resource(resources, "Deployment", "grafana")),
+                       "grafana: Deployment must have a Pod template")
     initializers = [container for container in workload.get("initContainers", [])
                     if container.get("name") == "grafana-init-sc-dashboard"]
     require(len(initializers) == 1, "grafana: exactly one dashboard startup sidecar is required")
@@ -608,6 +620,13 @@ def validate_traefik_pod_monitor_job(pod_monitor: dict) -> None:
             "because TraefikMetricsMissing matches up{job=\"traefik\"}")
 
 
+def in_monitor_namespaces(resource: dict, namespace_selector: dict, monitor_namespace: str) -> bool:
+    if namespace_selector.get("any"):
+        return True
+    namespace = resource.get("metadata", {}).get("namespace", "monitoring")
+    return namespace in namespace_selector.get("matchNames", [monitor_namespace])
+
+
 # Prometheus → Monitor → Service(PodMonitor는 Pod)의 selector와 named port가 모두 연결돼야 수집 대상으로 인정한다.
 def validate_monitor_selection(prometheus: dict, monitors: list[dict], services: list[dict],
                                workloads: tuple[dict, ...] | list[dict] = ()) -> None:
@@ -629,15 +648,10 @@ def validate_monitor_selection(prometheus: dict, monitors: list[dict], services:
             continue
         monitor_spec = monitor["spec"]
         namespace_selector = monitor_spec.get("namespaceSelector", {})
-        selected_namespaces = namespace_selector.get("matchNames", [namespace])
-
-        def in_scope(resource: dict, any_namespace: bool = bool(namespace_selector.get("any")),
-                     namespaces: list[str] = selected_namespaces) -> bool:
-            return any_namespace or resource.get("metadata", {}).get("namespace", "monitoring") in namespaces
-
         if kind == "PodMonitor":
             pods = [pod for workload in workloads
-                    if in_scope(workload) and (pod := pod_spec(workload)) is not None
+                    if in_monitor_namespaces(workload, namespace_selector, namespace)
+                    and (pod := pod_spec(workload)) is not None
                     and selector_matches(monitor_spec["selector"], workload_labels(workload))]
             require(bool(pods), f"{identity}: selector matches no Pod")
             for endpoint in monitor_spec.get("podMetricsEndpoints", []):
@@ -649,7 +663,7 @@ def validate_monitor_selection(prometheus: dict, monitors: list[dict], services:
                         f"{identity}: endpoint port {port} missing from selected Pod")
             continue
         selected = [service for service in services
-                    if in_scope(service)
+                    if in_monitor_namespaces(service, namespace_selector, namespace)
                     and selector_matches(monitor_spec["selector"],
                                          service["metadata"].get("labels", {}))]
         require(bool(selected), f"{identity}: selector matches no Service")
