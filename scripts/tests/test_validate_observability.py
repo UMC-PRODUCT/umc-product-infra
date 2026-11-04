@@ -23,6 +23,7 @@ from validate_observability import (
     validate_alertmanager_config,
     validate_grafana_dashboard_startup,
     validate_k3s_traefik_metrics,
+    validate_traefik_pod_monitor_job,
     validate_loki_ingestion_limits,
     validate_loki_memory,
     validate_loki_query_budget,
@@ -134,6 +135,19 @@ class OperatorContractsTest(unittest.TestCase):
                 validate_k3s_traefik_metrics(k3s_version, broken_config)
         with self.assertRaisesRegex(SystemExit, "K3S_TRAEFIK_VERIFIED_VERSION"):
             validate_k3s_traefik_metrics("v0.0.0+k3s1", config)
+
+    def test_traefik_pod_monitor_job_label_matches_the_missing_metrics_alert(self) -> None:
+        monitor = next(resource for resource in yaml.safe_load_all(
+            (ROOT / "manifests/observability-integrations/pod-monitors.yaml").read_text())
+            if resource and resource["metadata"]["name"] == "traefik")
+        validate_traefik_pod_monitor_job(monitor)
+        dropped = copy.deepcopy(monitor)
+        del dropped["spec"]["jobLabel"]
+        instance = copy.deepcopy(monitor)
+        instance["spec"]["jobLabel"] = "app.kubernetes.io/instance"
+        for name, broken in {"dropped": dropped, "instance label": instance}.items():
+            with self.subTest(name), self.assertRaisesRegex(SystemExit, "jobLabel"):
+                validate_traefik_pod_monitor_job(broken)
 
     def test_operator_workload_remains_in_image_resource_and_network_checks(self) -> None:
         workload = pod_spec(self.prometheus)

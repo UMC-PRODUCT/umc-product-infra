@@ -591,6 +591,18 @@ def validate_k3s_traefik_metrics(k3s_version: str, helm_chart_config: dict) -> N
             "re-check it, then update the Traefik Pod model in validate_observability.py")
 
 
+# TraefikMetricsMissing은 job="traefik"을 찾는다. jobLabel이 Pod의 traefik 값 label이 아니면 job이
+# monitoring/traefik이 되어 수집은 되는데 경고가 30분 뒤 잘못 울린다.
+def validate_traefik_pod_monitor_job(pod_monitor: dict) -> None:
+    spec = pod_monitor.get("spec", {})
+    job_label = spec.get("jobLabel")
+    require(job_label is not None
+            and spec.get("selector", {}).get("matchLabels", {}).get(job_label) == "traefik"
+            and K3S_TRAEFIK_POD_LABELS.get(job_label) == "traefik",
+            "traefik PodMonitor: jobLabel must name the Pod label whose value is traefik, "
+            "because TraefikMetricsMissing matches up{job=\"traefik\"}")
+
+
 # Prometheus → Monitor → Service(PodMonitor는 Pod)의 selector와 named port가 모두 연결돼야 수집 대상으로 인정한다.
 def validate_monitor_selection(prometheus: dict, monitors: list[dict], services: list[dict],
                                workloads: tuple[dict, ...] | list[dict] = ()) -> None:
@@ -889,6 +901,8 @@ def main() -> int:
     require({resource["metadata"]["name"] for resource in integrations
              if resource.get("kind") == "PodMonitor"} == {"traefik"},
             "monitoring-integrations: Traefik edge 429 dashboard needs the traefik PodMonitor")
+    validate_traefik_pod_monitor_job(next(resource for resource in integrations
+                                          if resource.get("kind") == "PodMonitor"))
     all_resources = [resource for resources in rendered.values() for resource in resources] + integrations
     write_monitoring_schemas(prometheus_resources, output_dir)
     (output_dir / "monitoring-resources.yaml").write_text(yaml.safe_dump_all(
