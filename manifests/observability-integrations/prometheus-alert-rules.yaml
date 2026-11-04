@@ -433,6 +433,62 @@ spec:
             summary: "TLS 인증서가 1시간 넘게 Ready가 아니에요"
             description: "Certificate {{ $labels.exported_namespace }}/{{ $labels.name }} 이 1시간 이상 Ready=False예요. cert-manager log와 CertificateRequest·Order 이벤트를 확인해주세요."
 
+        # Argo CD Application이 수렴하지 못하면 UI를 열기 전에 알린다. argocd_app_info의
+        # namespace label은 target namespace와 겹쳐 exported_namespace가 된다. sync 중 바뀌는
+        # operation label이 for를 초기화하지 않도록 대상 label로 묶는다. controller는 replica 1개인
+        # StatefulSet이라 Pod가 바뀌면 지표가 잠시 끊겨 for가 다시 시작된다.
+        # Preview PR 앱은 Alertmanager의 Preview route가 버린다.
+        # root(project=bootstrap)는 자식 Application health를 그대로 물려받아 같은 장애를 두 번
+        # 알리므로 health 알림에서 뺀다.
+        - alert: ArgoCDApplicationUnhealthy
+          expr: |
+            max by (namespace, job, name, project, dest_namespace, health_status) (
+              argocd_app_info{project="prod", health_status=~"Degraded|Missing"}
+            )
+          for: 15m
+          labels:
+            severity: critical
+          annotations:
+            summary: "운영 Argo CD 앱이 15분째 {{ $labels.health_status }} 상태예요"
+            description: "Application {{ $labels.name }} (→ {{ $labels.dest_namespace }}) 의 health가 15분 이상 {{ $labels.health_status }} 상태예요. Argo CD에서 Degraded·Missing 리소스와 sync 오류를 확인해주세요."
+
+        - alert: ArgoCDApplicationUnhealthy
+          expr: |
+            max by (namespace, job, name, project, dest_namespace, health_status) (
+              argocd_app_info{project!~"prod|bootstrap", health_status=~"Degraded|Missing"}
+            )
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Argo CD 앱이 15분째 {{ $labels.health_status }} 상태예요"
+            description: "Application {{ $labels.name }} (project={{ $labels.project }}, → {{ $labels.dest_namespace }}) 의 health가 15분 이상 {{ $labels.health_status }} 상태예요. Argo CD에서 Degraded·Missing 리소스와 sync 오류를 확인해주세요."
+
+        # main의 manifest가 렌더링되지 않으면(ComparisonError) sync_status는 OutOfSync가 아닌
+        # Unknown이 되고 health는 Healthy로 남는다. 두 상태를 오가도 for가 이어지도록
+        # sync_status는 label로 남기지 않는다.
+        - alert: ArgoCDApplicationNotSynced
+          expr: |
+            max by (namespace, job, name, project, dest_namespace) (
+              argocd_app_info{sync_status=~"OutOfSync|Unknown"}
+            )
+          for: 30m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Argo CD 앱이 30분째 Git 상태로 수렴하지 않아요"
+            description: "Application {{ $labels.name }} (project={{ $labels.project }}, → {{ $labels.dest_namespace }}) 이 30분 이상 OutOfSync 또는 Unknown이에요. Unknown이면 manifest 렌더링 오류(ComparisonError)를, OutOfSync면 sync 실패·수동 변경·반복 diff를 Argo CD에서 확인해주세요."
+
+        # metrics Service가 없거나(Ansible 미적용) 수집이 끊기면 위 알림이 조용히 꺼진다.
+        - alert: ArgoCDMetricsMissing
+          expr: absent(argocd_app_info)
+          for: 30m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Argo CD Application 지표가 30분째 들어오지 않아요"
+            description: "argocd_app_info가 없어 Application health·sync 알림이 동작하지 않아요. argocd-application-controller-metrics Service와 ServiceMonitor target을 확인해주세요."
+
         # OOMKilled는 일반 재시작과 달리 memory limit이나 사용량을 바로 조정해야 한다.
         # Preview PR 앱은 작은 상한에서 PR 코드 탓에 죽을 수 있어 warning으로만 알린다.
         - alert: ContainerOOMKilled

@@ -18,7 +18,11 @@ EXPECTED_APPLICATIONS = {"grafana", "loki", "otel-collector", "prometheus", "tem
 PROMETHEUS_NAME = "prometheus-kube-prometheus-prometheus"
 ALERTMANAGER_NAME = "prometheus-kube-prometheus-alertmanager"
 # Preview는 dev profile로 떠서 environment label로는 dev와 구분되지 않는다.
-PREVIEW_APPLICATION_PATTERN = "preview-umc-product-pr[0-9]+"
+# Spring 앱 지표의 application label과 Argo CD Application 이름은 서로 다른 pattern이다.
+PREVIEW_SPRING_APP_PATTERN = "preview-umc-product-pr[0-9]+"
+PREVIEW_ARGOCD_APP_PATTERN = "umc-product-preview-[0-9]+"
+# ServiceMonitor에 jobLabel이 없어 job label은 metrics Service 이름이다.
+ARGOCD_METRICS_JOB = "argocd-application-controller-metrics"
 MONITORING_CLUSTER_KINDS = {
     "ClusterRole", "ClusterRoleBinding", "CustomResourceDefinition"
 }
@@ -489,12 +493,38 @@ def validate_prometheus(resources: list[dict]) -> None:
 
 # Discord drop route와 대시보드가 쓰는 Preview 이름 pattern이 실제 PR 앱 이름을 덮어야 한다.
 def validate_preview_application_name(appset: dict) -> None:
-    parameters = appset["spec"]["template"]["spec"]["source"]["helm"]["parameters"]
-    template = next((item.get("value", "") for item in parameters
-                     if item.get("name") == "env.SPRING_APPLICATION_NAME"), "")
-    require("{{ .number }}" in template
-            and re.fullmatch(PREVIEW_APPLICATION_PATTERN, template.replace("{{ .number }}", "1494")),
-            "preview: ApplicationSet SPRING_APPLICATION_NAME must match PREVIEW_APPLICATION_PATTERN")
+    template = appset["spec"]["template"]
+    parameters = template["spec"]["source"]["helm"]["parameters"]
+    spring_name = next((item.get("value", "") for item in parameters
+                        if item.get("name") == "env.SPRING_APPLICATION_NAME"), "")
+    for field, value, constant, pattern in (
+            ("SPRING_APPLICATION_NAME", spring_name, "PREVIEW_SPRING_APP_PATTERN", PREVIEW_SPRING_APP_PATTERN),
+            ("Application name", template["metadata"].get("name", ""),
+             "PREVIEW_ARGOCD_APP_PATTERN", PREVIEW_ARGOCD_APP_PATTERN)):
+        require("{{ .number }}" in value and re.fullmatch(pattern, value.replace("{{ .number }}", "1494")),
+                f"preview: ApplicationSet {field} must match {constant}")
+
+
+def is_drop_route(route: dict, matchers: list[dict]) -> bool:
+    return (route.get("receiver") == "null" and not route.get("continue") and not route.get("routes")
+            and route.get("matchers") == matchers)
+
+
+# target Pod를 고르는 NetworkPolicy가 monitoring namespace의 Prometheus Pod를 ports 중 하나로 들이는지 본다.
+# namespaceSelector가 없는 peer는 policy와 같은 namespace의 Pod만 뜻하므로 인정하지 않는다.
+def admits_prometheus_ingress(policies: list[dict], target: dict, prometheus_labels: dict[str, str],
+                              ports: set[int | str]) -> bool:
+    namespace = target["metadata"].get("namespace")
+    target_labels = workload_labels(target)
+    return any(
+        "namespaceSelector" in peer
+        and selector_matches(peer["namespaceSelector"], {"kubernetes.io/metadata.name": "monitoring"})
+        and selector_matches(peer.get("podSelector", {}), prometheus_labels)
+        and (not rule.get("ports") or any(port.get("port") in ports for port in rule["ports"]))
+        for policy in policies if policy.get("kind") == "NetworkPolicy"
+        and policy["metadata"].get("namespace") == namespace
+        and selector_matches(policy["spec"].get("podSelector", {}), target_labels)
+        for rule in policy["spec"].get("ingress", []) for peer in rule.get("from", []))
 
 
 # 전역 알림 경로와 Secret 참조를 검사하고 기존 평문 기반 설정이 함께 되살아나는 것을 막는다.
@@ -518,17 +548,19 @@ def validate_alertmanager_config(resources: list[dict]) -> None:
                 "name": "alertmanager-discord", "key": "discord-webhook"},
             "alertmanager: Discord webhook must use the ESO SecretKeySelector")
     routes = config["route"].get("routes", [])
-    first = routes[0] if routes else {}
-    require(first.get("receiver") == "null" and not first.get("continue") and not first.get("routes")
-            and first.get("matchers") == [
-                {"name": "application", "matchType": "=~", "value": PREVIEW_APPLICATION_PATTERN}],
+    require(len(routes) > 0 and is_drop_route(routes[0], [
+                {"name": "application", "matchType": "=~", "value": PREVIEW_SPRING_APP_PATTERN}]),
             "alertmanager: Preview PR app alerts must be dropped before any other route")
+    require(len(routes) > 1 and is_drop_route(routes[1], [
+                {"name": "job", "matchType": "=", "value": ARGOCD_METRICS_JOB},
+                {"name": "name", "matchType": "=~", "value": PREVIEW_ARGOCD_APP_PATTERN}]),
+            "alertmanager: Preview PR Argo CD Application alerts must be dropped right after Preview app alerts")
     severity_rules = [rule for rule in config.get("inhibitRules", [])
                       if rule.get("sourceMatch") == [{"name": "severity", "matchType": "=", "value": "critical"}]
                       and rule.get("targetMatch") == [{"name": "severity", "matchType": "=", "value": "warning"}]]
     require(len(severity_rules) == 1
-            and {"alertname", "namespace"} <= set(severity_rules[0].get("equal", [])),
-            "alertmanager: critical must inhibit warnings only for the same alertname and namespace")
+            and {"alertname", "namespace", "name"} <= set(severity_rules[0].get("equal", [])),
+            "alertmanager: critical must inhibit warnings only for the same alertname, namespace and name")
     require({"sourceMatch": [{"name": "alertname", "matchType": "=", "value": "ApiHigh5xxErrorRatio"}],
              "targetMatch": [{"name": "alertname", "matchType": "=~",
                               "value": "ApiHigh5xxErrorCount|ApiRouteHigh5xxErrorCount"}],
@@ -818,7 +850,8 @@ def main() -> int:
     require({resource["metadata"]["name"] for resource in integrations
              if resource.get("kind") == "ServiceMonitor"} == {
                 "loki", "tempo", "otel-collector", "grafana", "postgres-exporter",
-                "cert-manager", "cert-manager-cainjector", "cert-manager-webhook", "external-dns"},
+                "cert-manager", "cert-manager-cainjector", "cert-manager-webhook", "external-dns",
+                "argocd-application-controller"},
             "monitoring-integrations: required platform scrape targets must be preserved")
     all_resources = [resource for resources in rendered.values() for resource in resources] + integrations
     write_monitoring_schemas(prometheus_resources, output_dir)
@@ -829,6 +862,11 @@ def main() -> int:
                           for resource in yaml.safe_load_all(path.read_text()) if resource]
     for path in output_dir.glob("platform-*.yaml"):
         external_resources.extend(resource for resource in yaml.safe_load_all(path.read_text()) if resource)
+    # Argo CD metrics Service는 Ansible bootstrap chart가 만든다. validate_argocd.py 렌더 결과를 쓴다.
+    argocd_render = output_dir / "argocd.yaml"
+    require(argocd_render.is_file(), "argocd: run validate_argocd.py with the same output directory first")
+    argocd_resources = [resource for resource in yaml.safe_load_all(argocd_render.read_text()) if resource]
+    external_resources.extend(argocd_resources)
     services = [resource for resource in all_resources + external_resources if resource.get("kind") == "Service"]
     # These Services are produced by Kubernetes/the operator, not Helm. Assert
     # the operator's creation target before modelling its documented port/labels.
@@ -871,14 +909,16 @@ def main() -> int:
             f"NetworkPolicy/{policy['metadata']['name']} selects no rendered workload",
         )
     prometheus_labels = workload_labels(prometheus)
-    db_policies = [resource for resource in external_resources if resource.get("kind") == "NetworkPolicy"
-                   and resource.get("metadata", {}).get("name") == "postgres-exporter-allow-prometheus-ingress"]
-    require(len(db_policies) == 1, "PostgreSQL exporter must restrict Prometheus ingress")
-    peers = db_policies[0]["spec"]["ingress"][0]["from"]
-    require(any(selector_matches(peer.get("podSelector", {}), prometheus_labels)
-                and selector_matches(peer.get("namespaceSelector", {}),
-                                     {"kubernetes.io/metadata.name": "monitoring"})
-                for peer in peers), "PostgreSQL exporter NetworkPolicy must select operator-managed Prometheus Pods")
+    require(admits_prometheus_ingress(external_resources,
+                                      named_resource(external_resources, "Deployment", "postgres-exporter"),
+                                      prometheus_labels, {"metrics", 9187}),
+            "PostgreSQL exporter NetworkPolicy must admit operator-managed Prometheus Pods on the metrics port")
+    require(admits_prometheus_ingress(argocd_resources,
+                                      named_resource(argocd_resources, "StatefulSet", "argocd-application-controller"),
+                                      prometheus_labels, {"metrics", 8082}),
+            "Argo CD application-controller NetworkPolicy must admit Prometheus on the metrics port")
+    # Preview drop route의 job matcher가 실제 metrics Service 이름을 가리켜야 한다.
+    named_resource(argocd_resources, "Service", ARGOCD_METRICS_JOB)
     tempo_policy = next(
         policy
         for policy in policies

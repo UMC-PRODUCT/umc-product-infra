@@ -186,3 +186,150 @@ tests:
             exp_annotations:
               summary: "OTel Collector log export를 확인해주세요"
               description: "OTel Collector가 log record export에 실패하고 있어요. exporter=otlphttp/loki, instance=10.0.0.2:8888 의 downstream endpoint와 인증 정보를 확인해주세요."
+
+  - interval: 1m
+    input_series:
+      # 운영 앱은 Degraded가 이어지는 중 10분에 operation label이 바뀌고, dev 앱은 Missing,
+      # 공용 preview DB와 Preview PR 앱은 Degraded, 운영 DB는 Healthy다. root는 자식 health를
+      # 물려받아 Degraded다. Preview PR 앱은 rule에서 firing되고 Alertmanager route가 버린다.
+      - series: 'argocd_app_info{job="argocd-application-controller-metrics", namespace="argocd", exported_namespace="argocd", instance="10.42.0.9:8082", pod="argocd-application-controller-0", name="umc-product-server", project="prod", dest_namespace="app", health_status="Degraded", sync_status="Synced", operation="sync"}'
+        values: '1x9'
+      - series: 'argocd_app_info{job="argocd-application-controller-metrics", namespace="argocd", exported_namespace="argocd", instance="10.42.0.9:8082", pod="argocd-application-controller-0", name="umc-product-server", project="prod", dest_namespace="app", health_status="Degraded", sync_status="Synced", operation=""}'
+        values: '_x10 1x30'
+      - series: 'argocd_app_info{job="argocd-application-controller-metrics", namespace="argocd", exported_namespace="argocd", instance="10.42.0.9:8082", pod="argocd-application-controller-0", name="dev-umc-product-server", project="dev", dest_namespace="dev-app", health_status="Missing", sync_status="Synced", operation=""}'
+        values: '1x40'
+      - series: 'argocd_app_info{job="argocd-application-controller-metrics", namespace="argocd", exported_namespace="argocd", instance="10.42.0.9:8082", pod="argocd-application-controller-0", name="preview-postgres", project="preview", dest_namespace="preview-db", health_status="Degraded", sync_status="Synced", operation=""}'
+        values: '1x40'
+      - series: 'argocd_app_info{job="argocd-application-controller-metrics", namespace="argocd", exported_namespace="argocd", instance="10.42.0.9:8082", pod="argocd-application-controller-0", name="umc-product-preview-7", project="preview", dest_namespace="preview", health_status="Degraded", sync_status="Synced", operation=""}'
+        values: '1x40'
+      - series: 'argocd_app_info{job="argocd-application-controller-metrics", namespace="argocd", exported_namespace="argocd", instance="10.42.0.9:8082", pod="argocd-application-controller-0", name="postgres", project="prod", dest_namespace="db", health_status="Healthy", sync_status="Synced", operation=""}'
+        values: '1x40'
+      - series: 'argocd_app_info{job="argocd-application-controller-metrics", namespace="argocd", exported_namespace="argocd", instance="10.42.0.9:8082", pod="argocd-application-controller-0", name="root", project="bootstrap", dest_namespace="argocd", health_status="Degraded", sync_status="Synced", operation=""}'
+        values: '1x40'
+    alert_rule_test:
+      - eval_time: 14m
+        alertname: ArgoCDApplicationUnhealthy
+        exp_alerts: []
+      - eval_time: 16m
+        alertname: ArgoCDApplicationUnhealthy
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              job: argocd-application-controller-metrics
+              namespace: argocd
+              name: umc-product-server
+              project: prod
+              dest_namespace: app
+              health_status: Degraded
+            exp_annotations:
+              summary: "운영 Argo CD 앱이 15분째 Degraded 상태예요"
+              description: "Application umc-product-server (→ app) 의 health가 15분 이상 Degraded 상태예요. Argo CD에서 Degraded·Missing 리소스와 sync 오류를 확인해주세요."
+          - exp_labels:
+              severity: warning
+              job: argocd-application-controller-metrics
+              namespace: argocd
+              name: dev-umc-product-server
+              project: dev
+              dest_namespace: dev-app
+              health_status: Missing
+            exp_annotations:
+              summary: "Argo CD 앱이 15분째 Missing 상태예요"
+              description: "Application dev-umc-product-server (project=dev, → dev-app) 의 health가 15분 이상 Missing 상태예요. Argo CD에서 Degraded·Missing 리소스와 sync 오류를 확인해주세요."
+          - exp_labels:
+              severity: warning
+              job: argocd-application-controller-metrics
+              namespace: argocd
+              name: preview-postgres
+              project: preview
+              dest_namespace: preview-db
+              health_status: Degraded
+            exp_annotations:
+              summary: "Argo CD 앱이 15분째 Degraded 상태예요"
+              description: "Application preview-postgres (project=preview, → preview-db) 의 health가 15분 이상 Degraded 상태예요. Argo CD에서 Degraded·Missing 리소스와 sync 오류를 확인해주세요."
+          - exp_labels:
+              severity: warning
+              job: argocd-application-controller-metrics
+              namespace: argocd
+              name: umc-product-preview-7
+              project: preview
+              dest_namespace: preview
+              health_status: Degraded
+            exp_annotations:
+              summary: "Argo CD 앱이 15분째 Degraded 상태예요"
+              description: "Application umc-product-preview-7 (project=preview, → preview) 의 health가 15분 이상 Degraded 상태예요. Argo CD에서 Degraded·Missing 리소스와 sync 오류를 확인해주세요."
+
+  - interval: 1m
+    input_series:
+      # 플랫폼 앱은 OutOfSync, 서버 앱은 main manifest 렌더링 실패로 Unknown(health는 Healthy),
+      # cluster 앱은 10분에 OutOfSync에서 Unknown으로 바뀐다. 운영 DB는 Synced다.
+      - series: 'argocd_app_info{job="argocd-application-controller-metrics", namespace="argocd", exported_namespace="argocd", instance="10.42.0.9:8082", pod="argocd-application-controller-0", name="cert-manager", project="cert-manager", dest_namespace="cert-manager", health_status="Healthy", sync_status="OutOfSync", operation=""}'
+        values: '1x40'
+      - series: 'argocd_app_info{job="argocd-application-controller-metrics", namespace="argocd", exported_namespace="argocd", instance="10.42.0.9:8082", pod="argocd-application-controller-0", name="umc-product-server", project="prod", dest_namespace="app", health_status="Healthy", sync_status="Unknown", operation=""}'
+        values: '1x40'
+      - series: 'argocd_app_info{job="argocd-application-controller-metrics", namespace="argocd", exported_namespace="argocd", instance="10.42.0.9:8082", pod="argocd-application-controller-0", name="cluster", project="platform", dest_namespace="default", health_status="Healthy", sync_status="OutOfSync", operation=""}'
+        values: '1x9'
+      - series: 'argocd_app_info{job="argocd-application-controller-metrics", namespace="argocd", exported_namespace="argocd", instance="10.42.0.9:8082", pod="argocd-application-controller-0", name="cluster", project="platform", dest_namespace="default", health_status="Healthy", sync_status="Unknown", operation=""}'
+        values: '_x10 1x30'
+      - series: 'argocd_app_info{job="argocd-application-controller-metrics", namespace="argocd", exported_namespace="argocd", instance="10.42.0.9:8082", pod="argocd-application-controller-0", name="postgres", project="prod", dest_namespace="db", health_status="Healthy", sync_status="Synced", operation=""}'
+        values: '1x40'
+    alert_rule_test:
+      - eval_time: 29m
+        alertname: ArgoCDApplicationNotSynced
+        exp_alerts: []
+      - eval_time: 40m
+        alertname: ArgoCDApplicationNotSynced
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              job: argocd-application-controller-metrics
+              namespace: argocd
+              name: cert-manager
+              project: cert-manager
+              dest_namespace: cert-manager
+            exp_annotations:
+              summary: "Argo CD 앱이 30분째 Git 상태로 수렴하지 않아요"
+              description: "Application cert-manager (project=cert-manager, → cert-manager) 이 30분 이상 OutOfSync 또는 Unknown이에요. Unknown이면 manifest 렌더링 오류(ComparisonError)를, OutOfSync면 sync 실패·수동 변경·반복 diff를 Argo CD에서 확인해주세요."
+          - exp_labels:
+              severity: warning
+              job: argocd-application-controller-metrics
+              namespace: argocd
+              name: umc-product-server
+              project: prod
+              dest_namespace: app
+            exp_annotations:
+              summary: "Argo CD 앱이 30분째 Git 상태로 수렴하지 않아요"
+              description: "Application umc-product-server (project=prod, → app) 이 30분 이상 OutOfSync 또는 Unknown이에요. Unknown이면 manifest 렌더링 오류(ComparisonError)를, OutOfSync면 sync 실패·수동 변경·반복 diff를 Argo CD에서 확인해주세요."
+          - exp_labels:
+              severity: warning
+              job: argocd-application-controller-metrics
+              namespace: argocd
+              name: cluster
+              project: platform
+              dest_namespace: default
+            exp_annotations:
+              summary: "Argo CD 앱이 30분째 Git 상태로 수렴하지 않아요"
+              description: "Application cluster (project=platform, → default) 이 30분 이상 OutOfSync 또는 Unknown이에요. Unknown이면 manifest 렌더링 오류(ComparisonError)를, OutOfSync면 sync 실패·수동 변경·반복 diff를 Argo CD에서 확인해주세요."
+      - eval_time: 40m
+        alertname: ArgoCDApplicationUnhealthy
+        exp_alerts: []
+      - eval_time: 40m
+        alertname: ArgoCDMetricsMissing
+        exp_alerts: []
+
+  - interval: 1m
+    input_series:
+      # Ansible로 metrics Service를 켜기 전처럼 argocd_app_info가 없다.
+      - series: 'up{job="prometheus", instance="localhost:9090"}'
+        values: '1x40'
+    alert_rule_test:
+      - eval_time: 29m
+        alertname: ArgoCDMetricsMissing
+        exp_alerts: []
+      - eval_time: 31m
+        alertname: ArgoCDMetricsMissing
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+            exp_annotations:
+              summary: "Argo CD Application 지표가 30분째 들어오지 않아요"
+              description: "argocd_app_info가 없어 Application health·sync 알림이 동작하지 않아요. argocd-application-controller-metrics Service와 ServiceMonitor target을 확인해주세요."

@@ -227,6 +227,12 @@ configs:
 controller:
   networkPolicy:
     create: true
+  # Application health·sync 알림용 metrics Service만 만든다. 수집 정의는
+  # manifests/observability-integrations의 ServiceMonitor가 Git으로 관리한다.
+  metrics:
+    enabled: true
+    serviceMonitor:
+      enabled: false
   resources:
     requests:
       cpu: 100m
