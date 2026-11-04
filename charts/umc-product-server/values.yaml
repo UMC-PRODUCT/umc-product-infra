@@ -88,18 +88,23 @@ testApi:
 mailCapture:
   enabled: false
   image: axllent/mailpit:v1.27.0@sha256:fb84cfb1c3a33007cfdee8ba5a77b8c6c894de5b1a368372ddc5c965cf5c0b6d
-  # hostAliases로 127.0.0.1에 묶는 이름. 공용 wildcard 인증서가 덮고, 공개 DNS 레코드는 만들지 않는다.
+  # hostAliases로 127.0.0.1에 묶는 이름. 공개 DNS 레코드는 만들지 않는다.
   smtpHost: smtp-capture.university.neordinary.com
   smtpPort: 1025
   smtpUsername: umc-preview
   uiPort: 8025
   uiHost: ""
-  tlsSecret: preview-wildcard-tls
+  # 위 이름만 담은 자체 서명 인증서(manifests/cert-manager). Pod에 공개 wildcard 키를 마운트하지 않는다.
+  smtpTlsSecret: preview-mail-capture-loopback-tls
   maxMessages: 500
   ui:
     basicAuth:
       existingSecret: docs-basic-auth
   resources:
+    requests: { cpu: 20m, memory: 64Mi }
+    limits: { memory: 128Mi }
+  # init container는 앱·Mailpit 합계보다 작아 Pod 예산을 늘리지 않는다.
+  truststoreResources:
     requests: { cpu: 20m, memory: 64Mi }
     limits: { memory: 128Mi }
 

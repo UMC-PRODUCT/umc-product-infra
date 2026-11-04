@@ -4,6 +4,8 @@
 from __future__ import annotations
 
 import hashlib
+import os
+import re
 import shutil
 import subprocess
 import sys
@@ -32,6 +34,44 @@ EXPECTED_CRDS = {
 PUBLIC_HOST = "argo.university.neordinary.com"
 PUBLIC_TARGET = "1.255.226.166"
 ACCESS_DIR = ROOT / "manifests" / "argocd-access"
+GITOPS_DIRS = ("bootstrap", "argocd", "manifests")
+EXPECTED_HEALTH_KEYS = {
+    f"resource.customizations.health.{group_kind}"
+    for group_kind in (
+        "argoproj.io_Application",
+        "monitoring.coreos.com_Alertmanager",
+        "external-secrets.io_SecretStore",
+        "external-secrets.io_ExternalSecret",
+        "cert-manager.io_Certificate",
+        "cert-manager.io_ClusterIssuer",
+    )
+}
+
+
+def gitops_documents() -> list[dict]:
+    return [
+        item
+        for directory in GITOPS_DIRS
+        for path in sorted((ROOT / directory).rglob("*.yaml"))
+        for item in yaml.safe_load_all(path.read_text(encoding="utf-8"))
+        if isinstance(item, dict)
+    ]
+
+
+# argocd-cm은 Helm release만 소유한다. GitOps가 같은 ConfigMap을 다시 선언하면 두 적용 방식이 경쟁한다.
+def validate_config_owner(config_maps: dict[str, dict], gitops: list[dict]) -> None:
+    require("argocd-cm" in config_maps, "Helm render must include the argocd-cm ConfigMap")
+    config = config_maps["argocd-cm"]
+    health = {key for key, value in config.items() if key.startswith("resource.customizations.health.") and value}
+    require(
+        health == EXPECTED_HEALTH_KEYS,
+        f"Helm argocd-cm must carry exactly the reviewed health gates, diff {sorted(health ^ EXPECTED_HEALTH_KEYS)}",
+    )
+    owners = [
+        item for item in gitops
+        if item.get("kind") == "ConfigMap" and item.get("metadata", {}).get("name") == "argocd-cm"
+    ]
+    require(not owners, "argocd-cm must be owned only by the Ansible Helm release, not GitOps manifests")
 
 
 # 인증서와 격리 정책이 Ingress보다 먼저 적용되고, 허용한 출발지·포트만 열리는지 검사한다.
@@ -202,15 +242,48 @@ def sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
+# Ansible이 서버에 설치하는 Helm과 major.minor가 같으면 로컬 patch 차이는 경고로 허용한다.
+# VALIDATE_STRICT=1(CI)에서는 고정 버전과 정확히 같아야 한다.
+def check_helm_version(actual: str, pinned: str, *, strict: bool) -> str | None:
+    pinned_parts = re.fullmatch(r"v(\d+)\.(\d+)\.(\d+)", pinned)
+    if pinned_parts is None:
+        raise SystemExit(f"Argo CD validation failed: argocd_helm_version must be vX.Y.Z, got {pinned}")
+    major, minor, _ = pinned_parts.groups()
+    required = f"install Helm {pinned} (argocd_helm_version in {DEFAULTS_PATH.relative_to(ROOT)})"
+    actual_parts = re.fullmatch(r"v(\d+)\.(\d+)\.(\d+)(?:\+\S+)?", actual)
+    if actual_parts is None or actual_parts.groups()[:2] != (major, minor):
+        raise SystemExit(
+            f"Argo CD validation failed: Helm v{major}.{minor}.x is required, got {actual}; {required}"
+        )
+    if actual_parts.groups() == pinned_parts.groups():
+        return None
+    require(not strict, f"VALIDATE_STRICT=1 requires Helm {pinned}, got {actual}; {required}")
+    return f"warning: Helm {actual} differs from pinned {pinned} in patch version; {required} to match CI"
+
+
+def verify_helm_version(defaults: dict) -> None:
+    warning = check_helm_version(
+        run(["helm", "version", "--short"]).stdout.strip(),
+        str(defaults["argocd_helm_version"]),
+        strict=os.environ.get("VALIDATE_STRICT") == "1",
+    )
+    if warning:
+        print(warning, file=sys.stderr)
+
+
+def load_defaults() -> dict:
+    return yaml.safe_load(DEFAULTS_PATH.read_text(encoding="utf-8"))
+
+
 # 고정된 chart를 실제 bootstrap values로 렌더해 접속 경계·계정 권한·workload 설정을 검사한다.
 def main(output_dir: Path) -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
-    defaults = yaml.safe_load(DEFAULTS_PATH.read_text(encoding="utf-8"))
+    defaults = load_defaults()
     values = yaml.safe_load(VALUES_PATH.read_text(encoding="utf-8"))
 
     chart_version = str(defaults["argocd_helm_chart_version"])
     app_version = str(defaults["argocd_version"])
-    helm_version = str(defaults["argocd_helm_version"])
+    verify_helm_version(defaults)
     expected_checksum = str(defaults["argocd_helm_chart_checksum"]).removeprefix(
         "sha256:"
     )
@@ -237,13 +310,6 @@ def main(output_dir: Path) -> None:
         ),
         "account passwords must remain runtime-managed, not chart values",
     )
-    actual_helm_version = run(["helm", "version", "--short"]).stdout.strip()
-    require(
-        actual_helm_version == helm_version
-        or actual_helm_version.startswith(f"{helm_version}+"),
-        f"Helm version must be {helm_version}, got {actual_helm_version}",
-    )
-
     # 다운로드한 chart의 checksum과 메타데이터를 확인한 뒤에만 Helm 입력으로 사용한다.
     archive = output_dir / f"argo-cd-{chart_version}.tgz"
     request = urllib.request.Request(
@@ -275,6 +341,9 @@ def main(output_dir: Path) -> None:
                 "--kube-version",
                 "1.36.0",
                 "--include-crds",
+                # 운영 클러스터에는 Prometheus Operator CRD가 있어 chart의 monitor 템플릿이 열린다.
+                "--api-versions",
+                "monitoring.coreos.com/v1",
                 "-f",
                 str(VALUES_PATH),
             ],
@@ -296,7 +365,8 @@ def main(output_dir: Path) -> None:
         for item in documents
         if item.get("kind") == "ConfigMap"
     }
-    config = config_maps.get("argocd-cm", {})
+    validate_config_owner(config_maps, gitops_documents())
+    config = config_maps["argocd-cm"]
     require(
         config.get("admin.enabled") == "true"
         and config.get("users.anonymous.enabled") == "false",
@@ -372,9 +442,16 @@ def main(output_dir: Path) -> None:
         if item.get("kind") == "CustomResourceDefinition"
     }
     require(actual_crds == EXPECTED_CRDS, "CRD set drifted")
+    require(
+        not any(item.get("kind") in {"ServiceMonitor", "PrometheusRule"} for item in documents),
+        "Argo CD scrape and rule definitions belong to monitoring-integrations, not the bootstrap chart",
+    )
     print("Argo CD Helm release validation passed")
 
 
 if __name__ == "__main__":
-    require(len(sys.argv) == 2, "usage: validate_argocd.py OUTPUT_DIR")
-    main(Path(sys.argv[1]))
+    require(len(sys.argv) == 2, "usage: validate_argocd.py --helm-version-only | OUTPUT_DIR")
+    if sys.argv[1] == "--helm-version-only":
+        verify_helm_version(load_defaults())
+    else:
+        main(Path(sys.argv[1]))

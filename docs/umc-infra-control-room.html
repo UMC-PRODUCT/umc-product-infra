@@ -595,20 +595,6 @@
     .decision p { margin: 0; color: var(--text-dim); font-size: 0.8125rem; }
     .decision .why { margin-top: 12px; padding-top: 10px; border-top: 1px dashed var(--border); }
 
-    .risk-panel {
-      display: grid;
-      grid-template-columns: minmax(0, 0.75fr) minmax(0, 1.25fr);
-      margin-top: 15px;
-      border: 1px solid var(--red);
-      background: var(--red-dim);
-    }
-    .risk-title { padding: 21px; border-right: 1px solid color-mix(in srgb, var(--red) 40%, transparent); }
-    .risk-title .mono { color: var(--red); font-size: 0.6875rem; font-weight: 700; letter-spacing: 0.12em; }
-    .risk-title h3 { margin: 10px 0 0; font-size: 1.15rem; }
-    .risk-copy { padding: 21px; }
-    .risk-copy p { margin: 0; color: var(--text-dim); font-size: 0.8125rem; }
-    .risk-copy p + p { margin-top: 8px; }
-
     .dir-layout { display: grid; grid-template-columns: minmax(320px, 0.9fr) minmax(0, 1.1fr); gap: 15px; align-items: start; }
     .dir-tree {
       margin: 0;
@@ -706,25 +692,6 @@
     .never-card h3 { margin: 0 0 7px; font-size: 0.9rem; }
     .never-card p { margin: 0; color: var(--text-dim); font-size: 0.75rem; }
 
-    .next-rail { border-left: 2px solid var(--border-strong); margin-left: 16px; }
-    .next-item { position: relative; margin-left: 24px; padding: 0 0 25px 17px; }
-    .next-item:last-child { padding-bottom: 0; }
-    .next-item::before {
-      content: "";
-      position: absolute;
-      width: 10px;
-      height: 10px;
-      left: -30px;
-      top: 6px;
-      border: 2px solid var(--bg);
-      outline: 1px solid var(--border-strong);
-      background: var(--accent);
-    }
-    .next-item.is-pending::before { background: var(--amber); }
-    .next-item.is-deferred::before { background: var(--blue); }
-    .next-item h3 { margin: 0; font-size: 0.95rem; }
-    .next-item p { max-width: 78ch; margin: 5px 0 0; color: var(--text-dim); font-size: 0.8125rem; }
-
     .source-links { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 12px; }
     .source-link {
       padding: 4px 7px;
@@ -791,8 +758,7 @@
       .kpi:nth-child(2) { border-right: 0; }
       .kpi:nth-child(-n+2) { border-bottom: 1px solid var(--border); }
       .ve-card, .ve-card--wide, .ve-card--half { grid-column: 1 / -1; }
-      .lane-grid, .decision-ledger, .risk-panel, .dir-layout, .never-grid { grid-template-columns: 1fr; }
-      .risk-title { border-right: 0; border-bottom: 1px solid color-mix(in srgb, var(--red) 40%, transparent); }
+      .lane-grid, .decision-ledger, .dir-layout, .never-grid { grid-template-columns: 1fr; }
       .timeline { grid-template-columns: 1fr; }
       .phase { display: grid; grid-template-columns: 48px minmax(0, 1fr); gap: 11px; }
       .phase-num { width: 48px; height: 48px; }
@@ -842,7 +808,7 @@
       <a href="#repository">06 저장소 지도</a>
       <a href="#operations">07 운영 도구</a>
       <a href="#secrets">08 Secret</a>
-      <a href="#next">09 다음 작업</a>
+      <a href="#next">09 참고</a>
       <div class="toc-note">OVERVIEW ONLY<br>YAML · SCRIPT가 최종 기준</div>
     </nav>
 
@@ -864,12 +830,12 @@
               <span class="console-lights" aria-hidden="true"><i></i><i></i><i></i></span>
             </div>
             <dl class="console-body">
-              <div class="console-line"><dt>stage</dt><dd><span class="status-chip is-wait">pre-deploy</span></dd></div>
+              <div class="console-line"><dt>stage</dt><dd><span class="status-chip is-ready">운영 중</span></dd></div>
               <div class="console-line"><dt>domain</dt><dd>university.neordinary.com</dd></div>
-              <div class="console-line"><dt>registry</dt><dd>public GHCR / BE 연결 전</dd></div>
-              <div class="console-line"><dt>git</dt><dd>public 예정 / remote 없음</dd></div>
-              <div class="console-line"><dt>edge</dt><dd>Hosted Zone 확정 / Public IP 대기</dd></div>
-              <div class="console-line"><dt>workload</dt><dd>Deployment · Ingress 닫힘</dd></div>
+              <div class="console-line"><dt>registry</dt><dd>public GHCR / SHA tag + digest</dd></div>
+              <div class="console-line"><dt>git</dt><dd>public / UMC-PRODUCT/umc-product-infra</dd></div>
+              <div class="console-line"><dt>edge</dt><dd>Route 53 direct A / public 443</dd></div>
+              <div class="console-line"><dt>workload</dt><dd>prod · dev 활성 / Preview PR별</dd></div>
             </dl>
           </section>
         </div>
@@ -878,7 +844,7 @@
       <div class="kpi-row" aria-label="인프라 핵심 수치">
         <div class="kpi"><strong>1</strong><span>IDC node · K3s control plane과 workload 공유</span></div>
         <div class="kpi"><strong>3</strong><span>prod · dev · trusted preview 환경</span></div>
-        <div class="kpi"><strong>32</strong><span>raw Kubernetes manifest 파일</span></div>
+        <div class="kpi"><strong>2</strong><span>Preview 동시 상한 · ResourceQuota로 강제</span></div>
         <div class="kpi"><strong>5</strong><span>AWS CloudFormation template</span></div>
       </div>
 
@@ -978,7 +944,7 @@
           <div class="sec-index">02 / RUN</div>
           <div class="sec-copy">
             <h2>실행 순서는 네 구간</h2>
-            <p>일회성 체크박스 대신 의존성 순서만 남긴다. 다음 단계의 입력이 준비되지 않으면 gate를 열지 않는다.</p>
+            <p>네 구간 모두 완료됐다. 서버를 다시 구성할 때의 의존성 순서로 남긴다. 다음 단계의 입력이 준비되지 않으면 gate를 열지 않는다.</p>
           </div>
         </div>
 
@@ -986,11 +952,11 @@
           <article class="phase">
             <div class="phase-num">00</div>
             <div class="phase-body">
-              <span class="status-chip is-ready">now</span>
+              <span class="status-chip is-ready">done</span>
               <h3>Repository foundation</h3>
               <p>infra 검증 → public GitHub 초기 main → Static validation → secret scanning → branch protection.</p>
               <ul class="clean-list">
-                <li>현재 remote 없음</li>
+                <li>public GitHub · Static validation CI</li>
                 <li>write는 cluster-admin급</li>
                 <li>BE bot은 사전 검증한 image values만 직접 반영</li>
               </ul>
@@ -999,7 +965,7 @@
           <article class="phase">
             <div class="phase-num">01</div>
             <div class="phase-body">
-              <span class="status-chip is-wait">external</span>
+              <span class="status-chip is-ready">done</span>
               <h3>AWS foundation</h3>
               <p>Route 53 IAM, ESO IAM, 환경별 app S3, SES, backup S3를 만든 뒤 local worksheet를 Secrets Manager에 올린다.</p>
               <ul class="clean-list">
@@ -1012,7 +978,7 @@
           <article class="phase">
             <div class="phase-num">02</div>
             <div class="phase-body">
-              <span class="status-chip is-wait">idc</span>
+              <span class="status-chip is-ready">done</span>
               <h3>Server bootstrap</h3>
               <p>고정 IP 확보 → 기존 관리자 세션을 유지하며 개인 SSH 계정 준비 → 공인 SSH·sudo 검증 → root 직접 SSH 차단 → Ansible bootstrap. DB 구성 후 터널 권한도 검증한다.</p>
               <ul class="clean-list">
@@ -1025,13 +991,13 @@
           <article class="phase">
             <div class="phase-num">03</div>
             <div class="phase-body">
-              <span class="status-chip is-later">be later</span>
+              <span class="status-chip is-ready">done</span>
               <h3>Image and activation</h3>
               <p>BE CI가 public GHCR에 SHA image를 게시하고, Helm 사전 검증 후 infra main에 tag·digest를 직접 반영한다. Argo CD가 변경을 감지해 자동 동기화하며 dev 검증 후 prod, preview는 마지막이다.</p>
               <ul class="clean-list">
                 <li>prod/dev는 tag + digest</li>
                 <li>production TLS 뒤 Ingress</li>
-                <li>backup은 외부 restore 뒤 활성화</li>
+                <li>backup은 2026-09-19 활성화 · 외부 restore 미검증</li>
               </ul>
             </div>
           </article>
@@ -1060,17 +1026,17 @@
                 <tr>
                   <td><strong>prod</strong></td><td><code>main</code></td><td><code>app</code> · <code>db</code></td>
                   <td class="wide">api.university.neordinary.com</td><td><code>umc_product</code></td>
-                  <td>12-char SHA + digest</td><td><span class="status-chip is-closed">off</span></td>
+                  <td>12-char SHA + digest</td><td><span class="status-chip is-ready">on</span></td>
                 </tr>
                 <tr>
                   <td><strong>dev</strong></td><td><code>develop</code></td><td><code>dev-app</code> · <code>dev-db</code></td>
                   <td class="wide">api-dev.university.neordinary.com</td><td><code>umc_product_dev</code></td>
-                  <td>12-char SHA + digest</td><td><span class="status-chip is-closed">off</span></td>
+                  <td>12-char SHA + digest</td><td><span class="status-chip is-ready">on</span></td>
                 </tr>
                 <tr>
                   <td><strong>preview</strong></td><td>trusted PR + label</td><td><code>preview</code></td>
                   <td class="wide">api-pr-&lt;PR&gt;.university.neordinary.com</td><td><code>umc_product_pr&lt;N&gt;</code></td>
-                  <td>write-once head SHA</td><td><span class="status-chip is-closed">off</span></td>
+                  <td>마지막 발행 성공 SHA + digest</td><td><span class="status-chip is-ready">PR별</span></td>
                 </tr>
               </tbody>
             </table>
@@ -1090,8 +1056,8 @@
           </article>
           <article class="ve-card ve-card--amber">
             <div class="ve-card__label">Preview</div>
-            <h3>신뢰된 PR만, 최대 3개</h3>
-            <p>한 namespace와 PostgreSQL Pod를 공유하고 PR별 database를 만든다. fork와 외부 PR은 실행하지 않는다.</p>
+            <h3>신뢰된 PR만, 최대 2개</h3>
+            <p>한 namespace와 PostgreSQL Pod를 공유하고 PR별 database를 dev에서 복사해 만든다. fork와 외부 PR은 실행하지 않는다.</p>
           </article>
         </div>
 
@@ -1146,22 +1112,11 @@
           <article class="decision">
             <div class="decision-top"><span class="decision-id">DEC / DOCS</span><span class="status-chip is-later">simplified</span></div>
             <h3>한 화면 + 필요한 원본만</h3>
-            <p>일회성 Bootstrap checklist와 DR runbook은 제거했다. backup activation 절차는 남긴다.</p>
-            <p class="why"><strong>새 규칙:</strong> 이 HTML로 탐색하고 실행할 때만 세부 guide를 연다.</p>
+            <p>일회성 Bootstrap checklist는 제거했다. 백업·이전·Preview 같은 위험 작업 절차는 <code>docs/runbooks/</code>에 둔다.</p>
+            <p class="why"><strong>기준:</strong> 이 HTML은 요약이다. 절차와 계약은 Markdown 문서와 코드가 기준이다.</p>
           </article>
         </div>
 
-        <div class="risk-panel">
-          <div class="risk-title">
-            <div class="mono">BLOCKER / BE IMAGE</div>
-            <h3>로컬 build는 현재 안전하지 않다.</h3>
-          </div>
-          <div class="risk-copy">
-            <p><code>src/main/resources/.env.local</code>이 실제 <code>bootJar</code>의 <code>BOOT-INF/classes/.env.local</code>에 포함된다.</p>
-            <p>GitHub Actions clean checkout에는 해당 미추적 파일이 없어 기존 CI image는 안전할 가능성이 높지만, 실제 GHCR artifact를 pull·scan하기 전에는 단정하지 않는다.</p>
-            <p><strong>GHCR 공개 전:</strong> resource 밖으로 이동 → Gradle exclude → <code>.dockerignore</code> 강화 → image JAR 검사 → 로컬 push 이력이 있으면 credential rotation.</p>
-          </div>
-        </div>
 
         <div class="source-links">
           <a class="source-link" href="architecture/k3s.md">architecture decisions</a>
@@ -1175,19 +1130,19 @@
           <div class="sec-index">05 / GATE</div>
           <div class="sec-copy">
             <h2>체크리스트 대신 현재 상태판</h2>
-            <p>gate는 문서 장식이 아니라 fail-closed 값이다. 조건이 확인되고 사전 검증을 통과한 항목만 infra main에 반영한다.</p>
+            <p>gate는 문서 장식이 아니라 fail-closed 값이다. 아래는 Git 선언 기준이며 live 상태는 클러스터에서 확인한다.</p>
           </div>
         </div>
 
         <div class="gate-board">
-          <article class="gate-row"><h3>Hosted Zone</h3><span class="status-chip is-ready">ready</span><p>실제 ID가 cert-manager와 ExternalDNS에 반영됨. Public IPv4만 미정.</p></article>
-          <article class="gate-row"><h3>Git remote</h3><span class="status-chip is-wait">waiting</span><p>public repository 생성, 초기 main CI 성공, secret scanning과 branch protection 필요.</p></article>
-          <article class="gate-row"><h3>Public IP</h3><span class="status-chip is-wait">waiting</span><p>앱 target, Grafana target, ExternalDNS <code>/32</code> filter를 같은 값으로 변경.</p></article>
-          <article class="gate-row"><h3>GHCR image</h3><span class="status-chip is-closed">blocked</span><p><code>bootstrap-required</code> tag와 빈 digest. BE pipeline과 image secret scan 선행.</p></article>
-          <article class="gate-row"><h3>Deployment</h3><span class="status-chip is-closed">off</span><p>필수 Secret Ready, DB/runtime 계약, 검증된 tag·digest 뒤 환경별 활성화.</p></article>
-          <article class="gate-row"><h3>TLS / Ingress</h3><span class="status-chip is-closed">staging</span><p>DNS-01 staging 성공 → production Certificate Ready → Deployment health 뒤 Ingress.</p></article>
-          <article class="gate-row"><h3>Grafana</h3><span class="status-chip is-closed">off</span><p>실제 IP, production TLS, anonymous/sign-up 차단, 팀원 Viewer 계정 검증.</p></article>
-          <article class="gate-row"><h3>DB backup</h3><span class="status-chip is-closed">suspended</span><p>수동 dump·checksum·complete marker와 node 밖 restore 성공 뒤 예약 실행.</p></article>
+          <article class="gate-row"><h3>Hosted Zone</h3><span class="status-chip is-ready">ready</span><p>실제 zone ID와 Cafe24 IDC 공인 IPv4가 cert-manager·ExternalDNS에 반영됨.</p></article>
+          <article class="gate-row"><h3>Git remote</h3><span class="status-chip is-ready">ready</span><p>public repository와 Static validation CI 운영. branch protection 설정은 GitHub에서 확인.</p></article>
+          <article class="gate-row"><h3>Public IP</h3><span class="status-chip is-ready">ready</span><p>앱 target, Grafana target, ExternalDNS <code>/32</code> filter가 같은 값.</p></article>
+          <article class="gate-row"><h3>GHCR image</h3><span class="status-chip is-ready">ready</span><p>prod/dev는 SHA tag + digest, Preview는 발행 성공 기록의 digest로 고정.</p></article>
+          <article class="gate-row"><h3>Deployment</h3><span class="status-chip is-ready">on</span><p>prod·dev는 values에서 활성. Preview는 ApplicationSet이 PR별로 켠다.</p></article>
+          <article class="gate-row"><h3>TLS / Ingress</h3><span class="status-chip is-ready">production</span><p>Let's Encrypt production DNS-01 Certificate와 환경별 Ingress 활성.</p></article>
+          <article class="gate-row"><h3>Grafana</h3><span class="status-chip is-ready">on</span><p>public HTTPS, 익명·회원가입 차단, 팀원별 Viewer 계정.</p></article>
+          <article class="gate-row"><h3>DB backup</h3><span class="status-chip is-wait">active</span><p>2026-09-19부터 매일 03:00 실행, S3 10일 보관. 노드 밖 restore 리허설은 아직 하지 않았다.</p></article>
           <article class="gate-row"><h3>Root prune</h3><span class="status-chip is-closed">false</span><p>첫 운영 안정화와 자식 Application 삭제 복구 절차 확인 뒤 검토.</p></article>
         </div>
       </section>
@@ -1219,7 +1174,7 @@
             <a class="task-link" href="operations/domains-tls.md"><strong>DNS · TLS</strong><span>Route 53, Public IP, Certificate 활성화</span></a>
             <a class="task-link" href="guides/preview-environments.md"><strong>PR Preview</strong><span>trusted PR 조건과 database lifecycle</span></a>
             <a class="task-link" href="operations/tool-access.md"><strong>관측 접근</strong><span>Grafana 공개와 계정 경계</span></a>
-            <a class="task-link" href="runbooks/backup-activation.md"><strong>Backup 활성화</strong><span>S3 검증과 외부 restore 뒤 CronJob open</span></a>
+            <a class="task-link" href="runbooks/backup-activation.md"><strong>Backup 운영</strong><span>중지·외부 restore 검증 절차</span></a>
           </div>
         </div>
 
@@ -1236,29 +1191,32 @@
               <tbody>
                 <tr><td class="num">-100</td><td>전용 AppProject</td><td>source·namespace·cluster 권한 경계 먼저 생성</td></tr>
                 <tr><td class="num">-99</td><td>built-in default 잠금</td><td>source와 destination을 비워 우회 경로 차단</td></tr>
-                <tr><td class="num">-3</td><td>Namespace · PriorityClass · Argo health</td><td>후속 리소스의 대상과 health 규칙 준비</td></tr>
+                <tr><td class="num">-3</td><td>Namespace · PriorityClass</td><td>후속 리소스의 대상 준비 (health 규칙은 Helm 설치 때 적용)</td></tr>
                 <tr><td class="num">-2</td><td>ESO · cert-manager controller</td><td>CRD와 controller 선행</td></tr>
                 <tr><td class="num">-1</td><td>SecretStore · ExternalSecret</td><td>workload보다 Secret 먼저</td></tr>
                 <tr><td class="num">0</td><td>Postgres · ExternalDNS · Reloader · Certificate</td><td>runtime 기반 생성</td></tr>
-                <tr><td class="num">1</td><td>앱 · Preview ApplicationSet · 관측 config</td><td>환경 workload와 설정</td></tr>
+                <tr><td class="num">1</td><td>앱 · Preview ApplicationSet · 관측 config · Argo CD 접근</td><td>환경 workload와 설정</td></tr>
                 <tr><td class="num">2</td><td>Prometheus · Loki · Tempo · OTel · Grafana</td><td>공유 관측 workload</td></tr>
+                <tr><td class="num">3</td><td>ServiceMonitor · PrometheusRule</td><td>Operator CRD가 Ready인 뒤 수집·알림 규칙</td></tr>
               </tbody>
             </table>
           </div>
         </details>
 
         <details class="collapsible">
-          <summary>manifests/ — 32 files · 62 resources</summary>
+          <summary>manifests/ — 영역별 raw YAML</summary>
           <div class="collapsible__body table-scroll">
             <table class="data-table">
-              <thead><tr><th>영역</th><th class="num">파일</th><th class="num">리소스</th><th>내용</th></tr></thead>
+              <thead><tr><th>영역</th><th>내용</th></tr></thead>
               <tbody>
-                <tr><td>cert-manager</td><td class="num">2</td><td class="num">3</td><td>staging/prod ClusterIssuer, Preview wildcard Certificate</td></tr>
-                <tr><td>cluster</td><td class="num">4</td><td class="num">16</td><td>Namespace 10, PriorityClass, Preview quota, Argo health</td></tr>
-                <tr><td>observability</td><td class="num">8</td><td class="num">13</td><td>생성된 dashboard/rule ConfigMap, NetworkPolicy</td></tr>
-                <tr><td>Postgres prod</td><td class="num">8</td><td class="num">13</td><td>StatefulSet, Service, roles, policy, backup</td></tr>
-                <tr><td>Postgres dev</td><td class="num">5</td><td class="num">8</td><td>StatefulSet, Service, app role, policy</td></tr>
-                <tr><td>Postgres preview</td><td class="num">5</td><td class="num">9</td><td>공유 DB, Service, app role, policy</td></tr>
+                <tr><td>argocd-access</td><td>Argo CD 공개 HTTPS Ingress, Certificate, NetworkPolicy</td></tr>
+                <tr><td>cert-manager</td><td>staging/prod ClusterIssuer, Preview wildcard·Mailpit loopback Certificate</td></tr>
+                <tr><td>cluster</td><td>Namespace (default PSA 포함), PriorityClass, Preview quota</td></tr>
+                <tr><td>observability</td><td>생성된 dashboard/Loki rule ConfigMap, NetworkPolicy</td></tr>
+                <tr><td>observability-integrations</td><td>ServiceMonitor, 생성된 PrometheusRule</td></tr>
+                <tr><td>Postgres prod</td><td>StatefulSet, Service, role Job, policy, backup, postgres-exporter</td></tr>
+                <tr><td>Postgres dev</td><td>StatefulSet, Service, app·Preview dump role Job, policy</td></tr>
+                <tr><td>Postgres preview</td><td>공유 DB, Service, app role, policy, 고아 DB 점검 CronJob</td></tr>
               </tbody>
             </table>
           </div>
@@ -1287,7 +1245,7 @@
         </div>
 
         <details class="collapsible" open>
-          <summary>scripts/ — 실행 진입점 11개</summary>
+          <summary>scripts/ — 실행 진입점</summary>
           <div class="collapsible__body table-scroll">
             <table class="data-table">
               <thead><tr><th>종류</th><th>파일</th><th class="wide">역할</th></tr></thead>
@@ -1303,6 +1261,7 @@
                 <tr><td>Validate</td><td><code>validate_observability.py</code></td><td>관측 chart render, image, resource, selector, Ingress 계약 검사.</td></tr>
                 <tr><td>Validate</td><td><code>validate_edge_platform.py</code></td><td>cert-manager, ExternalDNS, Reloader, DNS/IP gate 검사.</td></tr>
                 <tr><td>Validate</td><td><code>validate_contracts.py</code></td><td>UMC 고유 DNS, S3, SES, DB, preview, secret, repo 계약 검사.</td></tr>
+                <tr><td>Validate</td><td><code>validate_preview_releases.py</code></td><td>Preview 발행 성공 기록 JSON 형식과 ApplicationSet 연결 검사.</td></tr>
               </tbody>
             </table>
           </div>
@@ -1383,37 +1342,15 @@
 
       <section class="section-block" id="next">
         <div class="sec-head">
-          <div class="sec-index">09 / NEXT</div>
+          <div class="sec-index">09 / NOTE</div>
           <div class="sec-copy">
-            <h2>지금 할 일과 나중에 할 일</h2>
-            <p>BE는 지금 건드리지 않는다. 인프라를 먼저 신뢰 가능한 Git root로 만든 뒤 외부 시스템을 연결한다.</p>
+            <h2>참고 메모</h2>
+            <p>초기 구축 할 일은 모두 끝났다. 진행 중인 작업은 GitHub Issue·PR에서 관리한다.</p>
           </div>
         </div>
 
-        <div class="next-rail">
-          <article class="next-item">
-            <h3>Infra repository 생성과 초기 push</h3>
-            <p><code>UMC-PRODUCT/umc-product-infra</code> public repository를 만들고 remote를 연결한다. CI 성공 후 secret scanning, push protection과 main 보호를 적용한다.</p>
-          </article>
-          <article class="next-item is-pending">
-            <h3>AWS와 OAuth console의 외부 입력 준비</h3>
-            <p>CloudFormation과 Secrets Manager를 준비한다. Google OAuth는 Web Prod, Android Server, Android Release, iOS, 선택적 Android Debug client를 플랫폼 계약에 맞게 등록한다.</p>
-          </article>
-          <article class="next-item is-pending">
-            <h3>IDC server와 고정 Public IPv4 확보</h3>
-            <p>공인 22번의 개인 키 인증을 사용한다. 관리자와 DB 터널 계정을 분리하고, DB 5432·API 6443은 외부에 열지 않는다. 같은 IPv4를 앱, Grafana, ExternalDNS filter에 반영한다.</p>
-          </article>
-          <article class="next-item is-deferred">
-            <h3>BE image 공급 경로 수정</h3>
-            <p><code>.env.local</code> packaging을 차단하고 실제 image를 scan한다. CI는 public GHCR에 12-char SHA를 게시하고, prod/dev values를 Helm으로 사전 검증한 뒤 digest를 infra main에 직접 기록한다.</p>
-          </article>
-          <article class="next-item is-deferred">
-            <h3>dev → prod → preview 순차 활성화</h3>
-            <p>Secret, DB, TLS, DNS와 health evidence를 확인하고 Deployment와 Ingress를 분리해서 연다. Preview lifecycle은 마지막에 연결한다.</p>
-          </article>
-        </div>
 
-        <details class="collapsible" style="margin-top:24px">
+        <details class="collapsible">
           <summary>Google OAuth client 메모</summary>
           <div class="collapsible__body table-scroll">
             <table class="data-table">
@@ -1431,8 +1368,8 @@
       </section>
 
       <footer class="footer">
-        <strong>UMC Infra Control Room</strong> — 탐색용 단일 화면. YAML과 script가 source of truth다.
-        상세 문서는 실행 절차가 필요할 때만 연다.
+        <strong>UMC Infra Control Room</strong> — 탐색용 요약. YAML과 script가 source of truth이고,
+        절차는 Markdown 문서가 기준이다.
       </footer>
     </main>
   </div>

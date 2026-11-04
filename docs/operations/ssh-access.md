@@ -12,7 +12,7 @@
 | 역할 | 허용 범위 |
 |---|---|
 | `admin` | shell과 비밀번호 없는 sudo. root에 준하므로 승인된 인프라 운영자에게만 부여 |
-| `db_tunnel` | `permit_open`에 지정한 DB로 local TCP forwarding만 허용. shell·명령 실행·sudo·원격 forwarding 차단 |
+| `db_tunnel` | `permit_open`에 지정한 DB로 local TCP forwarding만 허용. login shell은 `/usr/sbin/nologin`이며 shell·명령 실행·sudo·원격 forwarding 차단 |
 
 SSH 계정과 PostgreSQL 계정은 별개다. SSH 등록으로 DB 계정이나 SQL 권한이 생기지 않는다.
 prod 조회 목적에는 읽기 전용 DB 계정을 제공하고, 쓰기 권한은 업무 범위를 확인해 별도로 승인한다.
@@ -110,7 +110,8 @@ Git 커밋·푸시만으로는 서버 계정이 생성되지 않는다.
 비밀번호는 승인된 비밀 전달 수단으로 제공하며 Git·채팅방에 남기지 않는다.
 [DataGrip 설정](../guides/db-access.md#2-datagrip-설정)에 따라 실제 DB 연결을 검증한다.
 
-`db_tunnel`의 shell 접속 거부는 정상이다. 실제 DB `Test Connection` 성공과 shell·명령 실행·
+`db_tunnel`의 shell 접속 거부는 정상이다. sshd가 세션을 막고, 계정 shell도 `/usr/sbin/nologin`이라
+두 겹으로 차단된다. DB 터널은 세션 없이 TCP forwarding만 쓰므로 nologin에서도 동작한다. 실제 DB `Test Connection` 성공과 shell·명령 실행·
 원격 forwarding·미승인 목적지 연결 거부를 확인해야 등록이 끝난다.
 
 ## 팀원 회수
@@ -134,6 +135,9 @@ inventory에서 항목만 지우거나 키만 삭제하는 것은 완전한 회�
 키 교체·유출 대응, `admin`에서 `db_tunnel`로 축소, 허용 목적지 축소는 이미 열린 연결의
 권한을 소급 변경하지 않는다. 다른 개인 관리자가 대상 사용자의 기존 세션을 종료하고
 새 연결 권한을 확인한다. 유일한 관리자 세션을 끊지 않도록 한다.
+
+sshd는 60초마다 응답을 확인하고 3번 연속 응답이 없으면 연결을 닫는다. 네트워크가 끊긴 DB 터널은
+약 3분 뒤 서버에서 정리된다. 응답하는 클라이언트는 오래 열어 두어도 끊지 않는다.
 
 SSH 변경 뒤에는 인증 로그와 방화벽도 확인한다. 공인 SSH `22/tcp`·HTTPS `443/tcp`만 열고,
 DB `5432/tcp`·Kubernetes API `6443/tcp`는 외부에 공개하지 않는다. kubeconfig는 PC로 복사하지 않는다.

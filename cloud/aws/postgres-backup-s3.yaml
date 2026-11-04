@@ -59,6 +59,8 @@ Resources:
       Tags:
         - Key: managed-by
           Value: cloudformation
+        - Key: environment
+          Value: prod
         - Key: purpose
           Value: postgres-backup
 
@@ -123,6 +125,8 @@ Resources:
       Tags:
         - Key: managed-by
           Value: cloudformation
+        - Key: environment
+          Value: prod
         - Key: purpose
           Value: postgres-backup-writer
 

@@ -1,0 +1,335 @@
+# promtool test rules 입력이다. scripts/tests/test_prometheus_rule_units.py가 CI에서 실행한다.
+rule_files:
+  - ../prometheus-alerts.yaml
+
+evaluation_interval: 30s
+
+tests:
+  - interval: 1m
+    input_series:
+      # 10일 뒤 만료(갱신 실패)와 60일 뒤 만료(정상)
+      - series: 'certmanager_certificate_expiration_timestamp_seconds{job="cert-manager", namespace="cert-manager", exported_namespace="app", name="prod-api-tls"}'
+        values: '864000x90'
+      - series: 'certmanager_certificate_expiration_timestamp_seconds{job="cert-manager", namespace="cert-manager", exported_namespace="dev-app", name="dev-api-tls"}'
+        values: '5184000x90'
+      - series: 'certmanager_certificate_ready_status{job="cert-manager", namespace="cert-manager", exported_namespace="preview", name="preview-wildcard", condition="False"}'
+        values: '1x90'
+      - series: 'certmanager_certificate_ready_status{job="cert-manager", namespace="cert-manager", exported_namespace="app", name="prod-api-tls", condition="False"}'
+        values: '0x90'
+    alert_rule_test:
+      - eval_time: 59m
+        alertname: CertManagerCertificateExpiresSoon
+        exp_alerts: []
+      - eval_time: 61m
+        alertname: CertManagerCertificateExpiresSoon
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              job: cert-manager
+              namespace: cert-manager
+              exported_namespace: app
+              name: prod-api-tls
+            exp_annotations:
+              summary: "TLS 인증서가 14일 안에 만료돼요"
+              description: "Certificate app/prod-api-tls 이 약 10일 뒤 만료돼요. CertificateRequest·Order 상태와 Route 53 DNS-01 권한을 확인해주세요."
+      - eval_time: 59m
+        alertname: CertManagerCertificateNotReady
+        exp_alerts: []
+      - eval_time: 61m
+        alertname: CertManagerCertificateNotReady
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              job: cert-manager
+              namespace: cert-manager
+              exported_namespace: preview
+              name: preview-wildcard
+              condition: "False"
+            exp_annotations:
+              summary: "TLS 인증서가 1시간 넘게 Ready가 아니에요"
+              description: "Certificate preview/preview-wildcard 이 1시간 이상 Ready=False예요. cert-manager log와 CertificateRequest·Order 이벤트를 확인해주세요."
+
+  - interval: 1m
+    input_series:
+      # prod는 20분에 끊기고 dev는 계속 들어온다. preview는 감시하지 않는다.
+      - series: 'process_uptime_milliseconds{application="prod-umc-product", instance="prod-pod"}'
+        values: '0+60000x20'
+      - series: 'process_uptime_milliseconds{application="dev-umc-product", instance="dev-pod"}'
+        values: '0+60000x60'
+    alert_rule_test:
+      - eval_time: 29m
+        alertname: AppMetricsMissing
+        exp_alerts: []
+      - eval_time: 31m
+        alertname: AppMetricsMissing
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              application: prod-umc-product
+            exp_annotations:
+              summary: "운영 앱 metric이 10분째 들어오지 않아요"
+              description: "application=prod-umc-product 의 process_uptime_milliseconds가 10분 동안 없어요. 앱 Pod 상태, OTEL_URL과 OTel Collector의 metric export를 확인해주세요."
+
+  - interval: 1m
+    input_series:
+      # 운영 앱은 5분에 OOM 재시작, Preview 앱도 5분에 OOM 재시작,
+      # Loki는 같은 시각 일반 오류로 재시작, Grafana는 예전 OOM 기록만 남아 있다.
+      - series: 'kube_pod_container_status_restarts_total{job="kube-state-metrics", namespace="app", pod="umc-product-server-0", container="app"}'
+        values: '0x4 1x25'
+      - series: 'kube_pod_container_status_last_terminated_reason{job="kube-state-metrics", namespace="app", pod="umc-product-server-0", container="app", reason="OOMKilled"}'
+        values: '0x4 1x25'
+      - series: 'kube_pod_container_status_restarts_total{job="kube-state-metrics", namespace="preview", pod="umc-product-server-pr-7-0", container="app"}'
+        values: '0x4 1x25'
+      - series: 'kube_pod_container_status_last_terminated_reason{job="kube-state-metrics", namespace="preview", pod="umc-product-server-pr-7-0", container="app", reason="OOMKilled"}'
+        values: '0x4 1x25'
+      - series: 'kube_pod_container_status_restarts_total{job="kube-state-metrics", namespace="monitoring", pod="loki-0", container="loki"}'
+        values: '0x4 1x25'
+      - series: 'kube_pod_container_status_last_terminated_reason{job="kube-state-metrics", namespace="monitoring", pod="loki-0", container="loki", reason="Error"}'
+        values: '0x4 1x25'
+      - series: 'kube_pod_container_status_restarts_total{job="kube-state-metrics", namespace="monitoring", pod="grafana-0", container="grafana"}'
+        values: '3x29'
+      - series: 'kube_pod_container_status_last_terminated_reason{job="kube-state-metrics", namespace="monitoring", pod="grafana-0", container="grafana", reason="OOMKilled"}'
+        values: '1x29'
+    alert_rule_test:
+      - eval_time: 4m
+        alertname: ContainerOOMKilled
+        exp_alerts: []
+      - eval_time: 7m
+        alertname: ContainerOOMKilled
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              job: kube-state-metrics
+              namespace: app
+              pod: umc-product-server-0
+              container: app
+            exp_annotations:
+              summary: "Container가 메모리 부족으로 재시작됐어요"
+              description: "app/umc-product-server-0 의 container=app 가 최근 10분 안에 OOMKilled로 재시작됐어요. memory limit과 사용량 증가 원인을 확인해주세요."
+          - exp_labels:
+              severity: warning
+              job: kube-state-metrics
+              namespace: preview
+              pod: umc-product-server-pr-7-0
+              container: app
+            exp_annotations:
+              summary: "Preview container가 메모리 부족으로 재시작됐어요"
+              description: "preview/umc-product-server-pr-7-0 의 container=app 가 최근 10분 안에 OOMKilled로 재시작됐어요. PR 변경의 memory 사용량과 Preview 자원 상한을 확인해주세요."
+      - eval_time: 25m
+        alertname: ContainerOOMKilled
+        exp_alerts: []
+
+  - interval: 1m
+    input_series:
+      # max_connections 100에서 연결이 70 → 85로 늘고, 15분에 deadlock 1건이 생긴다.
+      - series: 'pg_settings_max_connections{job="postgres-exporter", environment="prod", instance="10.0.0.1:9187"}'
+        values: '100x40'
+      - series: 'pg_stat_activity_count{job="postgres-exporter", environment="prod", instance="10.0.0.1:9187", datname="umc_product", state="active"}'
+        values: '10x40'
+      - series: 'pg_stat_activity_count{job="postgres-exporter", environment="prod", instance="10.0.0.1:9187", datname="umc_product", state="idle"}'
+        values: '60x9 75x30'
+      - series: 'pg_stat_database_deadlocks{job="postgres-exporter", environment="prod", instance="10.0.0.1:9187", datname="umc_product"}'
+        values: '2x14 3x25'
+    alert_rule_test:
+      - eval_time: 9m
+        alertname: PostgresConnectionsHigh
+        exp_alerts: []
+      - eval_time: 16m
+        alertname: PostgresConnectionsHigh
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              job: postgres-exporter
+              environment: prod
+            exp_annotations:
+              summary: "PostgreSQL 연결 수가 max_connections의 80%를 넘었어요"
+              description: "environment=prod 의 PostgreSQL 연결이 5분 이상 max_connections의 85%예요. idle 연결, 앱 pool 크기와 사람용 접속을 확인해주세요."
+      - eval_time: 14m
+        alertname: PostgresDeadlocks
+        exp_alerts: []
+      - eval_time: 16m
+        alertname: PostgresDeadlocks
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              job: postgres-exporter
+              environment: prod
+              datname: umc_product
+            exp_annotations:
+              summary: "PostgreSQL deadlock이 발생했어요"
+              description: "environment=prod, datname=umc_product 에서 최근 10분 동안 deadlock이 있었어요. PostgreSQL log의 deadlock detail과 같은 시각 API error log를 확인해주세요."
+      - eval_time: 30m
+        alertname: PostgresDeadlocks
+        exp_alerts: []
+
+  - interval: 1m
+    input_series:
+      # Preview 전용 exporter는 처음부터 실패하고, 기본 Loki exporter는 10분부터 실패한다.
+      - series: 'otelcol_exporter_send_failed_log_records_total{job="otel-collector", instance="10.0.0.2:8888", exporter="otlphttp/loki-preview"}'
+        values: '0+10x40'
+      - series: 'otelcol_exporter_send_failed_log_records{job="otel-collector", instance="10.0.0.2:8888", exporter="otlphttp/loki-preview"}'
+        values: '0+10x40'
+      - series: 'otelcol_exporter_send_failed_log_records_total{job="otel-collector", instance="10.0.0.2:8888", exporter="otlphttp/loki"}'
+        values: '0x10 0+10x30'
+    alert_rule_test:
+      - eval_time: 9m
+        alertname: OTelCollectorLogExportFailures
+        exp_alerts: []
+      - eval_time: 16m
+        alertname: OTelCollectorLogExportFailures
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              job: otel-collector
+              instance: 10.0.0.2:8888
+              exporter: otlphttp/loki
+            exp_annotations:
+              summary: "OTel Collector log export를 확인해주세요"
+              description: "OTel Collector가 log record export에 실패하고 있어요. exporter=otlphttp/loki, instance=10.0.0.2:8888 의 downstream endpoint와 인증 정보를 확인해주세요."
+
+  - interval: 1m
+    input_series:
+      # 운영 앱은 Degraded가 이어지는 중 10분에 operation label이 바뀌고, dev 앱은 Missing,
+      # 공용 preview DB와 Preview PR 앱은 Degraded, 운영 DB는 Healthy다. root는 자식 health를
+      # 물려받아 Degraded다. Preview PR 앱은 rule에서 firing되고 Alertmanager route가 버린다.
+      - series: 'argocd_app_info{job="argocd-application-controller-metrics", namespace="argocd", exported_namespace="argocd", instance="10.42.0.9:8082", pod="argocd-application-controller-0", name="umc-product-server", project="prod", dest_namespace="app", health_status="Degraded", sync_status="Synced", operation="sync"}'
+        values: '1x9'
+      - series: 'argocd_app_info{job="argocd-application-controller-metrics", namespace="argocd", exported_namespace="argocd", instance="10.42.0.9:8082", pod="argocd-application-controller-0", name="umc-product-server", project="prod", dest_namespace="app", health_status="Degraded", sync_status="Synced", operation=""}'
+        values: '_x10 1x30'
+      - series: 'argocd_app_info{job="argocd-application-controller-metrics", namespace="argocd", exported_namespace="argocd", instance="10.42.0.9:8082", pod="argocd-application-controller-0", name="dev-umc-product-server", project="dev", dest_namespace="dev-app", health_status="Missing", sync_status="Synced", operation=""}'
+        values: '1x40'
+      - series: 'argocd_app_info{job="argocd-application-controller-metrics", namespace="argocd", exported_namespace="argocd", instance="10.42.0.9:8082", pod="argocd-application-controller-0", name="preview-postgres", project="preview", dest_namespace="preview-db", health_status="Degraded", sync_status="Synced", operation=""}'
+        values: '1x40'
+      - series: 'argocd_app_info{job="argocd-application-controller-metrics", namespace="argocd", exported_namespace="argocd", instance="10.42.0.9:8082", pod="argocd-application-controller-0", name="umc-product-preview-7", project="preview", dest_namespace="preview", health_status="Degraded", sync_status="Synced", operation=""}'
+        values: '1x40'
+      - series: 'argocd_app_info{job="argocd-application-controller-metrics", namespace="argocd", exported_namespace="argocd", instance="10.42.0.9:8082", pod="argocd-application-controller-0", name="postgres", project="prod", dest_namespace="db", health_status="Healthy", sync_status="Synced", operation=""}'
+        values: '1x40'
+      - series: 'argocd_app_info{job="argocd-application-controller-metrics", namespace="argocd", exported_namespace="argocd", instance="10.42.0.9:8082", pod="argocd-application-controller-0", name="root", project="bootstrap", dest_namespace="argocd", health_status="Degraded", sync_status="Synced", operation=""}'
+        values: '1x40'
+    alert_rule_test:
+      - eval_time: 14m
+        alertname: ArgoCDApplicationUnhealthy
+        exp_alerts: []
+      - eval_time: 16m
+        alertname: ArgoCDApplicationUnhealthy
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              job: argocd-application-controller-metrics
+              namespace: argocd
+              name: umc-product-server
+              project: prod
+              dest_namespace: app
+              health_status: Degraded
+            exp_annotations:
+              summary: "운영 Argo CD 앱이 15분째 Degraded 상태예요"
+              description: "Application umc-product-server (→ app) 의 health가 15분 이상 Degraded 상태예요. Argo CD에서 Degraded·Missing 리소스와 sync 오류를 확인해주세요."
+          - exp_labels:
+              severity: warning
+              job: argocd-application-controller-metrics
+              namespace: argocd
+              name: dev-umc-product-server
+              project: dev
+              dest_namespace: dev-app
+              health_status: Missing
+            exp_annotations:
+              summary: "Argo CD 앱이 15분째 Missing 상태예요"
+              description: "Application dev-umc-product-server (project=dev, → dev-app) 의 health가 15분 이상 Missing 상태예요. Argo CD에서 Degraded·Missing 리소스와 sync 오류를 확인해주세요."
+          - exp_labels:
+              severity: warning
+              job: argocd-application-controller-metrics
+              namespace: argocd
+              name: preview-postgres
+              project: preview
+              dest_namespace: preview-db
+              health_status: Degraded
+            exp_annotations:
+              summary: "Argo CD 앱이 15분째 Degraded 상태예요"
+              description: "Application preview-postgres (project=preview, → preview-db) 의 health가 15분 이상 Degraded 상태예요. Argo CD에서 Degraded·Missing 리소스와 sync 오류를 확인해주세요."
+          - exp_labels:
+              severity: warning
+              job: argocd-application-controller-metrics
+              namespace: argocd
+              name: umc-product-preview-7
+              project: preview
+              dest_namespace: preview
+              health_status: Degraded
+            exp_annotations:
+              summary: "Argo CD 앱이 15분째 Degraded 상태예요"
+              description: "Application umc-product-preview-7 (project=preview, → preview) 의 health가 15분 이상 Degraded 상태예요. Argo CD에서 Degraded·Missing 리소스와 sync 오류를 확인해주세요."
+
+  - interval: 1m
+    input_series:
+      # 플랫폼 앱은 OutOfSync, 서버 앱은 main manifest 렌더링 실패로 Unknown(health는 Healthy),
+      # cluster 앱은 10분에 OutOfSync에서 Unknown으로 바뀐다. 운영 DB는 Synced다.
+      - series: 'argocd_app_info{job="argocd-application-controller-metrics", namespace="argocd", exported_namespace="argocd", instance="10.42.0.9:8082", pod="argocd-application-controller-0", name="cert-manager", project="cert-manager", dest_namespace="cert-manager", health_status="Healthy", sync_status="OutOfSync", operation=""}'
+        values: '1x40'
+      - series: 'argocd_app_info{job="argocd-application-controller-metrics", namespace="argocd", exported_namespace="argocd", instance="10.42.0.9:8082", pod="argocd-application-controller-0", name="umc-product-server", project="prod", dest_namespace="app", health_status="Healthy", sync_status="Unknown", operation=""}'
+        values: '1x40'
+      - series: 'argocd_app_info{job="argocd-application-controller-metrics", namespace="argocd", exported_namespace="argocd", instance="10.42.0.9:8082", pod="argocd-application-controller-0", name="cluster", project="platform", dest_namespace="default", health_status="Healthy", sync_status="OutOfSync", operation=""}'
+        values: '1x9'
+      - series: 'argocd_app_info{job="argocd-application-controller-metrics", namespace="argocd", exported_namespace="argocd", instance="10.42.0.9:8082", pod="argocd-application-controller-0", name="cluster", project="platform", dest_namespace="default", health_status="Healthy", sync_status="Unknown", operation=""}'
+        values: '_x10 1x30'
+      - series: 'argocd_app_info{job="argocd-application-controller-metrics", namespace="argocd", exported_namespace="argocd", instance="10.42.0.9:8082", pod="argocd-application-controller-0", name="postgres", project="prod", dest_namespace="db", health_status="Healthy", sync_status="Synced", operation=""}'
+        values: '1x40'
+    alert_rule_test:
+      - eval_time: 29m
+        alertname: ArgoCDApplicationNotSynced
+        exp_alerts: []
+      - eval_time: 40m
+        alertname: ArgoCDApplicationNotSynced
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              job: argocd-application-controller-metrics
+              namespace: argocd
+              name: cert-manager
+              project: cert-manager
+              dest_namespace: cert-manager
+            exp_annotations:
+              summary: "Argo CD 앱이 30분째 Git 상태로 수렴하지 않아요"
+              description: "Application cert-manager (project=cert-manager, → cert-manager) 이 30분 이상 OutOfSync 또는 Unknown이에요. Unknown이면 manifest 렌더링 오류(ComparisonError)를, OutOfSync면 sync 실패·수동 변경·반복 diff를 Argo CD에서 확인해주세요."
+          - exp_labels:
+              severity: warning
+              job: argocd-application-controller-metrics
+              namespace: argocd
+              name: umc-product-server
+              project: prod
+              dest_namespace: app
+            exp_annotations:
+              summary: "Argo CD 앱이 30분째 Git 상태로 수렴하지 않아요"
+              description: "Application umc-product-server (project=prod, → app) 이 30분 이상 OutOfSync 또는 Unknown이에요. Unknown이면 manifest 렌더링 오류(ComparisonError)를, OutOfSync면 sync 실패·수동 변경·반복 diff를 Argo CD에서 확인해주세요."
+          - exp_labels:
+              severity: warning
+              job: argocd-application-controller-metrics
+              namespace: argocd
+              name: cluster
+              project: platform
+              dest_namespace: default
+            exp_annotations:
+              summary: "Argo CD 앱이 30분째 Git 상태로 수렴하지 않아요"
+              description: "Application cluster (project=platform, → default) 이 30분 이상 OutOfSync 또는 Unknown이에요. Unknown이면 manifest 렌더링 오류(ComparisonError)를, OutOfSync면 sync 실패·수동 변경·반복 diff를 Argo CD에서 확인해주세요."
+      - eval_time: 40m
+        alertname: ArgoCDApplicationUnhealthy
+        exp_alerts: []
+      - eval_time: 40m
+        alertname: ArgoCDMetricsMissing
+        exp_alerts: []
+
+  - interval: 1m
+    input_series:
+      # Ansible로 metrics Service를 켜기 전처럼 argocd_app_info가 없다.
+      - series: 'up{job="prometheus", instance="localhost:9090"}'
+        values: '1x40'
+    alert_rule_test:
+      - eval_time: 29m
+        alertname: ArgoCDMetricsMissing
+        exp_alerts: []
+      - eval_time: 31m
+        alertname: ArgoCDMetricsMissing
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+            exp_annotations:
+              summary: "Argo CD Application 지표가 30분째 들어오지 않아요"
+              description: "argocd_app_info가 없어 Application health·sync 알림이 동작하지 않아요. argocd-application-controller-metrics Service와 ServiceMonitor target을 확인해주세요."

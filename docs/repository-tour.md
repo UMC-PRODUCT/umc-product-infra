@@ -330,8 +330,10 @@ ansible-inventory --graph
 ansible-playbook --syntax-check playbooks/bootstrap.yml
 ```
 
-`validate.sh`는 로컬에 검사 도구가 없으면 일부 항목을 건너뛸 수 있다. 마지막 한 줄만 보지 말고
-skip 메시지가 없는지 확인하며, 첫 bootstrap 전에는 GitHub Actions의 전체 검증 성공도 확인한다.
+`validate.sh`는 로컬에 검사 도구가 없으면 일부 항목을 건너뛰고, 마지막 줄에
+`umc-infra validation passed (skipped: ...)`처럼 건너뛴 검사를 함께 적는다. 괄호가 붙으면
+전체 검증이 아니다. `VALIDATE_STRICT=1 ./scripts/validate.sh`는 건너뛴 검사가 있으면 실패하며,
+CI가 이 모드로 실행한다. 첫 bootstrap 전에는 GitHub Actions의 전체 검증 성공도 확인한다.
 
 ## 11. 처음 공부할 때의 체크 질문
 

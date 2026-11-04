@@ -1,0 +1,106 @@
+---
+# bootstrap을 마친 서버에서 Argo CD core Helm release만 Git의 values로 다시 맞춘다.
+# 계정·RBAC·health·controller metrics 같은 core values 변경에 쓰며 SSH·UFW·K3s·ESO 자격증명은 건드리지 않는다.
+# root Application은 열거나 바꾸지 않는다. root 생성·이전 단계 전환은 bootstrap.yml이 맡는다.
+- name: Reconcile Argo CD core on a bootstrapped server
+  hosts: k3s_servers
+  gather_facts: false
+  become: true
+  any_errors_fatal: true
+  serial: 1
+  environment:
+    LC_ALL: C
+
+  pre_tasks:
+    # 관리자 PC에서 대상과 접속 계정을 검사한다. SSH 전환을 마친 운영 inventory만 받는다.
+    - name: Refuse an unreviewed or pre-finalize inventory
+      ansible.builtin.assert:
+        that:
+          - groups.get('k3s_servers', []) | length == 1
+          - ansible_host is defined
+          - "'CHANGE_ME' not in ansible_host"
+          - ansible_user is defined
+          - "'CHANGE_ME' not in ansible_user"
+          - ansible_user != 'root'
+          - ssh_access_finalize | default(false) | bool
+        fail_msg: >-
+          Use the production inventory of a server that already finished
+          playbooks/ssh-access.yml with ssh_access_finalize=true, and connect
+          as a personal administrator instead of root.
+      delegate_to: localhost
+      become: false
+      tags:
+        - preflight
+
+    # Argo CD core는 root Application이 self-heal하지 않으므로 검토되지 않은 values가 live release에 남는다.
+    # 관리자 PC의 checkout이 깨끗하고 origin/main과 같은 revision일 때만 진행한다.
+    - name: Fetch the reviewed main revision
+      ansible.builtin.command:
+        argv: [git, -C, "{{ playbook_dir }}", fetch, --quiet, origin, main]
+      delegate_to: localhost
+      become: false
+      changed_when: false
+      check_mode: false
+      tags:
+        - preflight
+
+    - name: Read the controller checkout state
+      ansible.builtin.command:
+        argv: [git, -C, "{{ playbook_dir }}", status, --porcelain]
+      delegate_to: localhost
+      become: false
+      register: argocd_checkout_status
+      changed_when: false
+      check_mode: false
+      tags:
+        - preflight
+
+    - name: Read the controller and main revisions
+      ansible.builtin.command:
+        argv: [git, -C, "{{ playbook_dir }}", rev-parse, HEAD, origin/main]
+      delegate_to: localhost
+      become: false
+      register: argocd_checkout_revisions
+      changed_when: false
+      check_mode: false
+      tags:
+        - preflight
+
+    - name: Require a clean checkout of origin/main
+      ansible.builtin.assert:
+        that:
+          - argocd_checkout_status.stdout | length == 0
+          - argocd_checkout_revisions.stdout_lines | unique | length == 1
+        fail_msg: >-
+          Run playbooks/argocd.yml only from a clean checkout of the merged
+          origin/main revision. Stash or discard local changes, then run
+          `git switch main && git pull --ff-only` first.
+      delegate_to: localhost
+      become: false
+      tags:
+        - preflight
+
+    # argocd role의 command 작업은 check mode에서 실행되지 않아 kubectl diff가 비어 보이고
+    # Helm 버전 검사에서 실패한다. 미리보기는 사전 검사와 live values diff만 보여주는 preflight로 한정한다.
+    - name: Limit check mode to the preflight preview
+      ansible.builtin.assert:
+        that:
+          - not ansible_check_mode or ansible_run_tags | list == ['preflight']
+        fail_msg: >-
+          Full --check is not supported by the argocd role. Preview with
+          --check --diff --tags preflight, then run without --check.
+      delegate_to: localhost
+      become: false
+      tags:
+        - preflight
+
+    # 변경 전에 K3s·Helm·Argo CD release가 bootstrap으로 준비됐는지 서버에서 확인한다.
+    - name: Require an Argo CD core installed by bootstrap
+      ansible.builtin.import_role:
+        name: argocd
+        tasks_from: installed_preflight.yml
+      tags:
+        - preflight
+
+  roles:
+    - role: argocd

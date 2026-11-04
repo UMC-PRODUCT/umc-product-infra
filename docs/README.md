@@ -25,6 +25,7 @@
 | 환경변수·비밀번호·외부 서비스 키 변경 | [Secret 운영](operations/secrets.md) |
 | DNS 레코드·TLS 인증서·공개 접속 경로 변경 | [DNS·TLS 운영](operations/domains-tls.md) |
 | Grafana·Argo CD 계정·권한 관리, 로그인 경로 점검·복구 | [도구 접근 관리](operations/tool-access.md) |
+| Argo CD core 설정(`argocd-cm`·health 규칙) 반영 | [Argo CD core 설정](operations/argocd-config.md) |
 | 대시보드·알림 규칙 수정 | [관측 원본 관리](../observability/README.md) |
 | Prometheus·Loki·Tempo·Collector 구성 변경 | [관측 스택 배포 구조](../argocd/applications/platform/observability/README.md) |
 | 수정 내용의 정적 검증 | [검증 스크립트](../scripts/README.md#저장소-전체-검증) |
@@ -43,6 +44,7 @@
 - [저장소 설명](repository-tour.md): 도구별 책임과 각 폴더의 역할.
 - [아키텍처와 설계 이유](architecture/k3s.md): 구성의 전제와 재검토 기준.
 - [인프라 다이어그램](../README.md#인프라-다이어그램): 요청·배포·Secret·Preview 흐름.
+- [Control Room](umc-infra-control-room.html): 구조·환경·gate를 한 화면에 모은 HTML 요약. 로컬 브라우저로 연다. 내용이 서로 다르면 코드, Markdown 문서, Control Room 순으로 따른다.
 - 코드 옆 README: [Ansible](../ansible/README.md), [스크립트](../scripts/README.md), [관측 원본](../observability/README.md).
 
 ## 문서를 추가하거나 수정할 때

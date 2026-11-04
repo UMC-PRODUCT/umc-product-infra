@@ -57,6 +57,10 @@ SSH 연결 성공만으로 DB 연결까지 완료됐다고 판단하지 않는�
 
 터널용 SSH 계정으로 터미널 shell에 접속하거나 서버 명령을 실행할 수 없는 것은 정상이다.
 승인받지 않은 DB 목적지로 연결할 수 없으며, 읽기 전용 DB 계정의 쓰기 작업 거부도 정상이다.
+공용 prod 읽기 전용 계정(`umc_product_ro`)은 팀 전체 합쳐 동시 연결 10개, query 하나에 60초, transaction을 연 채 5분 대기까지 허용한다.
+운영 DB 연결과 vacuum을 보호하려는 제한이다. DataGrip은 기본 auto-commit을 유지하고, 큰 조회는 범위를 좁힌다.
+DataGrip은 창·console마다 연결을 따로 열 수 있으므로 쓰지 않는 console은 닫는다.
+60초와 5분은 role 기본값이다. 꼭 필요한 조회에서는 그 세션에서만 `SET statement_timeout = '5min';`처럼 바꿀 수 있다.
 
 Preview DB는 해당 PR의 배포가 DB를 만든 뒤에만 존재한다.
 Preview 종료·정리 전에는 DataGrip 연결을 닫고, 보존할 테스트 데이터가 있는지 확인한다.
@@ -71,8 +75,10 @@ Preview 종료·정리 전에는 DataGrip 연결을 닫고, 보존할 테스트 
 | SSH는 연결되지만 터널 연결이 거부됨 | General Host가 승인받은 환경의 DB 접속 IP인지 확인한다. 이전 접속 정보라면 인프라 담당자에게 현재 주소와 접근 허용 여부를 확인한다. |
 | DB 비밀번호 인증 실패 | General의 DB 계정·비밀번호와 대상 환경을 확인한다. SSH Passphrase를 DB Password에 넣지 않았는지 확인한다. |
 | DB가 없다는 오류 | DB 이름과 Preview PR 번호를 확인한다. Preview 배포가 완료됐는지, 이미 종료·정리된 환경인지 확인한다. |
+| `umc_product_ro` 조회가 취소되거나 연결이 끊김 | `canceling statement due to statement timeout`은 60초 제한, `idle-in-transaction timeout`은 열어 둔 transaction 5분 제한이다. `too many connections for role`이면 다른 DataGrip 창·console의 연결을 닫는다. |
 | SQL 권한 오류 | 발급받은 계정의 읽기·쓰기 범위를 확인한다. 필요한 작업과 대상 환경을 적어 권한을 요청한다. |
 | 터미널 SSH 접속 거부 | 터널용 계정의 정상 동작이다. DataGrip의 실제 DB `Test Connection` 결과를 확인한다. |
+| Wi-Fi 변경·절전 뒤 연결이 멈춤 | 서버는 응답 없는 SSH 터널을 약 3분 뒤 닫는다. DataGrip에서 연결을 끊고 다시 연결한다. |
 
 해결되지 않으면 환경, Preview PR 번호, 발생 시간과 오류 메시지를 전달한다.
 공유할 화면·로그에 비밀번호, 개인키, Passphrase가 포함되지 않도록 한다.

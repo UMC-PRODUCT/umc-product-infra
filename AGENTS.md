@@ -58,7 +58,7 @@ Git에서 변경하고 Argo CD로 수렴시킨다.
 cd ansible
 ansible-playbook --syntax-check playbooks/bootstrap.yml
 ansible-playbook --syntax-check playbooks/ssh-access.yml
-ansible-lint playbooks/bootstrap.yml playbooks/ssh-access.yml
+ansible-lint playbooks/*.yml
 ```
 
 실제 inventory나 외부 시스템이 없으면 live 검증을 했다고 주장하지 않는다.

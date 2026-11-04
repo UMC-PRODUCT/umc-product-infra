@@ -88,8 +88,8 @@ class EmailTransportTests(unittest.TestCase):
                 keys = {datum["secretKey"] for datum in item["spec"]["data"]}
                 self.assertIn("SMTP_PASSWORD", keys)
 
-    def render_preview(self, *overrides: str) -> subprocess.CompletedProcess:
-        command = [
+    def preview_command(self) -> list[str]:
+        return [
             "helm", "template", "umc-product-preview-42", "charts/umc-product-server",
             "--namespace", "preview",
             "-f", "charts/umc-product-server/values-preview.yaml",
@@ -108,6 +108,9 @@ class EmailTransportTests(unittest.TestCase):
             "--set", "env.CERTIFICATE_VERIFICATION_URL_TEMPLATE=https://api-pr-42.university.neordinary.com/api/v1/certificates/verify/{serialNumber}",
             "--set", "env.DEMODAY_QR_BASE_URL=https://university.neordinary.com",
         ]
+
+    def render_preview(self, *overrides: str) -> subprocess.CompletedProcess:
+        command = self.preview_command()
         for override in overrides:
             command.extend(["--set-string", override])
         return subprocess.run(command, cwd=ROOT, text=True, capture_output=True, check=False)
@@ -131,6 +134,10 @@ class EmailTransportTests(unittest.TestCase):
                          {"name": "app-email", "key": "SMTP_PASSWORD"})
         self.assertFalse([name for name in mail_env if name.startswith("MP_SMTP_RELAY")])
         self.assertIn("@sha256:", mailpit["image"])
+        volumes = {item["name"]: item for item in pod["volumes"]}
+        self.assertEqual(volumes["mailpit-tls"]["secret"]["secretName"], "preview-mail-capture-loopback-tls")
+        self.assertNotIn("preview-wildcard-tls",
+                         {item["secret"]["secretName"] for item in pod["volumes"] if "secret" in item})
         ingress = next(item for item in documents
                        if item["kind"] == "Ingress" and item["metadata"]["name"].endswith("-mail"))
         self.assertEqual(ingress["spec"]["rules"][0]["host"], "mail-pr-42.university.neordinary.com")
@@ -146,6 +153,18 @@ class EmailTransportTests(unittest.TestCase):
         ):
             with self.subTest(override=override):
                 self.assertNotEqual(self.render_preview(override).returncode, 0)
+
+    def test_preview_mail_ui_rejects_empty_tls_with_clear_message(self) -> None:
+        command = self.preview_command()
+        tls_host = command.index("ingress.tls[0].hosts[0]=api-pr-42.university.neordinary.com")
+        del command[tls_host - 1:tls_host + 1]
+        result = subprocess.run(
+            [*command, "--set-json", "ingress.tls=[]"],
+            cwd=ROOT, text=True, capture_output=True, check=False,
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("ingress.tls 항목", result.stderr)
+        self.assertNotIn("index out of range", result.stderr)
 
 
 if __name__ == "__main__":

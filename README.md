@@ -105,6 +105,8 @@ prod/dev는 백엔드 CI가 이미지를 발행하고 infra values의 tag·diges
 
 ## 라이선스
 
+Copyright (C) 2026 UMC Product contributors
+
 별도 표시가 없는 이 저장소의 자체 작성 코드·설정·문서는
 [GNU General Public License v3.0](LICENSE) (`GPL-3.0-only`)에 따라 사용·수정·재배포할 수 있다.
 코드나 수정본을 배포할 때에는 GPL에 따라 저작권·라이선스 고지를 유지하고 해당 소스 코드를 제공해야 한다.
