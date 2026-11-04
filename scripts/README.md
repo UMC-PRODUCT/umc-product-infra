@@ -164,6 +164,7 @@ test API values(`testApi`) 검사는 별도 모듈 없이 `validate_contracts.py
 | [`test_ansible_bootstrap_contracts.py`](tests/test_ansible_bootstrap_contracts.py) | K3s installer pin, server-side apply, 개인 OpenSSH·UFW와 비공개 Kubernetes API |
 | [`test_bootstrap_aws_secrets.py`](tests/test_bootstrap_aws_secrets.py) | worksheet parser, 36개 source mapping, 환경 분리, stdin 전달과 오류 메시지 비노출 |
 | [`test_bootstrap_route53_access_keys.py`](tests/test_bootstrap_route53_access_keys.py) | 안전한 `.env.prod`, Route53 stack 계약, access key 발급과 실패 rollback |
+| [`test_bootstrap_env_assignments.py`](tests/test_bootstrap_env_assignments.py) | access key bootstrap 3종이 `\1`·`\g<0>`·끝 역슬래시 같은 값도 `.env`에 그대로 기록 |
 | [`test_api_lifecycle_dashboard.py`](tests/test_api_lifecycle_dashboard.py) | API 제거 검토 대시보드의 미관측 표시, 버전 분포와 개인정보 비노출 |
 | [`test_email_transport.py`](tests/test_email_transport.py) | 메일 provider 전환 시 발신자·Secret prefix·SMTP egress, Preview Mailpit 격리 |
 | [`test_migration_bootstrap.py`](tests/test_migration_bootstrap.py) | 서버 이전용 root Application 단계별 제외 범위와 ExternalDNS 보류 |
