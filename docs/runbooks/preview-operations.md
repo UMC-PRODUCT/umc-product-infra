@@ -178,6 +178,8 @@ DNS는 ExternalDNS가 소유한 PR별 레코드만 정리하며, 공용 Certific
 
 권한·Secret·DB 장애, prepared transaction, 활성 logical replication slot 또는 subscription 등으로
 삭제가 실패하면 `DeletionError`와 실패 Job을 확인한다.
+hook은 공용 DB 연결을 최대 10분 기다린 뒤에만 삭제를 보낸다. 로그가 `PostgreSQL 연결 대기 실패`이면
+그동안 연결하지 못한 것이므로 `postgres-preview-0` 상태와 preview NetworkPolicy를 먼저 확인한다.
 
 ```bash
 sudo k3s kubectl get application -n argocd umc-product-preview-27

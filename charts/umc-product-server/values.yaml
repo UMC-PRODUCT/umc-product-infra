@@ -193,7 +193,8 @@ createDatabase:
 # 실패한 삭제 hook은 원인 확인을 위해 남으며, DB 백업·보존을 대신하지 않는다.
 deleteDatabase:
   enabled: false
-  activeDeadlineSeconds: 120
+  # 공용 DB 연결 대기(600초)와 삭제가 deadline 안에 끝나야 한다. 템플릿이 900 미만을 거부한다.
+  activeDeadlineSeconds: 900
   backoffLimit: 1
   connectTimeoutSeconds: "10"
   statementTimeout: 30s
