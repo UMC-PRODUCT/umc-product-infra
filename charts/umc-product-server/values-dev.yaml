@@ -97,6 +97,7 @@ requiredSecrets:
   - app-storage
   - app-email
   - app-fcm
+  - app-webhook
 
 reloader:
   secretNames:
@@ -104,3 +105,4 @@ reloader:
     - app-storage
     - app-email
     - app-fcm
+    - app-webhook

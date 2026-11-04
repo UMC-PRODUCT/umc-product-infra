@@ -46,9 +46,10 @@ GOOGLE_CLIENT_ID_LIST = (
     "655033275728-f7jpdingakk1f4im8reegjmioth8jvnv.apps.googleusercontent.com"
 )
 BASE_REQUIRED_SECRETS = ["app-db", "app-jwt", "app-oauth", "app-storage", "app-email"]
-FCM_REQUIRED_SECRETS = [*BASE_REQUIRED_SECRETS, "app-fcm"]
+# prod·dev만 받는 Secret. preview는 FCM과 Discord 알림을 쓰지 않는다.
+NONPREVIEW_REQUIRED_SECRETS = [*BASE_REQUIRED_SECRETS, "app-fcm", "app-webhook"]
 BASE_RELOADER_SECRETS = ["app-oauth", "app-storage", "app-email"]
-FCM_RELOADER_SECRETS = [*BASE_RELOADER_SECRETS, "app-fcm"]
+NONPREVIEW_RELOADER_SECRETS = [*BASE_RELOADER_SECRETS, "app-fcm", "app-webhook"]
 RELOADER_TRIGGER_ANNOTATION = "secret.reloader.stakater.com/reload"
 MAIL_CAPTURE_SMTP_HOST = "smtp-capture.university.neordinary.com"
 MAIL_CAPTURE_TLS_SECRET = "preview-mail-capture-loopback-tls"
@@ -1376,7 +1377,7 @@ def validate_render(
         f"{environment}: read-only root filesystem",
     )
     expected_required_secrets = (
-        FCM_REQUIRED_SECRETS if environment in {"prod", "dev"} else BASE_REQUIRED_SECRETS
+        NONPREVIEW_REQUIRED_SECRETS if environment in {"prod", "dev"} else BASE_REQUIRED_SECRETS
     )
     require(
         [item["secretRef"]["name"] for item in container["envFrom"]]
@@ -1384,7 +1385,7 @@ def validate_render(
         f"{environment}: required Secret order",
     )
     expected_reloader_secrets = (
-        FCM_RELOADER_SECRETS
+        NONPREVIEW_RELOADER_SECRETS
         if environment in {"prod", "dev"}
         else [*BASE_RELOADER_SECRETS, MAIL_CAPTURE_TLS_SECRET]
     )
@@ -2049,10 +2050,10 @@ def validate_secrets(path: Path) -> None:
     stores = [item for item in resources if item.get("kind") == "SecretStore"]
     external_secrets = [item for item in resources if item.get("kind") == "ExternalSecret"]
     require(len(stores) == 9, f"SecretStore count is {len(stores)}, expected 9")
-    require(len(external_secrets) == 35, f"ExternalSecret count is {len(external_secrets)}, expected 35")
+    require(len(external_secrets) == 37, f"ExternalSecret count is {len(external_secrets)}, expected 37")
 
     expected_names = {
-        "app": set(FCM_REQUIRED_SECRETS + ["docs-basic-auth"]),
+        "app": set(NONPREVIEW_REQUIRED_SECRETS + ["docs-basic-auth"]),
         "db": {
             "app-db",
             "postgres-secrets",
@@ -2060,7 +2061,7 @@ def validate_secrets(path: Path) -> None:
             "postgres-exporter",
             "backup-s3",
         },
-        "dev-app": set(FCM_REQUIRED_SECRETS + ["docs-basic-auth"]),
+        "dev-app": set(NONPREVIEW_REQUIRED_SECRETS + ["docs-basic-auth"]),
         "dev-db": {"app-db", "postgres-secrets", "postgres-preview-dump"},
         "preview": set(
             BASE_REQUIRED_SECRETS + ["postgres-preview-secrets", "docs-basic-auth", "dev-db-dump"]
@@ -2104,6 +2105,7 @@ def validate_secrets(path: Path) -> None:
         "app-email": {"SES_ACCESS_KEY_ID", "SES_SECRET_ACCESS_KEY"},
         "app-storage": {"S3_ACCESS_KEY_ID", "S3_SECRET_ACCESS_KEY"},
         "app-fcm": {"FIREBASE_CONFIGURATION"},
+        "app-webhook": {"DISCORD_WEBHOOK_URL"},
         "docs-basic-auth": {"users"},
         "postgres-exporter": {"POSTGRES_EXPORTER_PASSWORD"},
     }
@@ -2146,7 +2148,7 @@ def validate_secrets(path: Path) -> None:
     )
     iam_sources = set(re.findall(r"secret:(/umc-product/[^\"\n]+)-\?{6}", iam_text))
     require(sources == iam_sources, f"Secrets Manager/IAM paths differ: {sources ^ iam_sources}")
-    require(len(sources) == 33, f"Secrets Manager source count is {len(sources)}, expected 33")
+    require(len(sources) == 35, f"Secrets Manager source count is {len(sources)}, expected 35")
     iam_template = yaml.load(iam_text, Loader=CloudFormationLoader)
     dev_resources = iam_template["Resources"]["DevRole"]["Properties"]["Policies"][0][
         "PolicyDocument"
@@ -2172,8 +2174,8 @@ def validate_secrets(path: Path) -> None:
         "secret uploader paths/properties must match rendered ExternalSecrets",
     )
     require(
-        len(SECRET_SPECS) == len(uploader_properties) == 33,
-        "secret uploader must contain 33 unique sources",
+        len(SECRET_SPECS) == len(uploader_properties) == 35,
+        "secret uploader must contain 35 unique sources",
     )
     renamed_properties = {
         "/umc-product/prod/backup-s3": {

@@ -116,6 +116,15 @@ externalSecrets:
     data:
       FIREBASE_CONFIGURATION: FIREBASE_CONFIGURATION
 
+  # 앱 알림 Discord 웹훅. preview는 Discord로 알림을 보내지 않으므로 두지 않는다.
+  - name: app-webhook
+    namespace: app
+    store: aws-secretsmanager
+    targetName: app-webhook
+    remoteKey: app-webhook
+    data: &appWebhookData
+      DISCORD_WEBHOOK_URL: DISCORD_WEBHOOK_URL
+
   # Traefik이 Scalar/OpenAPI 문서 경로에 적용하는 htpasswd 사용자 목록이다.
   - name: docs-basic-auth
     namespace: app
@@ -172,6 +181,12 @@ externalSecrets:
     remoteKey: app-fcm
     data:
       FIREBASE_CONFIGURATION: FIREBASE_CONFIGURATION
+  - name: app-webhook
+    namespace: dev-app
+    store: aws-secretsmanager
+    targetName: app-webhook
+    remoteKey: app-webhook
+    data: *appWebhookData
   - name: docs-basic-auth
     namespace: dev-app
     store: aws-secretsmanager

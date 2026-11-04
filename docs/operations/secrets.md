@@ -174,6 +174,33 @@ python3 scripts/bootstrap_aws_secrets.py \
 되돌릴 때는 dev 앱의 FCM·Secret 참조 설정을 함께 되돌린 뒤 dev ExternalSecret·AWS source·IAM
 권한을 정리한다. prod 설정과 source는 유지한다.
 
+## 앱 Discord 웹훅 알림 활성화
+
+앱은 서버 생명주기·챌린저 기록·회원 이벤트 알림을 `DISCORD_WEBHOOK_URL`로 보낸다. 값이 비면
+앱은 알림을 보내지 못한다. prod·dev의 `app-webhook` source가 값을 공급하고, preview는 Discord로
+알림을 보내지 않으므로 받지 않는다. Alertmanager가 쓰는
+`/umc-product/platform/monitoring/alertmanager-discord`와는 다른 채널·웹훅이다.
+
+앱 Deployment는 `app-webhook`을 `optional: false`로 읽고 Recreate 전략이라, Secret이 없으면 기존
+Pod가 내려간 뒤 새 Pod가 시작되지 못한다. umc-secrets와 앱 chart가 같은 머지로 동기화되므로
+아래 1~3단계(값 입력, IAM, AWS source 생성)는 이 변경을 머지하기 전에 끝낸다. 서로 다른 Argo CD
+Application의 sync wave만으로 이 순서를 보장하지 않는다.
+
+1. Discord 서버에서 알림 채널의 웹훅 URL을 발급해 `.env.prod`와 `.env.dev`의 `DISCORD_WEBHOOK_URL`에
+   입력한다. 두 환경은 서로 다른 채널을 쓴다.
+2. `cloud/aws/external-secrets-iam.yaml`을 반영해 ProdRole·DevRole에 `app-webhook` 읽기 권한을 추가한다.
+3. `bootstrap_aws_secrets.py` dry-run으로 기존 source가 worksheet와 일치하는지 확인한 뒤
+   `/umc-product/prod/app-webhook`과 `/umc-product/dev/app-webhook`을 생성한다.
+4. 변경을 머지해 `umc-secrets`와 앱 chart를 반영하고 `app/app-webhook`·`dev-app/app-webhook`
+   ExternalSecret이 `Ready=True`인지 확인한다. Ready가 아니면 새 Pod가 시작되지 않으므로 source와
+   IAM부터 되짚는다.
+5. rollout 뒤 Loki에서
+   `{service_name="prod-umc-product"} |= "external_api_called" | provider="DISCORD"`의 `result`가
+   `SUCCESS`로 바뀌는지 확인한다.
+
+웹훅 URL은 토큰을 포함하므로 Git·로그·채팅에 적지 않는다. 회전은 Discord에서 새 웹훅을 만들고
+AWS source를 갱신한 뒤 Reloader가 Pod를 재시작하는 것으로 끝난다.
+
 ## 임시 Gmail SMTP와 SES 복귀
 
 백엔드의 `EMAIL_PROVIDER=ses|smtp` 지원 이미지가 필요하다. 기존 SES 전용 이미지에

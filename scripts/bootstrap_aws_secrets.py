@@ -60,6 +60,8 @@ EMAIL_PROPERTIES = (
     ("SES_SECRET_ACCESS_KEY", "SES_SECRET_ACCESS_KEY"),
 )
 SMTP_PROPERTIES = (("SMTP_PASSWORD", "SMTP_PASSWORD"),)
+# 앱 알림 Discord 웹훅. prod·dev만 쓰고 preview는 Discord로 알림을 보내지 않는다.
+WEBHOOK_PROPERTIES = (("DISCORD_WEBHOOK_URL", "DISCORD_WEBHOOK_URL"),)
 POSTGRES_PROPERTIES = (
     ("POSTGRES_USER", "POSTGRES_USER"),
     ("POSTGRES_PASSWORD", "POSTGRES_PASSWORD"),
@@ -124,6 +126,7 @@ SECRET_SPECS = (
         (("FIREBASE_CONFIGURATION", "FIREBASE_CONFIGURATION"),),
         "prod",
     ),
+    SecretSpec("/umc-product/prod/app-webhook", ".env.prod", WEBHOOK_PROPERTIES, "prod"),
     SecretSpec(
         "/umc-product/prod/docs-basic-auth",
         ".env.prod",
@@ -162,6 +165,7 @@ SECRET_SPECS = (
         (("FIREBASE_CONFIGURATION", "FIREBASE_CONFIGURATION"),),
         "dev",
     ),
+    SecretSpec("/umc-product/dev/app-webhook", ".env.dev", WEBHOOK_PROPERTIES, "dev"),
     SecretSpec(
         "/umc-product/dev/docs-basic-auth",
         ".env.dev",
