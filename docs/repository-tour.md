@@ -111,6 +111,7 @@ ansible/
 ├── inventories/idc-new/hosts.yml       # 어느 서버에 접속할지; 로컬 전용
 ├── playbooks/ssh-access.yml        # 개인 계정·키·SSH 터널 접근 정책
 ├── playbooks/bootstrap.yml         # 개인 관리자 공인 SSH로 전체 실행
+├── playbooks/argocd.yml            # bootstrap 뒤 Argo CD core values만 반영
 └── roles/
     ├── ssh_access/                  # 개인 계정·키·SSH 터널 권한
     ├── common/                      # OS·SSH·UFW·swap·kernel
@@ -223,7 +224,8 @@ UFW·SSH·K3s가 자동으로 원상복구되지는 않는다. 그래서 실행 
 ## 5. Argo CD, Helm, Kubernetes의 관계
 
 Argo CD 자체는 아직 controller가 없는 bootstrap 단계이므로 Ansible이 checksum으로 고정한
-Helm release로 설치한다. 이후 앱과 platform chart는 Argo CD가 관리한다.
+Helm release로 설치한다. 이 release의 values 변경도 Ansible `argocd.yml`로 반영한다.
+이후 앱과 platform chart는 Argo CD가 관리한다.
 
 세 도구는 서로 대체 관계가 아니다.
 

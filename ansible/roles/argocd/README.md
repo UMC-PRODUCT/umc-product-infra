@@ -50,6 +50,6 @@ URL, checksum, 다운로드 경로와 Git manifest 경로는 `defaults/main.yml`
 - 이 역할은 `k3s`와 root 전용 kubeconfig에 의존하며 제어 노드에는 `kubernetes.core` collection이 필요하다.
 - namespace와 release 이름은 Git manifest와 rollout 대상 이름에도 쓰이므로 이 역할에서만 override할 수 없다.
 - Helm, 차트, Argo CD 버전과 checksum, values는 호환성을 확인해 한 묶음으로 갱신한다.
-- `argocd-cm`은 이 Helm release만 소유한다. health 규칙을 바꾸면 Git merge만으로 반영되지 않으므로 [Argo CD core 설정 반영](../../../docs/operations/argocd-config.md) 순서로 `bootstrap.yml`을 다시 실행한다. `manifests/`에 `argocd-cm`을 두면 `validate_argocd.py`가 실패한다.
+- `argocd-cm`은 이 Helm release만 소유한다. health 규칙을 바꾸면 Git merge만으로 반영되지 않으므로 [Argo CD core 설정 반영](../../../docs/operations/argocd-config.md#values-변경-반영) 순서로 `argocd.yml`을 실행한다. `manifests/`에 `argocd-cm`을 두면 `validate_argocd.py`가 실패한다.
 - core values는 Argo CD의 canonical HTTPS URL과 내부 HTTP backend를 설정한다. 공개 Certificate·Ingress·server NetworkPolicy는 별도 `argocd-access` Application이 관리하며, [공개 접속 순서](../../../docs/operations/domains-tls.md#argo-cd-공개-https)에 따라 적용한다.
-- 기존 raw manifest 설치를 Helm이 바로 인수하는 마이그레이션은 다루지 않는다. 최초 설치는 `bootstrap.yml`이 맡고, bootstrap을 마친 서버의 core values 변경은 `argocd.yml`로 [반영](../../../docs/operations/tool-access.md#argo-cd-core-values-반영)한다.
+- 기존 raw manifest 설치를 Helm이 바로 인수하는 마이그레이션은 다루지 않는다. 최초 설치는 `bootstrap.yml`이 맡고, bootstrap을 마친 서버의 core values 변경은 `argocd.yml`로 [반영](../../../docs/operations/argocd-config.md#values-변경-반영)한다.
