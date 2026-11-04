@@ -387,7 +387,8 @@ def replace_env_assignments(contents: str, values: dict[str, str]) -> str:
             raise BootstrapError(f"generated value for {key} contains a newline")
         updated, count = re.subn(
             rf"^{re.escape(key)}=$",
-            lambda _match, replacement=f"{key}={value}": replacement,
+            # re 치환 문자열은 역슬래시를 해석하므로 값이 그대로 들어가도록 escape한다.
+            f"{key}={value}".replace("\\", r"\\"),
             updated,
             count=1,
             flags=re.MULTILINE,
@@ -547,7 +548,7 @@ def main() -> int:
         atomic_write(env_path, updated_contents)
         committed = True
         fsync_directory(env_path.parent)
-    except BaseException:
+    except BaseException as error:
         if not committed:
             # 원장에 기록하기 전 실패한 경우에만 이번 실행에서 응답을 받은 새 키를 회수한다.
             rollback_failed = False
@@ -559,7 +560,7 @@ def main() -> int:
             if rollback_failed:
                 raise BootstrapError(
                     "bootstrap failed and at least one newly issued key could not be rolled back"
-                )
+                ) from error
         raise
 
     final_stat = env_path.stat(follow_symlinks=False)
@@ -580,4 +581,4 @@ if __name__ == "__main__":
         raise SystemExit(main())
     except BootstrapError as error:
         print(f"error: {error}", file=sys.stderr)
-        raise SystemExit(1)
+        raise SystemExit(1) from None

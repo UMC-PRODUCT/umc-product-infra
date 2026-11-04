@@ -13,7 +13,7 @@ import yaml
 SCRIPTS_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(SCRIPTS_DIR))
 
-from contracts.dns import (
+from contracts.dns import (  # noqa: E402
     external_dns_hosts,
     validate_external_dns_record_names,
     validate_route53_contract,

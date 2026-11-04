@@ -16,7 +16,7 @@ import yaml
 SCRIPTS_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(SCRIPTS_DIR))
 
-from contracts.server_app import (
+from contracts.server_app import (  # noqa: E402
     MAIL_CAPTURE_JAVA_TOOL_OPTIONS,
     preview_cert_manager_resources,
     validate_preview_dropdb_job,

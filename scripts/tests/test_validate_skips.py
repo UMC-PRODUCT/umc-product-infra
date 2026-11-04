@@ -18,7 +18,7 @@ def run_bash(script: str, *, path: str, strict: bool) -> subprocess.CompletedPro
         environment["VALIDATE_STRICT"] = "1"
     return subprocess.run(
         [BASH, "-c", "\n".join(["set -euo pipefail", f"source '{SKIPS}'", script, "finish_validation"])],
-        cwd=SCRIPTS.parent, env=environment, capture_output=True, text=True,
+        cwd=SCRIPTS.parent, env=environment, capture_output=True, text=True, check=False,
     )
 
 

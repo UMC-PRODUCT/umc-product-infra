@@ -13,7 +13,7 @@ from unittest.mock import patch
 SCRIPTS_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(SCRIPTS_DIR))
 
-from contracts.preview_budget import (
+from contracts.preview_budget import (  # noqa: E402
     pod_resource_totals,
     validate_preview_budget_arithmetic,
 )

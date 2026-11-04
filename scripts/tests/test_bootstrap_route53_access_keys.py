@@ -4,7 +4,6 @@ import argparse
 import contextlib
 import io
 import json
-import os
 import stat
 import sys
 import tempfile
@@ -228,7 +227,7 @@ class EnvFileContractTests(unittest.TestCase):
                     contents += "CERT_MANAGER_ROUTE53_ACCESS_KEY_ID=\n"
                 path = self.make_env(root, contents)
 
-                def check(command: list[str], _cwd: Path) -> bool:
+                def check(command: list[str], _cwd: Path, case: str = case) -> bool:
                     if command[1] == "check-ignore":
                         return case != "not-ignored"
                     if command[1] == "ls-files":

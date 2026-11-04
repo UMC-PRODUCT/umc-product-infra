@@ -55,7 +55,7 @@ def main() -> int:
         },
         "test API base values must be disabled and reuse docs-basic-auth",
     )
-    for environment, filename in zip(("prod", "dev", "preview"), sys.argv[1:4]):
+    for environment, filename in zip(("prod", "dev", "preview"), sys.argv[1:4], strict=True):
         overlay = yaml.safe_load(
             (
                 ROOT

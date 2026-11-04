@@ -69,7 +69,7 @@ class ManifestLoader(yaml.SafeLoader):
     """Accept the literal '=' enum in Operator CRDs (YAML 1.1 value tag)."""
 
 
-ManifestLoader.add_constructor("tag:yaml.org,2002:value", ManifestLoader.construct_scalar)
+ManifestLoader.add_constructor("tag:yaml.org,2002:value", ManifestLoader.construct_scalar)  # type: ignore[type-var]
 
 
 def require(condition: bool, message: str) -> None:
@@ -296,7 +296,7 @@ def render_application(path: Path, output_dir: Path) -> tuple[str, list[dict]]:
         for document in yaml.load_all(completed.stdout, Loader=ManifestLoader)
         if isinstance(document, dict) and document.get("kind")
     ]
-    require(resources, f"{name}: chart rendered no resources")
+    require(bool(resources), f"{name}: chart rendered no resources")
     return name, resources
 
 
@@ -383,6 +383,7 @@ def byte_size(value: object) -> float:
         return value
     match = re.fullmatch(r"([0-9]+(?:\.[0-9]+)?)([A-Za-z]*)", str(value))
     require(match is not None and match.group(2) in BYTE_UNITS, f"unsupported byte size: {value!r}")
+    assert match is not None
     return float(match.group(1)) * BYTE_UNITS[match.group(2)]
 
 
@@ -403,6 +404,7 @@ def validate_loki_retention(config: dict) -> None:
     streams = limits.get("retention_stream")
     require(isinstance(streams, list) and all(isinstance(item, dict) for item in streams),
             "Loki: retention_stream must be a list of rules")
+    assert isinstance(streams, list)
     rules = [(item.get("selector"), item.get("priority"), item.get("period")) for item in streams]
     require(rules == LOKI_STREAM_RETENTION,
             "Loki: retention_stream must be exactly preview 7 days and dev 30 days")
@@ -410,7 +412,9 @@ def validate_loki_retention(config: dict) -> None:
 
 # GOMEMLIMIT가 limit보다 너무 낮으면 GC가 과열되고, 너무 높으면 GC 전에 cgroup OOM kill이 난다.
 def validate_loki_memory(resources: list[dict], config: dict) -> None:
-    containers = [item for item in pod_spec(named_resource(resources, "StatefulSet", "loki"))["containers"]
+    loki = pod_spec(named_resource(resources, "StatefulSet", "loki"))
+    assert loki is not None
+    containers = [item for item in loki["containers"]
                   if item["name"] == "loki"]
     require(len(containers) == 1, "Loki: StatefulSet must run exactly one loki container")
     container = containers[0]
@@ -429,6 +433,7 @@ def validate_loki_memory(resources: list[dict], config: dict) -> None:
 # 종료되지 않는 dashboard watcher를 일반 initContainer로 두어 Grafana 시작이 막히는 것을 방지한다.
 def validate_grafana_dashboard_startup(resources: list[dict]) -> None:
     workload = pod_spec(named_resource(resources, "Deployment", "grafana"))
+    assert workload is not None
     initializers = [container for container in workload.get("initContainers", [])
                     if container.get("name") == "grafana-init-sc-dashboard"]
     require(len(initializers) == 1, "grafana: exactly one dashboard startup sidecar is required")
@@ -505,7 +510,7 @@ def validate_preview_application_name(appset: dict) -> None:
             ("SPRING_APPLICATION_NAME", spring_name, "PREVIEW_SPRING_APP_PATTERN", PREVIEW_SPRING_APP_PATTERN),
             ("Application name", template["metadata"].get("name", ""),
              "PREVIEW_ARGOCD_APP_PATTERN", PREVIEW_ARGOCD_APP_PATTERN)):
-        require("{{ .number }}" in value and re.fullmatch(pattern, value.replace("{{ .number }}", "1494")),
+        require("{{ .number }}" in value and re.fullmatch(pattern, value.replace("{{ .number }}", "1494")) is not None,
                 f"preview: ApplicationSet {field} must match {constant}")
 
 
@@ -626,18 +631,18 @@ def validate_monitor_selection(prometheus: dict, monitors: list[dict], services:
         namespace_selector = monitor_spec.get("namespaceSelector", {})
         selected_namespaces = namespace_selector.get("matchNames", [namespace])
 
-        def in_scope(resource: dict) -> bool:
-            return bool(namespace_selector.get("any")) or \
-                resource.get("metadata", {}).get("namespace", "monitoring") in selected_namespaces
+        def in_scope(resource: dict, any_namespace: bool = bool(namespace_selector.get("any")),
+                     namespaces: list[str] = selected_namespaces) -> bool:
+            return any_namespace or resource.get("metadata", {}).get("namespace", "monitoring") in namespaces
 
         if kind == "PodMonitor":
             pods = [pod for workload in workloads
                     if in_scope(workload) and (pod := pod_spec(workload)) is not None
                     and selector_matches(monitor_spec["selector"], workload_labels(workload))]
-            require(pods, f"{identity}: selector matches no Pod")
+            require(bool(pods), f"{identity}: selector matches no Pod")
             for endpoint in monitor_spec.get("podMetricsEndpoints", []):
                 port = endpoint.get("port")
-                require(isinstance(port, str) and port,
+                require(isinstance(port, str) and port != "",
                         f"{identity}: endpoint must reference a named container port")
                 require(any(item.get("name") == port for pod in pods
                             for container in pod.get("containers", []) for item in container.get("ports", [])),
@@ -647,10 +652,10 @@ def validate_monitor_selection(prometheus: dict, monitors: list[dict], services:
                     if in_scope(service)
                     and selector_matches(monitor_spec["selector"],
                                          service["metadata"].get("labels", {}))]
-        require(selected, f"{identity}: selector matches no Service")
+        require(bool(selected), f"{identity}: selector matches no Service")
         for endpoint in monitor_spec.get("endpoints", []):
             port = endpoint.get("port")
-            require(isinstance(port, str) and port,
+            require(isinstance(port, str) and port != "",
                     f"{identity}: endpoint must reference a named Service port")
             # Operator relabeling drops Services without the endpoint's named
             # port (e.g. Loki memberlist); at least one eligible Service is required.

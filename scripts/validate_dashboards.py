@@ -87,8 +87,8 @@ class PanelQuery:
 def deployed_dashboards() -> list[Path]:
     """gen-configmaps.py의 허용 목록만 검사한다. 보관만 하는 원본은 Grafana에 가지 않는다."""
     spec = importlib.util.spec_from_file_location("gen_configmaps", ROOT / "scripts" / "gen-configmaps.py")
+    assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
-    assert spec.loader is not None
     sys.modules[spec.name] = module
     spec.loader.exec_module(module)
     return [DASHBOARD_DIR / name for name in module.DASHBOARD_ALLOWLIST]

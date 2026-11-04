@@ -21,6 +21,7 @@ def construct_cloudformation_tag(
         return loader.construct_scalar(node)
     if isinstance(node, yaml.SequenceNode):
         return loader.construct_sequence(node)
+    assert isinstance(node, yaml.MappingNode)
     return loader.construct_mapping(node)
 
 

@@ -178,7 +178,7 @@ def validate_preview_mail_capture_tls(
         key_readers == {"mailpit"},
         "preview: only Mailpit may read the loopback private key",
     )
-    builder = next(
+    builder: dict = next(
         (item for item in pod.get("initContainers", []) if item["name"] == "mail-capture-truststore"),
         {},
     )

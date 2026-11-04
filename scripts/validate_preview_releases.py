@@ -33,6 +33,7 @@ def validate_release(path: Path) -> dict:
     require(not path.is_symlink(), "Preview 기록은 symlink일 수 없음")
     match = re.fullmatch(r"pr-([1-9][0-9]*)\.json", path.name)
     require(match is not None, "Preview 기록 파일명이 잘못됨")
+    assert match is not None
     record = json.loads(path.read_text(encoding="utf-8"), object_pairs_hook=unique_object)
     require(isinstance(record, dict) and set(record) == {"release"}, "release object만 허용")
     release = record["release"]

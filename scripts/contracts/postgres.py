@@ -386,6 +386,7 @@ def validate_backup_role(prod_directory: Path) -> None:
         None,
     )
     require(backup_dump is not None, "prod: pg-backup must have an init container named dump")
+    assert backup_dump is not None
     require(
         "pg_dump -Fc --lock-wait-timeout=5min " in backup_dump["args"][0],
         "prod: backup pg_dump must fail instead of waiting forever for table locks",

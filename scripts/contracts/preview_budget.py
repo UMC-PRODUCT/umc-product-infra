@@ -44,10 +44,11 @@ def pod_resource_totals(pod: dict) -> tuple[int, int, int]:
     )
     regular = [container_resource_amounts(item) for item in pod["containers"]]
     init = [container_resource_amounts(item) for item in init_containers]
-    return tuple(
+    cpu, memory, memory_limit = (
         max([sum(amounts[index] for amounts in regular)] + [amounts[index] for amounts in init])
         for index in range(3)
     )
+    return cpu, memory, memory_limit
 
 
 # quota 합계를 손으로 맞추지 않도록 실제 PR render와 공용 manifest에서 다시 계산한다.

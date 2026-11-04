@@ -64,7 +64,7 @@ def validate_external_dns_record_names(
     txt_prefix: str,
     record_types: list[str],
 ) -> None:
-    require(hosts, "ExternalDNS: no opted-in Ingress host was collected")
+    require(bool(hosts), "ExternalDNS: no opted-in Ingress host was collected")
     record_names = set(hosts) | {
         f"{txt_prefix}{record_type.lower()}-{host}"
         for host in hosts
