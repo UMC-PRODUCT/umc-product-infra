@@ -56,8 +56,7 @@ Git에서 변경하고 Argo CD로 수렴시킨다.
 
 ```bash
 cd ansible
-ansible-playbook --syntax-check playbooks/bootstrap.yml
-ansible-playbook --syntax-check playbooks/ssh-access.yml
+ansible-playbook --syntax-check playbooks/*.yml
 ansible-lint playbooks/*.yml
 ```
 
@@ -69,6 +68,7 @@ ansible-lint playbooks/*.yml
 |---|---|
 | SSH 계정 등록·회수 | `docs/operations/ssh-access.md` |
 | 서버 최초 설치·재구성 | `docs/operations/ansible-bootstrap.md` |
+| Argo CD core values(계정·RBAC·health·metrics) 반영 | `docs/operations/argocd-config.md` |
 | Secret 추가·변경·회전 | `docs/operations/secrets.md` |
 | DNS·TLS·Route 53 | `docs/operations/domains-tls.md` |
 | backup 최초 활성화 | `docs/runbooks/backup-activation.md` |

@@ -8,6 +8,7 @@ DB는 SSH 터널로 접속한다. DB 5432와 Kubernetes API 6443은 외부에 �
 
 - 운영 서버의 팀원 등록·회수: [인프라 팀 운영 가이드](../docs/operations/ssh-access.md).
 - 빈 서버 최초 설치: [초기 구성 가이드](../docs/operations/ansible-bootstrap.md).
+- bootstrap을 마친 서버의 Argo CD core values 변경: [Argo CD core 설정 반영](../docs/operations/argocd-config.md#values-변경-반영).
 - 서버 이전·DB 복원·DNS 전환: [이전 runbook](../docs/runbooks/cafe24-migration.md).
 - 전체 문서: [운영 문서 목차](../docs/README.md).
 
@@ -55,7 +56,7 @@ Git에는 [예제](inventories/idc-new/hosts.example.yml)만 보관하고 실제
 | [roles/ssh_access/](roles/ssh_access/) | 개인 계정·키, 관리자와 DB 터널 사용자 권한 |
 | [roles/common/](roles/common/) | OS 패키지·UFW·swap·커널 설정 |
 | [roles/k3s/](roles/k3s/) | K3s·Traefik |
-| [roles/argocd/](roles/argocd/) | Argo CD 초기 설치와 root Application |
+| [roles/argocd/](roles/argocd/) | Argo CD core 설치·values 갱신과 root Application |
 | [roles/external_secrets_bootstrap/](roles/external_secrets_bootstrap/) | ESO의 AWS 최초 접근 자격증명 |
 
 `admin`은 shell과 root 수준 sudo 권한을 갖는다. `db_tunnel`은 허용된 DB 목적지의

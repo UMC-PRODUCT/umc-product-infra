@@ -177,7 +177,7 @@ Argo CD core의 URL·HTTP backend·계정은 Ansible Helm release가 소유한�
    `_acme-challenge.<argo-host>` DNS-01 TXT의 exact 권한을 Route 53 IAM에 반영한다.
    실제 host는 Argo CD core values, Certificate·Ingress, IAM 허용 목록에서 일치시킨다.
 2. 기존 계정 로그인과 SSH 복구 경로를 확인한다. server NetworkPolicy가 먼저 생성된 것을 확인한 뒤
-   검토한 core Helm values를 적용한다.
+   검토한 core Helm values를 [Argo CD core 설정 반영](argocd-config.md#values-변경-반영) 순서로 적용한다.
    다른 구성요소의 기존 NetworkPolicy는 유지한다. chart의 server 전체 허용 정책을 함께 남기면
    정책이 합집합으로 적용되어 좁은 허용 범위가 무력화되므로 제거되어야 한다.
 3. `argocd-access` 안에서 Certificate와 NetworkPolicy는 wave `-2`, Ingress는 wave `1`이다.

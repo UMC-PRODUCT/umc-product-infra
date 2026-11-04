@@ -25,7 +25,7 @@
 | 환경변수·비밀번호·외부 서비스 키 변경 | [Secret 운영](operations/secrets.md) |
 | DNS 레코드·TLS 인증서·공개 접속 경로 변경 | [DNS·TLS 운영](operations/domains-tls.md) |
 | Grafana·Argo CD 계정·권한 관리, 로그인 경로 점검·복구 | [도구 접근 관리](operations/tool-access.md) |
-| Argo CD core 설정(`argocd-cm`·health 규칙) 반영 | [Argo CD core 설정](operations/argocd-config.md) |
+| Argo CD core values(계정·RBAC·health 규칙·metrics) 반영 | [Argo CD core 설정](operations/argocd-config.md) |
 | 대시보드·알림 규칙 수정 | [관측 원본 관리](../observability/README.md) |
 | Prometheus·Loki·Tempo·Collector 구성 변경 | [관측 스택 배포 구조](../argocd/applications/platform/observability/README.md) |
 | 수정 내용의 정적 검증 | [검증 스크립트](../scripts/README.md#저장소-전체-검증) |
