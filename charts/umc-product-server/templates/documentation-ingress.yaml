@@ -30,7 +30,8 @@ metadata:
   annotations:
     argocd.argoproj.io/sync-wave: "1"
     traefik.ingress.kubernetes.io/router.entrypoints: websecure
-    traefik.ingress.kubernetes.io/router.middlewares: {{ printf "%s-%s@kubernetescrd" .Release.Namespace $middlewareName | quote }}
+    # Basic Auth 검사 전에 edge 제한으로 과도한 요청을 먼저 막는다.
+    traefik.ingress.kubernetes.io/router.middlewares: {{ include "umc-product-server.routerMiddlewares" (dict "root" . "names" (list "rate-limit" "in-flight" "docs-basic-auth")) | quote }}
     # 같은 host의 / 라우터보다 문서 경로 라우터가 항상 먼저 선택되게 한다.
     traefik.ingress.kubernetes.io/router.priority: "100"
 spec:

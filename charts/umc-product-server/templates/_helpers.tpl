@@ -27,3 +27,15 @@ environment: {{ required "environment 는 필수 (prod | dev | preview)" .Values
 app.kubernetes.io/name: {{ include "umc-product-server.name" . }}
 app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
+
+{{/*
+router.middlewares annotation 값을 만든다. names는 이 릴리스 Middleware의 이름 접미사이며 적힌 순서대로 적용된다.
+*/}}
+{{- define "umc-product-server.routerMiddlewares" -}}
+{{- $prefix := printf "%s-%s" .root.Release.Namespace (include "umc-product-server.fullname" .root) -}}
+{{- $refs := list -}}
+{{- range .names -}}
+{{- $refs = append $refs (printf "%s-%s@kubernetescrd" $prefix .) -}}
+{{- end -}}
+{{- join "," $refs -}}
+{{- end }}

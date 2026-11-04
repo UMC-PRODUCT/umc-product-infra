@@ -45,6 +45,30 @@ ingress:
   host: api.example.invalid
   tls: []
 
+# 공격성 트래픽을 앱에 닿기 전에 Traefik이 클라이언트 IP별로 끊는 거친 바깥 울타리다.
+# 사용자별 제한은 앱 limiter가 맡는다(인증 사용자는 member별, 익명만 IP별).
+# 행사(데모데이)에서는 동시 사용자 약 100명이 캠퍼스 Wi-Fi NAT의 공인 IP 하나를 나눠 쓴다. 100명이 함께
+# 화면을 열면 화면마다 API를 여러 개 부르므로 1초도 안 되는 사이에 약 1000건이 몰린다.
+# 동시 요청 수는 도착률 × 응답 시간이다. 1000건이 응답(100~300ms, 부하가 걸리면 더 느림)보다 빨리
+# 들어오면 거의 모두가 동시에 열려 있으므로 inFlight는 1000, burst는 그 2배로 둔다.
+# inFlight 1000은 예상 최대치와 같아 여유가 없지만, 행사 규모를 아는 팀 판단(2026-11-03)으로 유지한다.
+# inFlight는 Tomcat 스레드 200개를 지키는 장치가 아니다. 행사 사용자를 막지 않는 쪽을 택했다.
+# 1000건 몰림이 약 3.3초(1000 ÷ 300)보다 자주 오면 bucket이 결국 비므로 average도 올려야 한다.
+# 추정치이므로 첫 행사 뒤 Traefik accessLog의 IP별 요청 수와 429를 보고 다시 정한다.
+# 한도는 Traefik 라우터(Ingress 경로)마다 따로 센다. 항상 켜져 있고, 환경별로는 values-<env>.yaml에
+# 바꿀 키만 덮어쓴다. 검증기는 1 이상의 정수와 IP 기준(ipStrategy.depth: 0)만 본다.
+edgeProtection:
+  rateLimit:
+    average: 300
+    period: 1s
+    burst: 2000
+  inFlight:
+    amount: 1000
+  # WebSocket(/ws)은 연결이 열려 있는 동안 계속 동시 요청으로 세므로 별도 Ingress에서 넉넉한 한도를 둔다.
+  # IP 하나가 소켓을 무한정 열어 메모리 상한이 있는 Traefik(Argo CD·Grafana도 거친다)을 압박하는 것을 막는다.
+  webSocketInFlight:
+    amount: 1000
+
 # Scalar/OpenAPI 문서는 일반 API와 분리된 Ingress에서 Basic Auth로 보호한다.
 # existingSecret은 htpasswd 형식의 users key를 가진 Kubernetes Secret이다.
 documentation:

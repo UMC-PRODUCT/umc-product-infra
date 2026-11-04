@@ -1,6 +1,7 @@
 {{/*
 앱·TLS 준비 계약을 만족한 경우에만 공개 HTTPS 경로와 ExternalDNS 대상을 선언한다.
 일반 API의 사용자 인증은 앱이 맡으며, 이 Ingress 자체에는 문서용 Basic Auth를 적용하지 않는다.
+모든 앱 Ingress는 클라이언트 IP별 rate limit·동시 요청 제한(edge-middleware.yaml)을 앱보다 먼저 적용한다.
 */}}
 {{- if and .Values.ingress.enabled (not .Values.deployment.enabled) }}
 {{- fail "ingress.enabled=true이면 deployment.enabled=true여야 함" }}
@@ -49,6 +50,7 @@ metadata:
     external-dns.kubernetes.io/managed-by: umc-infra
     external-dns.kubernetes.io/target: {{ $dnsTarget | quote }}
     traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    traefik.ingress.kubernetes.io/router.middlewares: {{ include "umc-product-server.routerMiddlewares" (dict "root" . "names" (list "rate-limit" "in-flight")) | quote }}
 spec:
   ingressClassName: {{ $className | quote }}
   rules:
@@ -56,6 +58,35 @@ spec:
       http:
         paths:
           - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "umc-product-server.fullname" . }}
+                port:
+                  name: http
+  tls:
+    {{- toYaml .Values.ingress.tls | nindent 4 }}
+---
+{{/* SockJS WebSocket 연결은 열려 있는 동안 계속 동시 요청으로 세므로 일반 경로보다 넉넉한 별도 한도를 둔다. */}}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "umc-product-server.fullname" . }}-ws
+  labels:
+    {{- include "umc-product-server.labels" . | nindent 4 }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    traefik.ingress.kubernetes.io/router.middlewares: {{ include "umc-product-server.routerMiddlewares" (dict "root" . "names" (list "rate-limit" "ws-in-flight")) | quote }}
+    # 같은 host의 / 라우터보다 WebSocket 경로 라우터가 항상 먼저 선택되게 한다.
+    traefik.ingress.kubernetes.io/router.priority: "100"
+spec:
+  ingressClassName: {{ $className | quote }}
+  rules:
+    - host: {{ $host | quote }}
+      http:
+        paths:
+          - path: /ws
             pathType: Prefix
             backend:
               service:

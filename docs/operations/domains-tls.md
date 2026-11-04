@@ -35,8 +35,26 @@ ExternalDNS는 API, Preview 메일 수집함, Grafana와 Argo CD record만 소�
 | Argo CD | 관리자가 전달하는 Argo CD host | Route 53 A record → public direct HTTPS, Argo CD 로그인 필수 |
 
 prod/dev/preview API는 모바일 앱이 직접 호출한다. Route 53은 요청을 대신 차단하지
-않으므로 abuse 방어는 앱 인증, Traefik rate limit, 상위 방화벽과 로그 감시로
-별도 구성한다. Grafana도 public HTTPS로 열지만 익명 접근과 회원가입은 끄고 운영자가
+않으므로 abuse 방어는 앱 인증·앱 rate limiter, Traefik edge 제한, 상위 방화벽과 로그 감시로
+별도 구성한다. Traefik edge 제한은 앱 차트의 `edgeProtection` 값으로 API host의 모든 경로에
+클라이언트 IP별 rate limit(기본 평균 300 req/s, burst 2000)과 동시 요청 제한(기본 1000)을 건다.
+WebSocket `/ws`는 연결이 열려 있는 동안 계속 동시 요청으로 세므로 별도 동시 연결 제한(기본 1000)을 쓴다.
+초과 요청은 Traefik이 `429`로 답하고 앱 로그에 남지 않는다. 이 `429`에는 CORS header가 없어서
+브라우저에서는 rate limit이 아니라 CORS 오류로 보인다.
+이 제한은 IP 하나가 초당 수천 건을 보내는 공격만 끊는 거친 바깥 울타리다. 사용자별 제한은 앱 limiter가
+맡는다(인증 사용자는 member별, 익명만 IP별). 데모데이 같은 행사에서는 학생 다수가 캠퍼스 Wi-Fi NAT의
+공인 IP 하나로 요청하므로 공유 IP를 좁게 제한하지 않는다. 기본값은 동시 사용자 약 100명이 같은 IP를 쓴다고 보고
+잡았다. 화면 하나가 API 여러 개를 동시에 부르므로, 100명이 한꺼번에 화면을 열면 1초도 안 되는 사이에 약 1000건이 몰린다.
+동시 요청 수는 도착률 × 응답 시간이다. 1000건이 응답(100~300ms, 부하가 걸리면 더 느림)보다 빨리 들어오면
+거의 모두가 동시에 열려 있다. 그래서 동시 요청 제한은 1000, burst는 그 2배인 2000이다.
+동시 요청 1000은 예상 최대치와 같아 여유가 없다. 행사 규모를 아는 팀 판단(2026-11-03)으로 1000을 유지하고,
+첫 행사 뒤 accessLog의 `429`를 보고 다시 정한다.
+이 동시 요청 제한은 Tomcat 스레드 200개를 지키지 않는다. 행사 사용자를 막지 않는 쪽을 택했다.
+초당 3000건을 계속 보내는 IP는 bucket이 약 0.74초 만에 비고(2000 ÷ (3000 − 300)), 그 뒤 초당 2700건이 `429`가 된다.
+1000건짜리 몰림이 약 3.3초(1000 ÷ 300)보다 자주 오면 bucket이 결국 비므로 `average`도 올려야 한다.
+모든 값은 측정이 아닌 추정치다. 첫 행사 뒤 Traefik accessLog의 IP별 요청 수와 `429`를 보고 다시 정한다. 환경 하나만 바꿀 때는
+`values-prod.yaml`·`values-dev.yaml`·`values-preview.yaml`에 `edgeProtection`의 바꿀 키만 덮어쓴다.
+값은 1 이상의 정수여야 하고, 0은 Traefik에서 무제한이라 렌더가 실패한다. Grafana도 public HTTPS로 열지만 익명 접근과 회원가입은 끄고 운영자가
 발급한 사람별 Grafana 계정만 사용한다. 기본 Organization role은 `Viewer`다.
 Argo CD는 비공유 `admin`과 공용 조회 계정 `umc-viewer`를 사용한다. 익명 접근은 끄며,
 로컬 계정에는 MFA나 GitHub 팀 제한이 없다. 계정 관리는 [Argo CD 로컬 계정](tool-access.md#argo-cd-로컬-계정)을 따른다.

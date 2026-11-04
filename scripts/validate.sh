@@ -83,6 +83,12 @@ import yaml
 appset = yaml.safe_load(Path("argocd/applications/preview/applicationset.yaml").read_text())
 source = appset["spec"]["template"]["spec"]["source"]
 chart = Path(source["path"])
+
+
+def router_middlewares(release, *names):
+    return ",".join(f"preview-{release}-{name}@kubernetescrd" for name in names)
+
+
 for number in (42, 43):
     tag = "0123456789ab" if number == 42 else "123456789012"
     digest = "sha256:" + "a" * 64
@@ -108,15 +114,18 @@ for number in (42, 43):
     test_api, = [item for item in documents if item["kind"] == "Ingress" and item["metadata"]["name"] == name + "-test-api"]
     test_api_middleware, = [item for item in documents if item["kind"] == "Middleware" and item["metadata"]["name"] == name + "-test-api-basic-auth"]
     assert test_api_middleware["spec"]["basicAuth"] == {"secret": "docs-basic-auth", "removeHeader": True}
-    assert test_api["metadata"]["annotations"]["traefik.ingress.kubernetes.io/router.middlewares"] == f"preview-{name}-test-api-basic-auth@kubernetescrd"
+    assert test_api["metadata"]["annotations"]["traefik.ingress.kubernetes.io/router.middlewares"] == router_middlewares(name, "rate-limit", "in-flight", "test-api-basic-auth")
     assert [item["path"] for item in test_api["spec"]["rules"][0]["http"]["paths"]] == ["/test"]
     assert deployment["metadata"]["name"] == ingress["metadata"]["name"] == name
     container = deployment["spec"]["template"]["spec"]["containers"][0]
     assert container["image"] == f"ghcr.io/umc-product/umc-product-server@{digest}"
     assert middleware["spec"]["basicAuth"] == {"secret": "docs-basic-auth", "removeHeader": True}
-    assert docs["metadata"]["annotations"]["traefik.ingress.kubernetes.io/router.middlewares"] == f"preview-{name}-docs-basic-auth@kubernetescrd"
+    assert docs["metadata"]["annotations"]["traefik.ingress.kubernetes.io/router.middlewares"] == router_middlewares(name, "rate-limit", "in-flight", "docs-basic-auth")
     assert [item["path"] for item in docs["spec"]["rules"][0]["http"]["paths"]] == ["/docs", "/docs-json"]
-    assert "traefik.ingress.kubernetes.io/router.middlewares" not in ingress["metadata"]["annotations"]
+    # 일반 API에는 Basic Auth 없이 edge 제한만 붙는다.
+    assert ingress["metadata"]["annotations"]["traefik.ingress.kubernetes.io/router.middlewares"] == router_middlewares(name, "rate-limit", "in-flight")
+    websocket, = [item for item in documents if item["kind"] == "Ingress" and item["metadata"]["name"] == name + "-ws"]
+    assert websocket["metadata"]["annotations"]["traefik.ingress.kubernetes.io/router.middlewares"] == router_middlewares(name, "rate-limit", "ws-in-flight")
     assert "docs-basic-auth" not in [item["secretRef"]["name"] for item in container["envFrom"]]
     env = {item["name"]: item.get("value") for item in container["env"]}
     assert env["DEMODAY_QR_BASE_URL"] == "https://university.neordinary.com"
@@ -129,7 +138,7 @@ for number in (42, 43):
     # 누락된 발행 digest로는 Preview를 열지 못한다.
     invalid = subprocess.run(args + ["--set-string", "image.digest="], capture_output=True, text=True)
     assert invalid.returncode != 0
-print("Preview ApplicationSet renders digest-pinned images and protected docs·test API for both PRs")
+print("Preview ApplicationSet renders digest-pinned images, edge limits and protected docs·test API for both PRs")
 PY
 
 # test API 리소스는 testApi 값만으로 노출되지 않고 Deployment와 Ingress gate를 모두 따른다.
@@ -294,6 +303,16 @@ if helm template umc-product-server charts/umc-product-server \
   echo "Ingress with bootstrap ExternalDNS target unexpectedly passed" >&2
   exit 1
 fi
+
+# Traefik은 0을 무제한으로 해석하므로 edge 한도 0은 렌더 단계에서 거부한다.
+for edge_override in edgeProtection.rateLimit.average=0 edgeProtection.rateLimit.burst=0 edgeProtection.inFlight.amount=0 edgeProtection.webSocketInFlight.amount=0; do
+  if helm template umc-product-server charts/umc-product-server \
+    -f charts/umc-product-server/values-prod.yaml "${common_args[@]}" \
+    --set "$edge_override" >/dev/null 2>&1; then
+    echo "unlimited edge setting $edge_override unexpectedly passed" >&2
+    exit 1
+  fi
+done
 
 helm lint charts/umc-product-server --strict \
   -f charts/umc-product-server/values-prod.yaml "${common_args[@]}"

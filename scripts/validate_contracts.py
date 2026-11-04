@@ -33,6 +33,7 @@ APP_IMAGE = (
 )
 PREVIEW_APP_IMAGE = APP_IMAGE
 TEST_NET_EDGE_TARGET = "203.0.113.10"
+APP_NAMESPACES = {"prod": "app", "dev": "dev-app", "preview": "preview"}
 # validate.sh가 Preview 렌더 견본으로 쓰는 PR 번호다.
 PREVIEW_SAMPLE_PR_NUMBER = "42"
 CERTIFICATE_ISSUERS = {"letsencrypt-staging", "letsencrypt-production"}
@@ -1010,6 +1011,110 @@ def edge_expectation(environment: str) -> tuple[str, str, str]:
     }[environment]
 
 
+def router_middlewares(environment: str, *names: str) -> str:
+    _, _, service = edge_expectation(environment)
+    return ",".join(
+        f"{APP_NAMESPACES[environment]}-{service}-{name}@kubernetescrd" for name in names
+    )
+
+
+def require_positive_int(value: object, label: str) -> None:
+    require(
+        isinstance(value, int) and not isinstance(value, bool) and value > 0,
+        f"{label} must be a positive integer (0 means unlimited in Traefik)",
+    )
+
+
+# 앱 host의 공격성 트래픽을 Traefik에서 먼저 거르는지 검사한다. 한도 값은 환경별로 바꿀 수 있어
+# 1 이상의 정수인지만 보고, 기준이 요청 host나 위조 가능한 X-Forwarded-For로 바뀌지 않았는지 본다.
+def validate_edge_protection(resources: list[dict], environment: str) -> None:
+    expected_host, expected_tls_secret, expected_service = edge_expectation(environment)
+    by_name = {
+        item["metadata"].get("name"): item
+        for item in resources
+        if item.get("kind") in {"Middleware", "Ingress"}
+    }
+
+    def edge_middleware(suffix: str, kind: str, fields: set[str]) -> dict:
+        name = f"{expected_service}-{suffix}"
+        middleware = by_name.get(name, {})
+        label = f"{environment}: edge Middleware {name}"
+        require(
+            middleware.get("kind") == "Middleware"
+            and middleware["metadata"].get("annotations")
+            == {"argocd.argoproj.io/sync-wave": "0"}
+            and list(middleware.get("spec", {})) == [kind]
+            and set(middleware["spec"][kind]) == fields | {"sourceCriterion"},
+            f"{label} must exist at sync-wave 0 with only {kind} {sorted(fields)}",
+        )
+        require(
+            middleware["spec"][kind]["sourceCriterion"] == {"ipStrategy": {"depth": 0}},
+            f"{label} must count per client remote address (sourceCriterion.ipStrategy.depth: 0)",
+        )
+        return middleware["spec"][kind]
+
+    rate_limit = edge_middleware("rate-limit", "rateLimit", {"average", "period", "burst"})
+    require_positive_int(rate_limit["average"], f"{environment}: rateLimit.average")
+    require_positive_int(rate_limit["burst"], f"{environment}: rateLimit.burst")
+    require(
+        isinstance(rate_limit["period"], str) and rate_limit["period"] != "",
+        f"{environment}: rateLimit.period must be a duration string",
+    )
+    for suffix in ("in-flight", "ws-in-flight"):
+        in_flight = edge_middleware(suffix, "inFlightReq", {"amount"})
+        require_positive_int(in_flight["amount"], f"{environment}: {suffix} inFlightReq.amount")
+
+    websocket = by_name.get(f"{expected_service}-ws", {})
+    require(
+        websocket.get("kind") == "Ingress"
+        and websocket["metadata"].get("annotations")
+        == {
+            "argocd.argoproj.io/sync-wave": "1",
+            "traefik.ingress.kubernetes.io/router.entrypoints": "websecure",
+            "traefik.ingress.kubernetes.io/router.middlewares": router_middlewares(
+                environment, "rate-limit", "ws-in-flight"
+            ),
+            "traefik.ingress.kubernetes.io/router.priority": "100",
+        }
+        and websocket.get("spec")
+        == {
+            "ingressClassName": "traefik",
+            "rules": [
+                {
+                    "host": expected_host,
+                    "http": {
+                        "paths": [
+                            {
+                                "path": "/ws",
+                                "pathType": "Prefix",
+                                "backend": {
+                                    "service": {
+                                        "name": expected_service,
+                                        "port": {"name": "http"},
+                                    }
+                                },
+                            }
+                        ]
+                    },
+                }
+            ],
+            "tls": [{"hosts": [expected_host], "secretName": expected_tls_secret}],
+        },
+        f"{environment}: WebSocket route must use rate-limit and the WebSocket in-flight limit",
+    )
+    edge_refs = router_middlewares(environment, "rate-limit", "in-flight").split(",")
+    for ingress in resources:
+        if ingress.get("kind") != "Ingress" or ingress["metadata"].get("name") == websocket["metadata"]["name"]:
+            continue
+        attached = ingress["metadata"].get("annotations", {}).get(
+            "traefik.ingress.kubernetes.io/router.middlewares", ""
+        ).split(",")
+        require(
+            attached[: len(edge_refs)] == edge_refs,
+            f"{environment}: {ingress['metadata'].get('name')} must apply edge limits first",
+        )
+
+
 def require_public_ipv4(value: str, label: str) -> None:
     try:
         address = ipaddress.ip_address(value)
@@ -1073,6 +1178,9 @@ def validate_ingress_contract(
             "external-dns.kubernetes.io/managed-by": "umc-infra",
             "external-dns.kubernetes.io/target": expected_target,
             "traefik.ingress.kubernetes.io/router.entrypoints": "websecure",
+            "traefik.ingress.kubernetes.io/router.middlewares": router_middlewares(
+                environment, "rate-limit", "in-flight"
+            ),
         },
         f"{environment}: exact Route53-backed Ingress annotations",
     )
@@ -1085,7 +1193,6 @@ def validate_documentation_ingress_contract(
     environment: str,
 ) -> None:
     expected_host, expected_tls_secret, expected_service = edge_expectation(environment)
-    expected_namespace = {"prod": "app", "dev": "dev-app", "preview": "preview"}[environment]
     middleware_name = f"{expected_service}-docs-basic-auth"
 
     require(
@@ -1107,8 +1214,8 @@ def validate_documentation_ingress_contract(
         == {
             "argocd.argoproj.io/sync-wave": "1",
             "traefik.ingress.kubernetes.io/router.entrypoints": "websecure",
-            "traefik.ingress.kubernetes.io/router.middlewares": (
-                f"{expected_namespace}-{middleware_name}@kubernetescrd"
+            "traefik.ingress.kubernetes.io/router.middlewares": router_middlewares(
+                environment, "rate-limit", "in-flight", "docs-basic-auth"
             ),
             "traefik.ingress.kubernetes.io/router.priority": "100",
         },
@@ -1172,8 +1279,8 @@ def validate_test_api_ingress_contract(
         == {
             "argocd.argoproj.io/sync-wave": "1",
             "traefik.ingress.kubernetes.io/router.entrypoints": "websecure",
-            "traefik.ingress.kubernetes.io/router.middlewares": (
-                f"dev-app-{middleware_name}@kubernetescrd"
+            "traefik.ingress.kubernetes.io/router.middlewares": router_middlewares(
+                "dev", "rate-limit", "in-flight", "test-api-basic-auth"
             ),
             "traefik.ingress.kubernetes.io/router.priority": "100",
         },
@@ -1467,7 +1574,7 @@ def validate_render(
     documentation_enabled = environment in {"prod", "dev", "preview"}
     ingresses = [item for item in resources if item.get("kind") == "Ingress"]
     expected_ingress_count = (
-        (1 + int(documentation_enabled) + int(test_api_enabled))
+        (2 + int(documentation_enabled) + int(test_api_enabled))
         if ingress_enabled
         else 0
     )
@@ -1479,11 +1586,11 @@ def validate_render(
     require(
         len(middlewares)
         == (
-            int(documentation_enabled) + int(test_api_enabled)
+            3 + int(documentation_enabled) + int(test_api_enabled)
             if ingress_enabled
             else 0
         ),
-        f"{environment}: protected-route Middleware must match source gates",
+        f"{environment}: edge and protected-route Middleware must match source gates",
     )
     if ingress_enabled:
         if environment != "preview":
@@ -1504,6 +1611,7 @@ def validate_render(
             in item["metadata"].get("annotations", {})
         )
         validate_ingress_contract(main_ingress, environment, source_target)
+        validate_edge_protection(resources, environment)
         if documentation_enabled:
             docs_ingress = next(
                 item
@@ -1652,7 +1760,7 @@ def validate_active_preview_edge_fixture(path: Path) -> None:
         mail_ingress["spec"]["rules"][0]["host"] == "mail-pr-42.university.neordinary.com"
         and mail_ingress["spec"]["tls"][0]["secretName"] == "preview-wildcard-tls"
         and mail_ingress["metadata"]["annotations"]["traefik.ingress.kubernetes.io/router.middlewares"]
-        == "preview-umc-product-server-pr-42-mail-basic-auth@kubernetescrd",
+        == router_middlewares("preview", "rate-limit", "in-flight", "mail-basic-auth"),
         "active preview edge fixture: mail capture UI must use the wildcard TLS and Basic Auth",
     )
     require(
@@ -1665,6 +1773,7 @@ def validate_active_preview_edge_fixture(path: Path) -> None:
         TEST_NET_EDGE_TARGET,
         test_net_fixture=True,
     )
+    validate_edge_protection(resources, "preview")
 
 
 # DB 환경 분리와 역할·백업·저장 경로를 고정해 chart나 초기화 Job 변경의 데이터 위험을 검사한다.
