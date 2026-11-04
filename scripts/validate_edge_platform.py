@@ -517,7 +517,7 @@ def validate_preview_wildcard_certificate() -> str:
         ),
         "preview: namespaced Issuers must be selfSigned",
     )
-    # loopback Certificate의 내용은 validate_contracts.py가 검사한다.
+    # loopback Certificate의 내용은 contracts/server_app.py가 검사한다.
     require(
         sorted(
             item.get("metadata", {}).get("name")

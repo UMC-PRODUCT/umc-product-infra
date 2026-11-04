@@ -1026,7 +1026,7 @@ class SharedK3sDefaultsContractTests(unittest.TestCase):
 
 class RepositoryValidationContractTests(unittest.TestCase):
     def test_repository_identity_scan_respects_gitignore(self) -> None:
-        validator = (ROOT / "scripts" / "validate_contracts.py").read_text(
+        validator = (ROOT / "scripts" / "contracts" / "repository.py").read_text(
             encoding="utf-8"
         )
 
