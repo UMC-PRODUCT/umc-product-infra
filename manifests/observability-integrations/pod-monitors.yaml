@@ -1,6 +1,5 @@
 # K3s 내장 Traefik의 metrics entrypoint(Pod의 metrics port 9100)는 Service로 노출되지 않아 Pod를 직접 수집한다.
-# Edge 429는 Traefik이 보낸 429(entrypoint)에서 앱이 돌려준 429(service)를 뺀 값이다.
-# rateLimit·inFlightReq middleware가 막은 요청은 service counter에 잡히지 않기 때문이다. 대시보드가 쓰는 두 counter만 남긴다.
+# 대시보드의 429 패널이 쓰는 두 counter만 남긴다.
 apiVersion: monitoring.coreos.com/v1
 kind: PodMonitor
 metadata:

@@ -22,6 +22,7 @@ from validate_observability import (
     selector_matches,
     validate_alertmanager_config,
     validate_grafana_dashboard_startup,
+    validate_k3s_traefik_metrics,
     validate_loki_ingestion_limits,
     validate_loki_memory,
     validate_loki_query_budget,
@@ -116,6 +117,23 @@ class OperatorContractsTest(unittest.TestCase):
             mutate(broken_monitor, broken_pod)
             with self.subTest(message), self.assertRaisesRegex(SystemExit, message):
                 validate_monitor_selection(self.prometheus, [broken_monitor], [], [broken_pod])
+
+    def test_traefik_pod_model_must_be_rechecked_when_k3s_or_its_metrics_values_change(self) -> None:
+        k3s_version = yaml.safe_load((ROOT / "ansible/roles/k3s/defaults/main.yml").read_text())["k3s_version"]
+        config = yaml.safe_load((ROOT / "ansible/roles/k3s/templates/traefik-config.yaml.j2").read_text())
+        validate_k3s_traefik_metrics(k3s_version, config)
+        values = yaml.safe_load(config["spec"]["valuesContent"])
+        overrides = {
+            "metrics": {**values, "metrics": {"prometheus": None}},
+            "ports.metrics": {**values, "ports": {**values["ports"], "metrics": {"port": 9200}}},
+        }
+        for name, broken in overrides.items():
+            broken_config = copy.deepcopy(config)
+            broken_config["spec"]["valuesContent"] = yaml.safe_dump(broken)
+            with self.subTest(name), self.assertRaisesRegex(SystemExit, "HelmChartConfig"):
+                validate_k3s_traefik_metrics(k3s_version, broken_config)
+        with self.assertRaisesRegex(SystemExit, "K3S_TRAEFIK_VERIFIED_VERSION"):
+            validate_k3s_traefik_metrics("v0.0.0+k3s1", config)
 
     def test_operator_workload_remains_in_image_resource_and_network_checks(self) -> None:
         workload = pod_spec(self.prometheus)

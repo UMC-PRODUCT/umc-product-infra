@@ -34,10 +34,13 @@ import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
 
+import yaml
+
 
 ROOT = Path(__file__).resolve().parent.parent
 DASHBOARD_DIR = ROOT / "observability" / "dashboards"
 METRIC_NAMES_FILE = ROOT / "observability" / "prometheus-metric-names.txt"
+TRAEFIK_POD_MONITOR_FILE = ROOT / "manifests" / "observability-integrations" / "pod-monitors.yaml"
 METRIC_NAMES_HEADER = (
     "# 운영 Prometheus /api/v1/label/__name__/values 에서 확인한, dashboard 패널이 참조하는 메트릭 이름.\n"
     "# 갱신: python3 scripts/validate_dashboards.py --refresh-metric-names <prometheus-url>\n"
@@ -216,6 +219,21 @@ def check_metric_names(queries: list[PanelQuery], known: dict[str, str | None]) 
     return problems
 
 
+def read_traefik_pod_monitor(path: Path = TRAEFIK_POD_MONITOR_FILE) -> dict:
+    return next(resource for resource in yaml.safe_load_all(path.read_text(encoding="utf-8"))
+                if resource and resource["kind"] == "PodMonitor" and resource["metadata"]["name"] == "traefik")
+
+
+# Traefik PodMonitor는 keep regex 밖의 traefik_ 메트릭을 버린다. 그 이름을 그리는 패널은 항상 비어 있다.
+def check_traefik_keep(queries: list[PanelQuery], monitor: dict) -> list[str]:
+    regexes = [relabel["regex"] for endpoint in monitor["spec"]["podMetricsEndpoints"]
+               for relabel in endpoint.get("metricRelabelings", [])
+               if relabel.get("action") == "keep" and relabel.get("sourceLabels") == ["__name__"]]
+    return [f"{query.location}: {name}"
+            for query in queries for name in sorted(metric_names(query.expr))
+            if name.startswith("traefik_") and not all(re.fullmatch(regex, name) for regex in regexes)]
+
+
 def record_name(query: PanelQuery) -> str:
     return "dashboard_check:" + re.sub(r"[^A-Za-z0-9_:]", "_", f"{query.dashboard}:{query.panel}_{query.ref}")
 
@@ -290,6 +308,9 @@ def main(argv: list[str] | None = None) -> int:
     else:
         problems = check_metric_names(queries, read_metric_names())
         label = f"{METRIC_NAMES_FILE.relative_to(ROOT)}에 없는 메트릭을 참조"
+        if not problems:
+            problems = check_traefik_keep(queries, read_traefik_pod_monitor())
+            label = f"{TRAEFIK_POD_MONITOR_FILE.relative_to(ROOT)}의 keep regex가 버리는 메트릭을 참조"
 
     if problems:
         print(f"dashboard validation failed: {label}", file=sys.stderr)

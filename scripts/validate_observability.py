@@ -580,6 +580,17 @@ def validate_alertmanager_config(resources: list[dict]) -> None:
             "alertmanager: native global configuration must replace the legacy base Secret")
 
 
+# main()의 Traefik Pod 모델은 K3s 내장 chart 기본값이다. K3s 버전이나 HelmChartConfig의 metrics 설정이 바뀌면
+# traefik PodMonitor가 긁는 port가 달라질 수 있어 모델을 다시 확인하게 한다.
+def validate_k3s_traefik_metrics(k3s_version: str, helm_chart_config: dict) -> None:
+    require(k3s_version == K3S_TRAEFIK_VERIFIED_VERSION,
+            f"K3s {k3s_version}: re-check the bundled Traefik metrics port and labels, then update K3S_TRAEFIK_VERIFIED_VERSION")
+    values = yaml.safe_load(helm_chart_config["spec"]["valuesContent"]) or {}
+    require("metrics" not in values and "metrics" not in (values.get("ports") or {}),
+            "K3s Traefik HelmChartConfig: metrics or ports.metrics override can move the port the traefik PodMonitor scrapes; "
+            "re-check it, then update the Traefik Pod model in validate_observability.py")
+
+
 # Prometheus → Monitor → Service(PodMonitor는 Pod)의 selector와 named port가 모두 연결돼야 수집 대상으로 인정한다.
 def validate_monitor_selection(prometheus: dict, monitors: list[dict], services: list[dict],
                                workloads: tuple[dict, ...] | list[dict] = ()) -> None:
@@ -910,9 +921,9 @@ def main() -> int:
          "spec": {"ports": [{"name": "metrics", "port": 9153}]}},
     ])
     # K3s가 설치하는 Traefik Pod다. 내장 traefik chart 40.1.4+up40.1.0이 ports.metrics(9100)를 이름 metrics로 연다.
-    k3s_version = yaml.safe_load((ROOT / "ansible/roles/k3s/defaults/main.yml").read_text())["k3s_version"]
-    require(k3s_version == K3S_TRAEFIK_VERIFIED_VERSION,
-            f"K3s {k3s_version}: re-check the bundled Traefik metrics port and labels, then update K3S_TRAEFIK_VERIFIED_VERSION")
+    validate_k3s_traefik_metrics(
+        yaml.safe_load((ROOT / "ansible/roles/k3s/defaults/main.yml").read_text())["k3s_version"],
+        yaml.safe_load((ROOT / "ansible/roles/k3s/templates/traefik-config.yaml.j2").read_text()))
     traefik_pod = {"kind": "Pod", "metadata": {"name": "traefik", "namespace": "kube-system",
                    "labels": K3S_TRAEFIK_POD_LABELS},
                    "spec": {"containers": [{"name": "traefik", "ports": [{"name": "metrics", "containerPort": 9100}]}]}}

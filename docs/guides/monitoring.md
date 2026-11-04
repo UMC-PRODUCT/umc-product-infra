@@ -43,7 +43,7 @@ dashboard 기준이다. 화면이나 데이터가 없으면 시간 범위와 변
 |---|---|---|
 | 어디가 문제인지 모르겠다 | `UMC PRODUCT System Overview` | prod/dev 요청량·5xx 비율·응답 시간, 운영 DB·호스트 요약 |
 | API가 느리거나 에러가 늘었다 | `Application Detail` | HTTP 응답 시간, JVM 메모리·GC, HikariCP(DB 연결 풀) 포화 |
-| 공격이나 행사로 요청이 몰려 429가 난다 | `Application Detail` | `429 차단` 패널의 Traefik edge·앱 limiter별 차단 수. 이 차단은 요청 로그에 남지 않는다 |
+| 공격이나 행사로 요청이 몰려 429가 난다 | `Application Detail` | `429 차단` 패널의 Traefik edge·앱 limiter별 차단 수. 막힌 요청은 `api_request_completed` 로그에 없다. 앱은 key마다 1분에 한 줄 `api_rate_limit_blocked` WARN만 남기고, Traefik accessLog는 Pod stdout에만 있다 |
 | 구 API를 어떤 앱 버전이 아직 호출하는지 확인하고 싶다 | `API 호환성 · 사용 현황` | 후보 경로·메서드별 호출, 버전 누락, 최근 관측 시각. [사용 가이드](api-lifecycle.md) |
 | 에러 메시지와 원인을 찾고 싶다 | `서버팀 로그 탐색` | 같은 시간대의 ERROR 로그와 trace ID |
 | 특정 요청이 어디서 오래 걸렸는지 보고 싶다 | `API 처리 흐름 (Tempo)` | 요청 trace의 구간별 처리 시간. 로그의 trace ID로도 연결 가능 |

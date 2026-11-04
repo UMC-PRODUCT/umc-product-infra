@@ -333,3 +333,25 @@ tests:
             exp_annotations:
               summary: "Argo CD Application 지표가 30분째 들어오지 않아요"
               description: "argocd_app_info가 없어 Application health·sync 알림이 동작하지 않아요. argocd-application-controller-metrics Service와 ServiceMonitor target을 확인해주세요."
+
+  - interval: 1m
+    input_series:
+      # 10분 뒤 PodMonitor가 Traefik Pod를 고르지 못해 target이 사라진다.
+      - series: 'up{job="traefik", namespace="kube-system", pod="traefik-abc"}'
+        values: '1x10'
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: TraefikMetricsMissing
+        exp_alerts: []
+      - eval_time: 44m
+        alertname: TraefikMetricsMissing
+        exp_alerts: []
+      - eval_time: 46m
+        alertname: TraefikMetricsMissing
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              job: traefik
+            exp_annotations:
+              summary: "Traefik 지표 수집 대상이 30분째 없어요"
+              description: "Prometheus에 job=traefik target이 없어 Grafana 429 차단 패널의 Traefik edge 값이 비어 있어요. kube-system Traefik Pod의 label·metrics port와 monitoring/traefik PodMonitor를 확인해주세요."

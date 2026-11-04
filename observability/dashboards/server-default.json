@@ -1197,7 +1197,7 @@
               "transformations": []
             }
           },
-          "description": "초당 429로 막힌 요청 수. 앱 limiter는 Service·Instance 변수를 따르며 앱 counter의 rule별로 나눈다. Traefik edge는 Traefik이 보낸 429에서 앱이 돌려준 429를 뺀 값으로, 변수와 관계없이 모든 host의 합계다. Traefik과 REST limiter가 막은 요청은 Loki의 api_request_completed 로그에 남지 않는다.",
+          "description": "초당 429로 막힌 요청 수. 앱 limiter는 Service·Instance 변수를 따르며 앱 counter의 rule별로 나눈다. Traefik edge는 Traefik이 보낸 429에서 앱이 돌려준 429를 뺀 값으로, 변수와 관계없이 모든 host의 합계다. Traefik과 REST limiter가 막은 요청은 Loki의 api_request_completed 로그에 남지 않는다. Traefik이 재시작된 뒤 처음 생긴 429 counter는 첫 수집 구간(약 30초)의 차단을 세지 못한다. 그래서 재시작 뒤 앱이 처음 429를 돌려준 구간은 앱 429가 edge로 넘쳐 보이고, edge 차단이 처음 난 구간은 edge가 적게 보이거나 0으로 깎인다. edge가 튀면 같은 시각의 앱 limiter 선과 겹쳐 보고, Traefik 재시작 직후 약 30초는 조심해서 읽는다.",
           "id": 34,
           "links": [],
           "title": "429 차단 — 출처별",
@@ -1341,7 +1341,7 @@
               "transformations": []
             }
           },
-          "description": "선택한 시간 범위에 429로 막힌 요청 수. 0은 counter가 수집되는 중 차단이 없었다는 뜻이고 No data는 counter를 수집하지 못했다는 뜻이다. counter가 처음 생긴 직후 첫 수집 구간의 차단은 적게 셀 수 있다.",
+          "description": "선택한 시간 범위에 429로 막힌 요청 수. 0은 counter가 수집되는 중 차단이 없었다는 뜻이고 No data는 counter를 수집하지 못했다는 뜻이다. Traefik이 재시작된 뒤 처음 생긴 429 counter는 첫 수집 구간(약 30초)의 차단을 세지 못한다. 그래서 재시작 뒤 앱이 처음 429를 돌려준 구간은 앱 429가 edge로 넘쳐 보이고, edge 차단이 처음 난 구간은 edge가 적게 보이거나 0으로 깎인다. edge가 튀면 같은 시각의 앱 limiter 선과 겹쳐 보고, Traefik 재시작 직후 약 30초는 조심해서 읽는다.",
           "id": 35,
           "links": [],
           "title": "429 차단 수 · 선택 범위",
