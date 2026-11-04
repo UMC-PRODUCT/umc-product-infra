@@ -1652,20 +1652,13 @@ def validate_render(
         validate_preview_budget_arithmetic(resources)
         jobs = [item for item in resources if item.get("kind") == "Job"]
         require(len(jobs) == 2, "preview: createdb and dropdb Jobs")
-        dropdb = next(
-            item
-            for item in jobs
-            if item["metadata"]["labels"]["app.kubernetes.io/component"]
-            == "database-cleanup"
-        )
-        require(
-            dropdb["metadata"]["annotations"]["argocd.argoproj.io/hook"] == "PostDelete",
-            "preview: dropdb must run after workload deletion",
-        )
-        dropdb_script = dropdb["spec"]["template"]["spec"]["containers"][0]["args"][0]
-        require(
-            'DROP DATABASE IF EXISTS :"db" WITH (FORCE);' in dropdb_script,
-            "preview: dropdb must force-disconnect only the quoted target database",
+        validate_preview_dropdb_job(
+            next(
+                item
+                for item in jobs
+                if item["metadata"]["labels"]["app.kubernetes.io/component"]
+                == "database-cleanup"
+            )
         )
         createdb = next(
             item
@@ -1709,6 +1702,31 @@ def validate_render(
             and createdb["spec"]["activeDeadlineSeconds"] >= 900,
             "preview: createdb must wait 10 minutes for the shared DB within its deadline",
         )
+
+
+def validate_preview_dropdb_job(dropdb: dict) -> None:
+    require(
+        dropdb["metadata"]["annotations"]["argocd.argoproj.io/hook"] == "PostDelete",
+        "preview: dropdb must run after workload deletion",
+    )
+    container = dropdb["spec"]["template"]["spec"]["containers"][0]
+    script = container["args"][0]
+    drop = 'DROP DATABASE IF EXISTS :"db" WITH (FORCE);'
+    require(
+        drop in script,
+        "preview: dropdb must force-disconnect only the quoted target database",
+    )
+    # 새 Pod의 첫 연결은 NetworkPolicy 반영 전 거부될 수 있다. 이름 검사 뒤, DROP 전에
+    # 경과 시간으로 연결만 기다리고 그 대기가 Job deadline 안에 들어가야 한다.
+    wait = "until pg_isready -q -t 1; do"
+    require(
+        container["command"] == ["bash", "-c"]
+        and wait in script
+        and '[ "$SECONDS" -ge 600 ]' in script
+        and script.rindex("reject_target ;;") < script.index(wait) < script.index(drop)
+        and dropdb["spec"]["activeDeadlineSeconds"] >= 900,
+        "preview: dropdb must wait 10 minutes for the shared DB after the name guards and before DROP",
+    )
 
 
 def validate_active_edge_fixture(path: Path) -> None:

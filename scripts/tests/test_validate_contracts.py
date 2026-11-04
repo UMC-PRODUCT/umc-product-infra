@@ -28,6 +28,7 @@ from validate_contracts import (
     validate_edge_protection,
     validate_external_dns_record_names,
     validate_preview_budget_arithmetic,
+    validate_preview_dropdb_job,
     validate_preview_mail_capture_tls,
     validate_repository_identity,
     validate_route53_contract,
@@ -291,6 +292,76 @@ class PreviewBudgetArithmeticTest(unittest.TestCase):
     def test_rejects_pr_persistent_volume_claim(self) -> None:
         with self.assertRaisesRegex(SystemExit, "only the shared PostgreSQL PVC"):
             self.validate(self.PR_RESOURCES + [{"kind": "PersistentVolumeClaim"}])
+
+
+# PR 종료 hook은 이름 검사 뒤 공용 DB 연결을 기다린 다음에만 DROP을 보내고, 그 대기가 deadline 안에 들어가야 한다.
+@unittest.skipUnless(shutil.which("helm"), "helm not installed")
+class PreviewDropdbJobTest(unittest.TestCase):
+    WAIT = "until pg_isready -q -t 1; do"
+    DROP = 'DROP DATABASE IF EXISTS :"db" WITH (FORCE);'
+
+    def render(self, *extra: str) -> subprocess.CompletedProcess:
+        return subprocess.run(
+            [
+                "helm", "template", "umc-product-preview-42", str(CHART),
+                "--namespace", "preview",
+                "-f", str(CHART / "values-preview.yaml"),
+                "--set", "deployment.enabled=true",
+                "--set-string", "image.tag=0123456789ab",
+                "--set-string", "image.digest=sha256:" + "a" * 64,
+                "--set-string", "fullnameOverride=umc-product-server-pr-42",
+                "--set-string", "ingress.host=api-pr-42.university.neordinary.com",
+                "--set-string", "ingress.tls[0].hosts[0]=api-pr-42.university.neordinary.com",
+                "--set-string", "createDatabase.name=umc_product_pr42",
+                "--set-string", "env.DATABASE_URL=jdbc:postgresql://postgres-preview.preview.svc.cluster.local:5432/umc_product_pr42",
+                "--set-string", "env.SPRING_APPLICATION_NAME=preview-umc-product-pr42",
+                "--set-string", "env.APP_ENVIRONMENT=preview-pr-42",
+                "--set-string", "env.DEMODAY_QR_BASE_URL=https://university.neordinary.com",
+                "--set-string", "env.SSO_ISSUER=https://api-pr-42.university.neordinary.com",
+                "--set-string", "env.CERTIFICATE_VERIFICATION_URL_TEMPLATE=https://api-pr-42.university.neordinary.com/api/v1/certificates/verify/{serialNumber}",
+                "--set-string", "mailCapture.uiHost=mail-pr-42.university.neordinary.com",
+                "--show-only", "templates/dropdb-job.yaml",
+                *extra,
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+
+    def setUp(self) -> None:
+        result = self.render()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.job = yaml.safe_load(result.stdout)
+        self.container = self.job["spec"]["template"]["spec"]["containers"][0]
+
+    def test_accepts_rendered_job(self) -> None:
+        validate_preview_dropdb_job(self.job)
+
+    def test_rejects_drop_without_connection_wait(self) -> None:
+        script = self.container["args"][0]
+        start = script.index(self.WAIT)
+        end = script.index("done\n", start) + len("done\n")
+        self.container["args"][0] = script[:start] + script[end:]
+        with self.assertRaisesRegex(SystemExit, "wait 10 minutes"):
+            validate_preview_dropdb_job(self.job)
+
+    def test_rejects_drop_before_connection_wait(self) -> None:
+        script = self.container["args"][0]
+        self.container["args"][0] = script.replace(self.DROP, "").replace(
+            self.WAIT, self.DROP + "\n" + self.WAIT
+        )
+        with self.assertRaisesRegex(SystemExit, "wait 10 minutes"):
+            validate_preview_dropdb_job(self.job)
+
+    def test_rejects_deadline_shorter_than_wait(self) -> None:
+        self.job["spec"]["activeDeadlineSeconds"] = 120
+        with self.assertRaisesRegex(SystemExit, "wait 10 minutes"):
+            validate_preview_dropdb_job(self.job)
+
+    def test_chart_refuses_deadline_shorter_than_wait(self) -> None:
+        result = self.render("--set", "deleteDatabase.activeDeadlineSeconds=120")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("deleteDatabase.activeDeadlineSeconds", result.stderr)
 
 
 RESTRICTED = {
