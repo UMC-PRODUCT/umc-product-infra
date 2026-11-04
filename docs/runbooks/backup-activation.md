@@ -56,7 +56,9 @@ sudo k3s kubectl wait --for=condition=Complete job/postgres-backup-role -n db --
 현재 계약은 `SUSPEND=false`, `0 3 * * *`, `Asia/Seoul`이다.
 수동 `create job --from=cronjob`은 `suspend` 값과 무관하게 실행되며 `concurrencyPolicy: Forbid`도
 적용되지 않는다. 03:00 KST 예약 실행과 겹치지 않는 시간에 2단계를 실행한다.
-backup role은 동시 접속 2개까지만 허용하므로 겹친 실행은 `too many connections for role`로 실패할 수 있다.
+backup role은 `CONNECTION LIMIT 2`다. `pg_dump`는 접속을 하나만 쓰므로 두 실행이 겹치는 것만으로는
+이 제한에 걸리지 않는다. 앞선 실행이나 다른 작업의 `umc_product_backup` session이 남아 있을 때만
+`too many connections for role`로 실패할 수 있다.
 
 ## 2. 수동 backup
 
@@ -262,37 +264,13 @@ Flyway 이력과 대표 row count가 backup 시점에 기대한 값인지 확인
 검증 container의 `postgres`로 실행하되 `--no-owner`를 쓰지 않아 app 객체 소유자는 복구한다.
 `--no-acl`로 운영 GRANT/REVOKE는 가져오지 않으며 extension 내부 객체 소유자는 달라질 수 있다.
 이 검사는 데이터 복구 가능성 검증이다. 실제 운영 복구 시에는 Git의 role Job으로 접근 권한을
-별도 검증한다. `--clean`·`--create`로 기존 DB를 덮어쓰지 않는다.
+별도 검증한다([운영 DB 복구와 role Job 재실행](#운영-db-복구와-role-job-재실행)).
+`--clean`·`--create`로 기존 DB를 덮어쓰지 않는다.
 
 `--no-acl`은 dump에 포함된 grant/revoke를 복원하지 않는다. 위 데이터 복원만으로 권한 검증이
 끝난 것은 아니다. 검증 DB에 필요한 role과 grant를 Git의 role Job 계약에 맞춰 별도로 재현하고,
 앱 owner·권한과 조회 전용 role의 읽기 성공·쓰기 거부를 확인한다. extension 소유권도 대조하고
 복원 중 오류가 발생하면 이미 켜진 예약 백업도 복원되지 않을 수 있으므로 원인을 바로 조사한다.
-
-운영 DB를 새 PVC에 다시 만들어 `pg_restore`로 복구할 때는 role Job을 다시 실행해야 한다.
-role은 cluster 전역 객체라 dump에 들어 있지 않고, 이미 Complete인 Job은 Argo CD가 다시 돌리지 않는다.
-Job을 지우면 Argo CD selfHeal이 다시 만든다. 순서가 중요하다.
-
-1. `pg_restore` **전에** `postgres-app-role`을 다시 실행한다. dump에는 `ALTER ... OWNER TO umc_product_app`이
-   있어서 `umc_product_app`이 없으면 소유자를 복원하는 단계에서 실패한다.
-2. 복구가 끝난 **뒤에** 나머지 세 Job을 다시 실행한다. readonly·exporter·backup role의 권한은 복원된 객체에 맞춰
-   다시 적용해야 한다.
-3. 다음 03:00 KST 전에 끝낸다. `umc_product_backup`이 없으면 그날 `pg-backup`이 로그인에 실패해 backup이 생기지 않는다.
-   `postgres-backup-role`은 마지막에 `umc_product_backup`의 최종 권한까지 검사하므로 Complete면 role이 준비된 것이다.
-
-```bash
-rerun_role_jobs() {
-  sudo k3s kubectl delete job -n db "$@"
-  for job in "$@"; do
-    until sudo k3s kubectl get "job/$job" -n db >/dev/null 2>&1; do sleep 5; done
-    sudo k3s kubectl wait --for=condition=Complete "job/$job" -n db --timeout=600s
-  done
-}
-# 1. pg_restore 전
-rerun_role_jobs postgres-app-role
-# 2. pg_restore 후
-rerun_role_jobs postgres-readonly-role postgres-exporter-role postgres-backup-role
-```
 
 ## 5. RPO와 RTO 기록
 
@@ -369,3 +347,51 @@ docker volume inspect "$restore_volume" --format '{{.Name}}'
 중지·삭제한 뒤 해당 volume만 삭제한다. 내려받은 dump·checksum·log는 더 이상 필요 없을 때
 출력된 디렉터리를 로컬 휴지통으로 옮긴다. 광범위한 Docker prune이나 변수 기반 재귀 삭제는
 사용하지 않으며 운영 PVC·S3 backup object는 삭제하지 않는다.
+
+## 운영 DB 복구와 role Job 재실행
+
+위 1~5단계 리허설은 격리 Docker DB에만 복원하고 운영 DB에는 restore 명령을 실행하지 않는다.
+이 절은 운영 DB를 새 PVC에 다시 만들어 `pg_restore`로 복구할 때 DB role과 권한을 되살리는 순서다.
+
+운영 복구도 4단계 리허설과 같은 `--exit-on-error --single-transaction --no-acl`로 `pg_restore`한다.
+dump에는 `readonly-role-job.yaml`이 준 `umc_product_ro` GRANT와 default privilege가 들어 있다.
+`--no-acl` 없이 복원하면 아직 만들지 않은 `umc_product_ro`에 대한 GRANT에서 restore 전체가 실패한다.
+그 권한은 아래 2번에서 role Job이 다시 준다.
+
+role은 cluster 전역 객체라 dump에 들어 있지 않고, 이미 Complete인 Job은 Argo CD가 다시 돌리지 않는다.
+Job을 지우면 Argo CD selfHeal이 다시 만든다. 순서가 중요하다.
+
+1. `pg_restore` **전에** `postgres-app-role`을 다시 실행한다. dump에는 `ALTER ... OWNER TO umc_product_app`이
+   있어서 `umc_product_app`이 없으면 소유자를 복원하는 단계에서 실패한다.
+2. 복구가 끝난 **뒤에** 나머지 세 Job을 다시 실행한다. readonly·exporter·backup role의 권한은 복원된 객체에 맞춰
+   다시 적용해야 한다.
+3. 다음 03:00 KST 전에 끝낸다. `umc_product_backup`이 없으면 그날 `pg-backup`이 로그인에 실패해 backup이 생기지 않는다.
+   `postgres-backup-role`은 마지막에 `umc_product_backup`의 최종 권한까지 검사하므로 Complete면 role이 준비된 것이다.
+
+`rerun_role_jobs`는 지운 Job이 5분 안에 다시 생기지 않으면 실패한다. `postgres` Application의
+auto-sync가 꺼져 있을 때 생기는 일이며, Argo CD에서 `postgres` Application을 sync한 뒤 다시 실행한다.
+함수 본문은 subshell이라 실패해도 접속한 셸은 닫히지 않는다.
+backup role password 회전([secrets 문서](../operations/secrets.md#postgresql-backup-role-password-회전))도
+이 함수로 `postgres-backup-role`만 다시 실행한다.
+
+```bash
+rerun_role_jobs() (
+  set -eu
+  sudo k3s kubectl delete job -n db "$@"
+  for job in "$@"; do
+    deadline="$(($(date +%s) + 300))"
+    until sudo k3s kubectl get "job/$job" -n db >/dev/null 2>&1; do
+      if [ "$(date +%s)" -ge "$deadline" ]; then
+        echo "job/$job 이 5분 안에 다시 생기지 않았습니다. postgres Application auto-sync를 확인하세요." >&2
+        exit 1
+      fi
+      sleep 5
+    done
+    sudo k3s kubectl wait --for=condition=Complete "job/$job" -n db --timeout=600s
+  done
+)
+# 1. pg_restore 전
+rerun_role_jobs postgres-app-role
+# 2. pg_restore 후
+rerun_role_jobs postgres-readonly-role postgres-exporter-role postgres-backup-role
+```

@@ -310,18 +310,20 @@ Secret을 읽지 않으므로 문서 비밀번호 회전만으로 앱을 재시�
 
 ## PostgreSQL backup role password 회전
 
-03:00 KST 예약 backup과 겹치지 않는 시간에 진행한다.
+03:00 KST 예약 backup과 겹치지 않는 시간에 1~3단계를 이어서 진행한다.
 
 1. `/umc-product/prod/postgres-backup`의 `POSTGRES_BACKUP_PASSWORD`를 새 값으로 갱신한다.
 2. `db/postgres-backup` ExternalSecret을 force-sync하고 `Ready=True`를 확인한다.
-3. `postgres-backup-role` Job을 재실행해 DB role password를 바꾼다.
-   `sudo k3s kubectl delete job -n db postgres-backup-role`로 지우면 Argo CD selfHeal이 다시 만든다.
-   `sudo k3s kubectl wait --for=condition=Complete job/postgres-backup-role -n db --timeout=600s`로 끝났는지 확인한다.
+3. backup runbook의 [`rerun_role_jobs`](../runbooks/backup-activation.md#운영-db-복구와-role-job-재실행)를
+   셸에 정의하고 `rerun_role_jobs postgres-backup-role`로 Job을 다시 실행해 DB role password를 바꾼다.
+   이 함수는 Job을 지운 뒤 Argo CD가 다시 만들 때까지 기다렸다가 Complete를 확인한다.
 4. [backup runbook 2단계](../runbooks/backup-activation.md#2-수동-backup)로 수동 backup을 실행하고 성공을 확인한다.
 5. 이전 version을 폐기한다.
 
-backup Pod는 실행할 때마다 Secret을 새로 읽으므로 재시작할 Deployment가 없다. 2단계와 3단계 사이에
-예약 backup이 실행되면 password가 맞지 않아 실패하고 `PostgresBackupFailed`가 발생한다.
+backup Pod는 실행할 때마다 Secret을 새로 읽으므로 재시작할 Deployment가 없다. ExternalSecret은
+`refreshInterval: 1h`로 스스로도 동기화하므로 1단계 직후부터 Secret에 새 password가 들어올 수 있다.
+그래서 1단계부터 3단계가 끝날 때까지 예약 backup이 실행되면 password가 맞지 않아 실패하고
+`PostgresBackupFailed`가 발생한다.
 
 ## 회전 공통 원칙
 
