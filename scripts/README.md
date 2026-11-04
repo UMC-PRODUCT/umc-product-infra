@@ -127,7 +127,22 @@ Kubernetes 상태는 바꾸지 않는다. 최종 기준은
 | [`validate_gitops_sources.py`](validate_gitops_sources.py) | root Application이 `bootstrap/root-app.yaml`의 exclude를 빼고 읽는 `argocd/` 파일 구성, 앱 chart version 변경 |
 | [`validate_edge_platform.py`](validate_edge_platform.py) | cert-manager·ExternalDNS·Reloader·Route53·TLS/DNS gate |
 | [`validate_observability.py`](validate_observability.py) | chart·CRD·RBAC·Operator image/resource·ServiceMonitor·NetworkPolicy·runtime config |
-| [`validate_contracts.py`](validate_contracts.py) | AWS·Helm·Secret·PostgreSQL·preview 등 UMC 전용 교차 파일 계약 |
+| [`validate_contracts.py`](validate_contracts.py) | UMC 전용 교차 파일 계약의 실행 진입점. 영역별 검사는 아래 [`contracts/`](contracts/)에 있다 |
+
+`validate_contracts.py`는 `main()`에서 아래 모듈의 검사를 순서대로 부른다. 계약을 고치거나 추가할
+때는 해당 영역 모듈만 열면 되고, 새 검사 함수는 `main()`에서 호출해야 실행된다.
+
+| 파일 | 검사 영역 |
+|---|---|
+| [`contracts/common.py`](contracts/common.py) | 저장소 `ROOT`, `require`, CloudFormation YAML loader 등 공용 helper |
+| [`contracts/repository.py`](contracts/repository.py) | 필수 디렉터리, Git에 보이는 파일의 옛 식별자 |
+| [`contracts/aws.py`](contracts/aws.py) | S3 앱 저장소, SES 발신 권한, CloudFormation 태그 |
+| [`contracts/dns.py`](contracts/dns.py) | Route 53 위임, ExternalDNS record 이름과 IAM 허용 목록 |
+| [`contracts/edge.py`](contracts/edge.py) | 앱 Ingress host·TLS·Traefik middleware와 edge 제한 |
+| [`contracts/server_app.py`](contracts/server_app.py) | 환경별 앱 render의 image·Secret 주입·배포 gate, Preview Mailpit TLS·dropdb Job, Reloader용 Argo CD 설정 |
+| [`contracts/postgres.py`](contracts/postgres.py) | DB 환경 분리, role 생성 Job, backup role |
+| [`contracts/external_secrets.py`](contracts/external_secrets.py) | AWS Secrets Manager 원본 경로와 Kubernetes Secret 매핑 |
+| [`contracts/preview_budget.py`](contracts/preview_budget.py) | Preview ResourceQuota 예산 |
 
 ## 단위 테스트
 
@@ -142,7 +157,7 @@ Kubernetes 상태는 바꾸지 않는다. 최종 기준은
 | [`test_email_transport.py`](tests/test_email_transport.py) | 메일 provider 전환 시 발신자·Secret prefix·SMTP egress, Preview Mailpit 격리 |
 | [`test_migration_bootstrap.py`](tests/test_migration_bootstrap.py) | 서버 이전용 root Application 단계별 제외 범위와 ExternalDNS 보류 |
 | [`test_validate_argocd_access.py`](tests/test_validate_argocd_access.py) | Argo CD 공개 HTTPS Ingress·Certificate·NetworkPolicy와 backend 격리 |
-| [`test_validate_contracts.py`](tests/test_validate_contracts.py) | 저장소 디렉터리 구조와 Git에 보이는 파일 판정 |
+| `test_contracts_<영역>.py` | 같은 이름의 [`contracts/`](contracts/) 모듈 계약. 예: [`test_contracts_dns.py`](tests/test_contracts_dns.py)는 ExternalDNS record 이름과 IAM 허용 목록 |
 | [`test_validate_edge_platform.py`](tests/test_validate_edge_platform.py) | 공인 IDC target과 ExternalDNS filter·Grafana target 일치 |
 | [`test_validate_observability.py`](tests/test_validate_observability.py) | Operator Pod·monitor selector, named port와 cluster RBAC 권한 경계 |
 | [`test_validate_preview_releases.py`](tests/test_validate_preview_releases.py) | Preview 발행 성공 기록 형식과 ApplicationSet의 마지막 성공 image 고정 |

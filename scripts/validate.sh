@@ -49,7 +49,7 @@ if optional_check "chart version bump guard" git rev-parse --verify --quiet "$ch
 else
   python3 scripts/validate_gitops_sources.py
 fi
-PYTHONPYCACHEPREFIX="$validation_dir/pycache" python3 -m py_compile scripts/*.py
+PYTHONPYCACHEPREFIX="$validation_dir/pycache" python3 -m py_compile scripts/*.py scripts/contracts/*.py
 PYTHONPYCACHEPREFIX="$validation_dir/pycache" \
   python3 -m unittest discover -s scripts/tests -p 'test_*.py'
 
