@@ -87,7 +87,7 @@ Git에 복구할 이미지를 반영하는 작업과 DB 복원은 따로 판단�
   찾으면 Job이 실패하고 `PreviewOrphanDatabaseCheckFailed` 알림이 Discord로 온다. **자동으로 지우지 않는다.**
 - 알림을 받으면 실패한 Job 로그의 DB 이름으로 다음을 확인한다.
   1. 같은 번호의 PR Application이 있고 앱이 기동하지 못한 상태인지 → 앱 원인을 해결한다.
-  2. Application이 없거나 삭제 실패(`DeletionError`) 상태인지 → PostDelete `dropdb` Job 로그를 보고 원인을 해결한 뒤 삭제를 재시도한다.
+  2. Application이 없거나 삭제 실패(`DeletionError`) 상태인지 → [DB 삭제 실패](#db-삭제-실패)를 따라 PostDelete `dropdb` Job event와 로그로 원인을 해결한다.
   3. 둘 다 아니면 PR이 닫혔는지 확인하고, 필요한 데이터가 없음을 확인한 뒤에만 이름을 다시 검증해 해당 DB 하나만 지운다.
 - Preview 버킷(`umc-product-preview-app-storage-*`)은 객체를 30일 뒤 Lifecycle로 지운다. dev 파일은 복사하지 않으므로
   여기 있는 것은 PR 테스트 중 올린 파일뿐이다. prod·dev 버킷은 현재 파일을 만료하지 않고, versioning으로 남긴 이전 버전만 30일 뒤 지운다.
@@ -177,16 +177,23 @@ DNS는 ExternalDNS가 소유한 PR별 레코드만 정리하며, 공용 Certific
 `DROP DATABASE ... WITH (FORCE)`는 **해당 DB의 연결과 데이터를 삭제**한다. 다른 DB 연결은 종료하지 않는다.
 
 권한·Secret·DB 장애, prepared transaction, 활성 logical replication slot 또는 subscription 등으로
-삭제가 실패하면 `DeletionError`와 실패 Job을 확인한다.
+삭제가 실패하면 Application이 `DeletionError`로 남는다. Argo CD는 실패한 hook Job을 지우고 다시 만들어
+재시도하므로 실패한 Job과 그 Pod 로그는 남지 않는다. DB가 계속 응답하지 않으면 약 15분(Job deadline)마다 반복된다.
+dropdb 로그는 Loki로 수집하지 않는다. Job event(기본 1시간 보존)와 지금 실행 중인 시도의 로그를 본다.
+
+hook은 공용 DB 연결을 최대 10분 기다린 뒤에만 삭제를 보낸다. 대기를 시작하면 `PostgreSQL 연결 대기: <host>`를 먼저 출력한다.
+로그가 `PostgreSQL 연결 대기 실패`이면 10분 동안 연결하지 못한 것이다. Job event의 `DeadlineExceeded`도 같은 뜻이다.
+재시도 Pod는 앞 Pod가 10분을 쓴 뒤 시작해 대기 중에 Job deadline에 걸린다.
+이때는 `postgres-preview-0` 상태와 preview NetworkPolicy를 먼저 확인한다.
 
 ```bash
 sudo k3s kubectl get application -n argocd umc-product-preview-27
 sudo k3s kubectl get job -n preview umc-product-server-pr-27-dropdb
+sudo k3s kubectl get events -n preview --field-selector involvedObject.name=umc-product-server-pr-27-dropdb
 sudo k3s kubectl logs -n preview job/umc-product-server-pr-27-dropdb
 ```
 
-원인을 고친 뒤 Application 삭제를 재시도한다. 실패 로그를 확인하기 전에 Job을 지우거나
-finalizer를 제거해 삭제를 우회하지 않는다.
+원인을 고치면 다음 재시도에서 삭제가 끝난다. Job을 지우거나 finalizer를 제거해 삭제를 우회하지 않는다.
 
 ### 최후 수단: 수동 삭제
 
@@ -202,6 +209,20 @@ sudo k3s kubectl exec -it -n preview postgres-preview-0 -- env PREVIEW_PR=CHANGE
   case "$PREVIEW_PR" in ""|*[!0-9]*) exit 64 ;; esac
   target_db="umc_product_pr${PREVIEW_PR}"
   exec dropdb --force --maintenance-db="$POSTGRES_DB" -U "$POSTGRES_USER" "$target_db"
+'
+```
+
+Application finalizer를 지우거나 PR에 `preview` 라벨을 다시 붙이기 전에 dropdb Job을 지우고 남은 Pod가 없는지 확인한다.
+연결을 기다리던 이전 Pod가 나중에 연결되면, 라벨을 다시 붙여 새로 만든 같은 이름의 DB를 지울 수 있다.
+Application이 삭제 중인 동안에는 Argo CD가 지운 Job을 다시 만들 수 있다. finalizer를 지웠다면 Application이
+없어진 것을 확인한 뒤 한 번 더 실행한다. 마지막 줄이 Pod 이름을 출력하지 않아야 한다.
+
+```bash
+sudo env PREVIEW_PR=CHANGE_ME sh -ceu '
+  case "$PREVIEW_PR" in ""|*[!0-9]*) exit 64 ;; esac
+  job="umc-product-server-pr-${PREVIEW_PR}-dropdb"
+  k3s kubectl delete job -n preview "$job" --cascade=foreground --ignore-not-found
+  k3s kubectl get pod -n preview -l "job-name=$job" -o name
 '
 ```
 

@@ -1652,20 +1652,13 @@ def validate_render(
         validate_preview_budget_arithmetic(resources)
         jobs = [item for item in resources if item.get("kind") == "Job"]
         require(len(jobs) == 2, "preview: createdb and dropdb Jobs")
-        dropdb = next(
-            item
-            for item in jobs
-            if item["metadata"]["labels"]["app.kubernetes.io/component"]
-            == "database-cleanup"
-        )
-        require(
-            dropdb["metadata"]["annotations"]["argocd.argoproj.io/hook"] == "PostDelete",
-            "preview: dropdb must run after workload deletion",
-        )
-        dropdb_script = dropdb["spec"]["template"]["spec"]["containers"][0]["args"][0]
-        require(
-            'DROP DATABASE IF EXISTS :"db" WITH (FORCE);' in dropdb_script,
-            "preview: dropdb must force-disconnect only the quoted target database",
+        validate_preview_dropdb_job(
+            next(
+                item
+                for item in jobs
+                if item["metadata"]["labels"]["app.kubernetes.io/component"]
+                == "database-cleanup"
+            )
         )
         createdb = next(
             item
@@ -1709,6 +1702,28 @@ def validate_render(
             and createdb["spec"]["activeDeadlineSeconds"] >= 900,
             "preview: createdb must wait 10 minutes for the shared DB within its deadline",
         )
+
+
+def validate_preview_dropdb_job(dropdb: dict) -> None:
+    require(
+        dropdb["metadata"]["annotations"]["argocd.argoproj.io/hook"] == "PostDelete",
+        "preview: dropdb must run after workload deletion",
+    )
+    container = dropdb["spec"]["template"]["spec"]["containers"][0]
+    require(
+        'DROP DATABASE IF EXISTS :"db" WITH (FORCE);' in container["args"][0],
+        "preview: dropdb must force-disconnect only the quoted target database",
+    )
+    # 연결 대기의 순서와 상한은 scripts/tests의 실행 테스트가 확인한다. 여기서는 그 대기가
+    # 동작할 실행 환경만 고정한다. image의 sh(dash)에는 $SECONDS가 없다.
+    require(
+        container["command"] == ["bash", "-c"],
+        "preview: dropdb must run under bash so the $SECONDS connection wait is bounded",
+    )
+    require(
+        dropdb["spec"]["activeDeadlineSeconds"] >= 900,
+        "preview: dropdb deadline must cover the 600s connection wait and the DROP",
+    )
 
 
 def validate_active_edge_fixture(path: Path) -> None:
