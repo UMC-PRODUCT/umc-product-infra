@@ -115,7 +115,7 @@ class PayloadTests(unittest.TestCase):
 
         payloads = uploader.build_payloads(values)
 
-        self.assertEqual(len(payloads), 33)
+        self.assertEqual(len(payloads), 34)
         self.assertIn("APPLE_WEB_CLIENT_ID", payloads["/umc-product/prod/app-oauth"])
         self.assertEqual(
             payloads["/umc-product/prod/app-oauth"]["APPLE_WEB_CLIENT_ID"], ""
@@ -141,6 +141,14 @@ class PayloadTests(unittest.TestCase):
             {
                 "POSTGRES_EXPORTER_PASSWORD": values[".env.prod"][
                     "POSTGRES_EXPORTER_PASSWORD"
+                ]
+            },
+        )
+        self.assertEqual(
+            payloads["/umc-product/prod/postgres-backup"],
+            {
+                "POSTGRES_BACKUP_PASSWORD": values[".env.prod"][
+                    "POSTGRES_BACKUP_PASSWORD"
                 ]
             },
         )
@@ -269,6 +277,18 @@ class PayloadTests(unittest.TestCase):
 
         with self.assertRaises(uploader.BootstrapError):
             uploader.validate_worksheet_values(values, "351284652562")
+
+    def test_rejects_postgres_backup_password_reused_from_another_role(self) -> None:
+        for other_key in ("POSTGRES_PASSWORD", "RO_PASSWORD", "POSTGRES_EXPORTER_PASSWORD"):
+            with self.subTest(other_key=other_key):
+                values = valid_worksheets()
+                values[".env.prod"]["POSTGRES_BACKUP_PASSWORD"] = values[".env.prod"][
+                    other_key
+                ]
+                with self.assertRaisesRegex(
+                    uploader.BootstrapError, "database passwords must differ"
+                ):
+                    uploader.validate_worksheet_values(values, "351284652562")
 
 
 # 비밀 payload는 stdin으로만 보내고 AWS 오류를 전달할 때도 원문에 든 값을 노출하지 않는다.

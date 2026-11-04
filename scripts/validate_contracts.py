@@ -1875,35 +1875,16 @@ def validate_postgres() -> None:
         "pg_dump -Fc --lock-wait-timeout=5min " in backup_dump["args"][0],
         "prod: backup pg_dump must fail instead of waiting forever for table locks",
     )
-    exporter_role_job = resource(
-        yaml_documents(prod_directory / "postgres-exporter-role-job.yaml"), "Job"
-    )
-    exporter_role_container = exporter_role_job["spec"]["template"]["spec"][
-        "containers"
-    ][0]
-    exporter_role_script = exporter_role_container["args"][0]
-    require(
-        exporter_role_container["image"] == POSTGIS_IMAGE,
-        "prod: exporter role Job image",
+    exporter_role_script = role_job_script(
+        prod_directory / "postgres-exporter-role-job.yaml",
+        "EXPORTER_PASSWORD",
+        {"name": "postgres-exporter", "key": "POSTGRES_EXPORTER_PASSWORD"},
     )
     require(
         "GRANT pg_monitor TO umc_product_exporter;" in exporter_role_script
         and "NOBYPASSRLS" in exporter_role_script
         and "GRANT SELECT" not in exporter_role_script,
         "prod: exporter role must be monitoring-only",
-    )
-    exporter_password = next(
-        item
-        for item in exporter_role_container["env"]
-        if item["name"] == "EXPORTER_PASSWORD"
-    )
-    require(
-        exporter_password["valueFrom"]["secretKeyRef"]
-        == {
-            "name": "postgres-exporter",
-            "key": "POSTGRES_EXPORTER_PASSWORD",
-        },
-        "prod: exporter role Secret",
     )
 
     exporter_resources = yaml_documents(prod_directory / "postgres-exporter.yaml")
@@ -2041,6 +2022,195 @@ def validate_postgres() -> None:
 
     require(not (prod_directory / "kube-state-metrics-role.yaml").exists(),
             "prod: kube-state-metrics RBAC is owned by kube-prometheus-stack")
+    validate_backup_role(prod_directory)
+    validate_backup_role_check(prod_directory)
+
+
+# role 생성 Job은 고정한 PostGIS image로 실행하고 그 role 전용 Secret의 password만 받는다.
+def role_job_script(path: Path, password_env: str, secret: dict[str, str]) -> str:
+    require(path.is_file(), f"prod: {path.name} is missing")
+    container = resource(yaml_documents(path), "Job")["spec"]["template"]["spec"]["containers"][0]
+    env = {item["name"]: item for item in container["env"]}
+    require(container["image"] == POSTGIS_IMAGE, f"prod: {path.name} image")
+    require(
+        env.get(password_env, {}).get("valueFrom", {}).get("secretKeyRef") == secret,
+        f"prod: {path.name} must read {password_env} from Secret {secret['name']}",
+    )
+    return container["args"][0]
+
+
+def sync_wave(item: dict) -> int:
+    return int(item["metadata"].get("annotations", {}).get("argocd.argoproj.io/sync-wave", "0"))
+
+
+# backup role Job SQL의 마지막 검사다. SQL 문자열 검사로는 따옴표·대소문자를 바꾼 grant를 다 잡을 수 없으므로
+# 실행 시점 catalog 상태로 판정하는 이 검사를 그대로 고정한다.
+BACKUP_ROLE_FINAL_STATE_CHECK = """\
+DO $role_check$
+DECLARE
+  backup_role oid := (SELECT oid FROM pg_roles WHERE rolname = 'umc_product_backup');
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+      FROM pg_roles
+     WHERE oid = backup_role
+       AND rolcanlogin AND rolinherit AND rolconnlimit = 2
+       AND NOT (rolsuper OR rolcreatedb OR rolcreaterole OR rolreplication OR rolbypassrls)
+  ) THEN
+    RAISE EXCEPTION 'umc_product_backup has unexpected role attributes';
+  END IF;
+  IF ARRAY(
+    SELECT granted_role.rolname || CASE WHEN membership.admin_option THEN ' WITH ADMIN' ELSE '' END
+      FROM pg_auth_members membership
+      JOIN pg_roles granted_role ON granted_role.oid = membership.roleid
+     WHERE membership.member = backup_role
+  ) <> ARRAY['pg_read_all_data'] THEN
+    RAISE EXCEPTION 'umc_product_backup must be a member of pg_read_all_data only';
+  END IF;
+  IF EXISTS (
+    SELECT 1
+      FROM pg_shdepend dependency
+     WHERE dependency.refclassid = 'pg_authid'::regclass
+       AND dependency.refobjid = backup_role
+       AND NOT (
+         dependency.deptype = 'a'
+         AND dependency.classid = 'pg_database'::regclass
+         AND dependency.objid = (SELECT oid FROM pg_database WHERE datname = current_database())
+       )
+  ) OR EXISTS (
+    SELECT 1
+      FROM pg_database db, aclexplode(db.datacl) acl
+     WHERE acl.grantee = backup_role
+       AND (db.datname <> current_database() OR acl.privilege_type <> 'CONNECT' OR acl.is_grantable)
+  ) THEN
+    RAISE EXCEPTION 'umc_product_backup has privileges beyond pg_read_all_data and CONNECT';
+  END IF;
+END
+$role_check$;
+"""
+
+
+# 443 송신이 있는 backup Pod에 줄 조회 전용 role이 한 transaction 안에서 만들어지고 최종 권한 검사를 통과해야만 반영되게 한다.
+def validate_backup_role(prod_directory: Path) -> None:
+    role_job_path = prod_directory / "postgres-backup-role-job.yaml"
+    role_script = role_job_script(
+        role_job_path,
+        "BACKUP_PASSWORD",
+        {"name": "postgres-backup", "key": "POSTGRES_BACKUP_PASSWORD"},
+    )
+    require(
+        "\\getenv backup_pw BACKUP_PASSWORD" in role_script and "--set" not in role_script,
+        "prod: backup role password must not appear in psql arguments",
+    )
+    sql = role_script.split("<<'SQL'\n", 1)[-1]
+    require(
+        sql.startswith("\\getenv backup_pw BACKUP_PASSWORD\nBEGIN;\n")
+        and sql.endswith(BACKUP_ROLE_FINAL_STATE_CHECK + "COMMIT;\nSQL\n"),
+        "prod: backup role Job must end its single transaction with the pinned final-state check",
+    )
+    statements = sql[: -len(BACKUP_ROLE_FINAL_STATE_CHECK + "COMMIT;\nSQL\n")]
+    require(
+        re.findall(
+            r"^\s*(BEGIN|COMMIT|END|ROLLBACK|ABORT|START\s+TRANSACTION)\b",
+            statements,
+            re.IGNORECASE | re.MULTILINE,
+        )
+        == ["BEGIN"],
+        "prod: backup role changes must not commit before the final-state check",
+    )
+    grants = [
+        " ".join(grant.split())
+        for grant in re.findall(
+            r"\bGRANT\s+([^;]+?)\s+TO\s+\"?umc_product_backup\"?", statements, re.IGNORECASE
+        )
+    ]
+    require(
+        grants == ['CONNECT ON DATABASE :"DBNAME"', "pg_read_all_data"],
+        f"prod: backup role must be read-only with pg_read_all_data as its only membership: {grants}",
+    )
+
+    exporter_path = prod_directory / "postgres-exporter.yaml"
+    require(exporter_path.is_file(), "prod: postgres-exporter.yaml is missing; backup role wave is compared with it")
+    exporter_wave = max(sync_wave(item) for item in yaml_documents(exporter_path))
+    require(
+        sync_wave(resource(yaml_documents(role_job_path), "Job")) > exporter_wave,
+        "prod: backup role Job must sync after postgres-exporter so its failure does not block the exporter",
+    )
+
+    policies = {
+        item["metadata"]["name"]: item["spec"]
+        for item in yaml_documents(prod_directory / "networkpolicy.yaml")
+        if item.get("kind") == "NetworkPolicy"
+    }
+    require(
+        {"podSelector": {"matchLabels": {"app.kubernetes.io/name": "postgres-backup-role"}}}
+        in policies["postgres-allow-required-ingress"]["ingress"][0]["from"]
+        and "postgres-backup-role"
+        in policies["postgres-bootstrap-allow-db-egress"]["podSelector"]["matchExpressions"][0][
+            "values"
+        ],
+        "prod: backup role Job reaches PostgreSQL 5432 only",
+    )
+
+
+def pg_dump_command(script: str) -> str:
+    commands = [line.strip() for line in script.splitlines() if line.strip().startswith("pg_dump ")]
+    require(len(commands) == 1, "backup script must run exactly one pg_dump")
+    return commands[0]
+
+
+# pg-backup 전환 전 수동 점검 Job이 관리자 Secret·443 송신 없이 backup role로 실제 backup과 같은 dump를 만드는지 고정한다.
+# 전환 PR에서 점검 CronJob과 함께 이 함수를 삭제한다.
+def validate_backup_role_check(prod_directory: Path) -> None:
+    backup = resource(yaml_documents(prod_directory / "backup-cronjob.yaml"), "CronJob")
+    backup_dump = backup["spec"]["jobTemplate"]["spec"]["template"]["spec"]["initContainers"][0]
+    check = resource(yaml_documents(prod_directory / "backup-role-check-cronjob.yaml"), "CronJob")
+    check_container = check["spec"]["jobTemplate"]["spec"]["template"]["spec"]["containers"][0]
+    check_env = {item["name"]: item for item in check_container["env"]}
+    require(check["spec"]["suspend"] is True, "prod: backup role check runs only as a manual Job")
+    check_hour = check["spec"]["schedule"].split()[1]
+    require(
+        check["spec"]["timeZone"] == backup["spec"]["timeZone"]
+        and check_hour.isdigit()
+        and 5 <= int(check_hour) <= 22,
+        "prod: backup role check schedule must stay outside the 03:00 pg-backup window",
+    )
+    require(
+        check_container["image"] == backup_dump["image"]
+        and pg_dump_command(check_container["args"][0]) == pg_dump_command(backup_dump["args"][0]),
+        "prod: backup role check must run the same image and pg_dump options as pg-backup",
+    )
+    require(
+        check_env["PGUSER"].get("value") == "umc_product_backup"
+        and check_env["PGPASSWORD"]["valueFrom"]["secretKeyRef"]
+        == {"name": "postgres-backup", "key": "POSTGRES_BACKUP_PASSWORD"}
+        and "postgres-secrets" not in yaml.safe_dump(check)
+        and "backup-s3" not in yaml.safe_dump(check),
+        "prod: backup role check uses only the backup role credentials",
+    )
+
+    policies = {
+        item["metadata"]["name"]: item["spec"]
+        for item in yaml_documents(prod_directory / "networkpolicy.yaml")
+        if item.get("kind") == "NetworkPolicy"
+    }
+    check_labels = {
+        "app.kubernetes.io/name": "postgres-backup-role-check",
+        "app.kubernetes.io/component": "backup-check",
+    }
+    require(
+        {"podSelector": {"matchLabels": check_labels}}
+        in policies["postgres-allow-required-ingress"]["ingress"][0]["from"]
+        and "postgres-backup-role-check"
+        in policies["postgres-bootstrap-allow-db-egress"]["podSelector"]["matchExpressions"][0][
+            "values"
+        ]
+        and policies["pg-backup-allow-required-egress"]["podSelector"]["matchLabels"][
+            "app.kubernetes.io/name"
+        ]
+        == "pg-backup",
+        "prod: backup role check gets DB-only egress, not the S3 uploader's public 443",
+    )
 
 
 # AWS 원본 경로와 Kubernetes Secret의 namespace·키 매핑·보존 정책을 함께 대조한다.
@@ -2049,7 +2219,7 @@ def validate_secrets(path: Path) -> None:
     stores = [item for item in resources if item.get("kind") == "SecretStore"]
     external_secrets = [item for item in resources if item.get("kind") == "ExternalSecret"]
     require(len(stores) == 9, f"SecretStore count is {len(stores)}, expected 9")
-    require(len(external_secrets) == 35, f"ExternalSecret count is {len(external_secrets)}, expected 35")
+    require(len(external_secrets) == 36, f"ExternalSecret count is {len(external_secrets)}, expected 36")
 
     expected_names = {
         "app": set(FCM_REQUIRED_SECRETS + ["docs-basic-auth"]),
@@ -2058,6 +2228,7 @@ def validate_secrets(path: Path) -> None:
             "postgres-secrets",
             "postgres-readonly",
             "postgres-exporter",
+            "postgres-backup",
             "backup-s3",
         },
         "dev-app": set(FCM_REQUIRED_SECRETS + ["docs-basic-auth"]),
@@ -2106,6 +2277,7 @@ def validate_secrets(path: Path) -> None:
         "app-fcm": {"FIREBASE_CONFIGURATION"},
         "docs-basic-auth": {"users"},
         "postgres-exporter": {"POSTGRES_EXPORTER_PASSWORD"},
+        "postgres-backup": {"POSTGRES_BACKUP_PASSWORD"},
     }
     for item in external_secrets:
         name = item["metadata"]["name"]
@@ -2146,7 +2318,7 @@ def validate_secrets(path: Path) -> None:
     )
     iam_sources = set(re.findall(r"secret:(/umc-product/[^\"\n]+)-\?{6}", iam_text))
     require(sources == iam_sources, f"Secrets Manager/IAM paths differ: {sources ^ iam_sources}")
-    require(len(sources) == 33, f"Secrets Manager source count is {len(sources)}, expected 33")
+    require(len(sources) == 34, f"Secrets Manager source count is {len(sources)}, expected 34")
     iam_template = yaml.load(iam_text, Loader=CloudFormationLoader)
     dev_resources = iam_template["Resources"]["DevRole"]["Properties"]["Policies"][0][
         "PolicyDocument"
@@ -2172,8 +2344,8 @@ def validate_secrets(path: Path) -> None:
         "secret uploader paths/properties must match rendered ExternalSecrets",
     )
     require(
-        len(SECRET_SPECS) == len(uploader_properties) == 33,
-        "secret uploader must contain 33 unique sources",
+        len(SECRET_SPECS) == len(uploader_properties) == 34,
+        "secret uploader must contain 34 unique sources",
     )
     renamed_properties = {
         "/umc-product/prod/backup-s3": {

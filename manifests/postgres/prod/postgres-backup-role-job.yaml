@@ -1,0 +1,146 @@
+# pg_dump 전용 role. backup Pod는 S3로 나가는 443 송신이 있으므로 관리자 Secret 대신 이 role을 쓴다.
+# pg_read_all_data는 모든 table·sequence 조회와 schema USAGE만 주며 쓰기·DDL·superuser 함수는 허용하지 않는다.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: postgres-backup-role
+  namespace: db
+  labels:
+    app.kubernetes.io/name: postgres-backup-role
+    app.kubernetes.io/component: database-bootstrap
+    environment: prod
+  annotations:
+    # Job spec은 불변이다. manifest 변경 시 Argo CD가 삭제 후 다시 생성한다.
+    argocd.argoproj.io/sync-options: Force=true,Replace=true
+    # 마지막 wave에 둬서 이 Job이 실패해도 exporter 등 앞선 리소스의 배포를 막지 않는다.
+    argocd.argoproj.io/sync-wave: "5"
+spec:
+  activeDeadlineSeconds: 300
+  backoffLimit: 3
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: postgres-backup-role
+        app.kubernetes.io/component: database-bootstrap
+        environment: prod
+    spec:
+      restartPolicy: Never
+      priorityClassName: db-critical
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999
+        runAsGroup: 999
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: psql
+          image: postgis/postgis:18-3.6@sha256:60f6ad1d21ea86a67d47780b9a0d1e1d200500f62b19293fa834d0dea80b8677
+          command: ["sh", "-ec"]
+          # 한 transaction으로 실행해 마지막 최종 권한 검사가 실패하면 이번 실행의 role 변경을 모두 되돌린다.
+          args:
+            - |
+              database_ready=false
+              for i in $(seq 1 40); do
+                if pg_isready -q; then
+                  database_ready=true
+                  break
+                fi
+                sleep 3
+              done
+              test "$database_ready" = true
+
+              psql -v ON_ERROR_STOP=1 <<'SQL'
+              \getenv backup_pw BACKUP_PASSWORD
+              BEGIN;
+              SELECT format('CREATE ROLE umc_product_backup LOGIN PASSWORD %L', :'backup_pw')
+                WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'umc_product_backup') \gexec
+              SELECT format('ALTER ROLE umc_product_backup LOGIN PASSWORD %L', :'backup_pw') \gexec
+              -- pg-backup 재시도가 이전 시도의 세션이 아직 정리되지 않은 동안에도 접속하도록 1개를 여유로 둔다.
+              ALTER ROLE umc_product_backup
+                NOSUPERUSER NOCREATEDB NOCREATEROLE INHERIT NOREPLICATION NOBYPASSRLS
+                CONNECTION LIMIT 2;
+
+              GRANT CONNECT ON DATABASE :"DBNAME" TO umc_product_backup;
+              GRANT pg_read_all_data TO umc_product_backup;
+
+              -- 위 SQL이나 다른 경로로 권한이 더해졌어도 실제 catalog 상태로 판정한다.
+              -- 소유 객체와 ACL은 모든 database에 대해 pg_shdepend에 남으므로 현재 database CONNECT 외에는 없어야 한다.
+              DO $role_check$
+              DECLARE
+                backup_role oid := (SELECT oid FROM pg_roles WHERE rolname = 'umc_product_backup');
+              BEGIN
+                IF NOT EXISTS (
+                  SELECT 1
+                    FROM pg_roles
+                   WHERE oid = backup_role
+                     AND rolcanlogin AND rolinherit AND rolconnlimit = 2
+                     AND NOT (rolsuper OR rolcreatedb OR rolcreaterole OR rolreplication OR rolbypassrls)
+                ) THEN
+                  RAISE EXCEPTION 'umc_product_backup has unexpected role attributes';
+                END IF;
+                IF ARRAY(
+                  SELECT granted_role.rolname || CASE WHEN membership.admin_option THEN ' WITH ADMIN' ELSE '' END
+                    FROM pg_auth_members membership
+                    JOIN pg_roles granted_role ON granted_role.oid = membership.roleid
+                   WHERE membership.member = backup_role
+                ) <> ARRAY['pg_read_all_data'] THEN
+                  RAISE EXCEPTION 'umc_product_backup must be a member of pg_read_all_data only';
+                END IF;
+                IF EXISTS (
+                  SELECT 1
+                    FROM pg_shdepend dependency
+                   WHERE dependency.refclassid = 'pg_authid'::regclass
+                     AND dependency.refobjid = backup_role
+                     AND NOT (
+                       dependency.deptype = 'a'
+                       AND dependency.classid = 'pg_database'::regclass
+                       AND dependency.objid = (SELECT oid FROM pg_database WHERE datname = current_database())
+                     )
+                ) OR EXISTS (
+                  SELECT 1
+                    FROM pg_database db, aclexplode(db.datacl) acl
+                   WHERE acl.grantee = backup_role
+                     AND (db.datname <> current_database() OR acl.privilege_type <> 'CONNECT' OR acl.is_grantable)
+                ) THEN
+                  RAISE EXCEPTION 'umc_product_backup has privileges beyond pg_read_all_data and CONNECT';
+                END IF;
+              END
+              $role_check$;
+              COMMIT;
+              SQL
+          env:
+            - name: PGHOST
+              value: postgres.db.svc.cluster.local
+            - name: PGUSER
+              valueFrom:
+                secretKeyRef: { name: postgres-secrets, key: POSTGRES_USER }
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef: { name: postgres-secrets, key: POSTGRES_PASSWORD }
+            - name: PGDATABASE
+              value: umc_product
+            - name: PGCONNECT_TIMEOUT
+              value: "5"
+            - name: PGOPTIONS
+              value: "-c statement_timeout=30s -c lock_timeout=10s"
+            - name: BACKUP_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-backup
+                  key: POSTGRES_BACKUP_PASSWORD
+          resources:
+            requests: { cpu: 50m, memory: 64Mi }
+            limits: { memory: 128Mi }
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: 64Mi

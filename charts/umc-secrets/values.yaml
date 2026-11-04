@@ -257,6 +257,13 @@ externalSecrets:
     remoteKey: postgres-exporter
     data:
       POSTGRES_EXPORTER_PASSWORD: POSTGRES_EXPORTER_PASSWORD
+  - name: postgres-backup
+    namespace: db
+    store: aws-secretsmanager
+    targetName: postgres-backup
+    remoteKey: postgres-backup
+    data:
+      POSTGRES_BACKUP_PASSWORD: POSTGRES_BACKUP_PASSWORD
   - name: backup-s3
     namespace: db
     store: aws-secretsmanager
