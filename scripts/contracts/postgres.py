@@ -7,7 +7,8 @@ from pathlib import Path
 
 import yaml
 
-from contracts.common import ROOT, require, resource, yaml_documents
+from contracts import common
+from contracts.common import require, resource, yaml_documents
 
 
 POSTGIS_IMAGE = (
@@ -28,7 +29,7 @@ def validate_postgres() -> None:
         "preview": "preview_bootstrap",
     }
     for environment, expected_database in expected_databases.items():
-        directory = ROOT / "manifests" / "postgres" / environment
+        directory = common.ROOT / "manifests" / "postgres" / environment
         statefulset = resource(yaml_documents(directory / "statefulset.yaml"), "StatefulSet")
         container = statefulset["spec"]["template"]["spec"]["containers"][0]
         require(container["image"] == POSTGIS_IMAGE, f"{environment}: PostGIS image")
@@ -102,7 +103,7 @@ def validate_postgres() -> None:
                 f"{environment}: app role needs CREATE for the Flyway public schema bootstrap",
             )
 
-    prod_directory = ROOT / "manifests" / "postgres" / "prod"
+    prod_directory = common.ROOT / "manifests" / "postgres" / "prod"
     readonly_script = resource(
         yaml_documents(prod_directory / "readonly-role-job.yaml"), "Job"
     )["spec"]["template"]["spec"]["containers"][0]["args"][0]

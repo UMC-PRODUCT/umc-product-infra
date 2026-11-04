@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import yaml
 
-from contracts.common import ROOT, require, resource, yaml_documents
+from contracts import common
+from contracts.common import require, resource, yaml_documents
 
 
 def quantity_millicores(value: str) -> int:
@@ -55,10 +56,10 @@ def pod_resource_totals(pod: dict) -> tuple[int, int, int]:
 # PR 한 개의 앱·생성 Job·삭제 Job이 슬롯 2개만큼 동시에 돌고, 공용 DB와 고아 DB 점검이 하나씩 더해진다.
 def validate_preview_budget_arithmetic(pr_resources: list[dict]) -> None:
     quota = resource(
-        yaml_documents(ROOT / "manifests" / "cluster" / "preview-resourcequota.yaml"),
+        yaml_documents(common.ROOT / "manifests" / "cluster" / "preview-resourcequota.yaml"),
         "ResourceQuota",
     )["spec"]["hard"]
-    preview_directory = ROOT / "manifests" / "postgres" / "preview"
+    preview_directory = common.ROOT / "manifests" / "postgres" / "preview"
     shared = [
         resource(yaml_documents(preview_directory / "statefulset.yaml"), "StatefulSet"),
         resource(
@@ -98,7 +99,7 @@ def validate_preview_budget_arithmetic(pr_resources: list[dict]) -> None:
 # PR별 앱 수와 공용 DB·wildcard 인증서 구조가 Preview 자원 예산을 넘지 않게 한다.
 def validate_preview_budget() -> None:
     quota = resource(
-        yaml_documents(ROOT / "manifests" / "cluster" / "preview-resourcequota.yaml"),
+        yaml_documents(common.ROOT / "manifests" / "cluster" / "preview-resourcequota.yaml"),
         "ResourceQuota",
     )
     # CPU·memory 합계는 validate_preview_budget_arithmetic이 render에서 다시 계산해 비교한다.
@@ -117,7 +118,7 @@ def validate_preview_budget() -> None:
         "preview: two-slot resource budget",
     )
     applicationset = resource(
-        yaml_documents(ROOT / "argocd" / "applications" / "preview" / "applicationset.yaml"),
+        yaml_documents(common.ROOT / "argocd" / "applications" / "preview" / "applicationset.yaml"),
         "ApplicationSet",
     )
     parameters = {
@@ -162,7 +163,7 @@ def validate_preview_budget() -> None:
         "preview: TLS hostname",
     )
     preview_values = yaml.safe_load(
-        (ROOT / "charts" / "umc-product-server" / "values-preview.yaml").read_text(
+        (common.ROOT / "charts" / "umc-product-server" / "values-preview.yaml").read_text(
             encoding="utf-8"
         )
     )

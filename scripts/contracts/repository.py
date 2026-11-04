@@ -6,7 +6,8 @@ import os
 import subprocess
 from pathlib import Path
 
-from contracts.common import ROOT, require, yaml_documents
+from contracts import common
+from contracts.common import require, yaml_documents
 
 
 LEGACY_IDENTIFIERS = (
@@ -57,8 +58,8 @@ def validate_repository_identity() -> None:
         "docs/runbooks",
     ]
     for directory in required_directories:
-        require((ROOT / directory).is_dir(), f"missing directory: {directory}")
-    repository_files = git_visible_files(ROOT)
+        require((common.ROOT / directory).is_dir(), f"missing directory: {directory}")
+    repository_files = git_visible_files(common.ROOT)
     require(
         not [path for path in repository_files if path.suffix == ".tf"],
         "Terraform files are not allowed",
@@ -73,19 +74,19 @@ def validate_repository_identity() -> None:
         except UnicodeDecodeError:
             continue
         if any(identifier in content for identifier in LEGACY_IDENTIFIERS):
-            stale.append(str(path.relative_to(ROOT)))
+            stale.append(str(path.relative_to(common.ROOT)))
     require(not stale, f"legacy identity remains in: {stale}")
 
-    for path in (ROOT / "argocd").rglob("*.yaml"):
+    for path in (common.ROOT / "argocd").rglob("*.yaml"):
         for document in yaml_documents(path):
             if document.get("kind") == "Application":
                 source = document["spec"]["source"]
                 if source.get("repoURL") == "https://github.com/UMC-PRODUCT/umc-product-infra.git":
-                    require((ROOT / source["path"]).exists(), f"missing Argo path: {source['path']}")
+                    require((common.ROOT / source["path"]).exists(), f"missing Argo path: {source['path']}")
             elif document.get("kind") == "ApplicationSet":
                 source = document["spec"]["template"]["spec"]["source"]
                 require(
                     source["repoURL"] == "https://github.com/UMC-PRODUCT/umc-product-infra.git",
                     "ApplicationSet repository",
                 )
-                require((ROOT / source["path"]).exists(), f"missing Argo path: {source['path']}")
+                require((common.ROOT / source["path"]).exists(), f"missing Argo path: {source['path']}")

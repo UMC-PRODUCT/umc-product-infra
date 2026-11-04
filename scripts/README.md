@@ -140,6 +140,8 @@ Kubernetes 상태는 바꾸지 않는다. 최종 기준은
 
 `validate_contracts.py`는 `main()`에서 아래 모듈의 검사를 순서대로 부른다. 계약을 고치거나 추가할
 때는 해당 영역 모듈만 열면 되고, 새 검사 함수는 `main()`에서 호출해야 실행된다.
+test API values(`testApi`) 검사는 별도 모듈 없이 `validate_contracts.py`의 `main()`에 있다.
+모든 모듈은 `common.ROOT`를 호출할 때 읽으므로 테스트는 `contracts.common.ROOT` 하나만 바꾸면 된다.
 
 | 파일 | 검사 영역 |
 |---|---|
