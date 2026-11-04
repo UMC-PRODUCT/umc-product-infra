@@ -659,7 +659,7 @@ class BackupRoleContractTest(unittest.TestCase):
         directory = tempfile.TemporaryDirectory()
         self.addCleanup(directory.cleanup)
         self.prod = Path(directory.name) / "prod"
-        shutil.copytree(REPOSITORY_ROOT / "manifests/postgres/prod", self.prod)
+        shutil.copytree(REPO_ROOT / "manifests/postgres/prod", self.prod)
 
     def replace(self, filename: str, old: str, new: str) -> None:
         path = self.prod / filename
