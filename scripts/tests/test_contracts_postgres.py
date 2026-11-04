@@ -12,7 +12,7 @@ from pathlib import Path
 SCRIPTS_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(SCRIPTS_DIR))
 
-from contracts.postgres import validate_backup_role  # noqa: E402
+from contracts.postgres import validate_backup_role
 
 REPO_ROOT = SCRIPTS_DIR.parent
 

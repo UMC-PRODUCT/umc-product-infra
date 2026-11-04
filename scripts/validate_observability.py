@@ -8,7 +8,7 @@ import re
 import subprocess
 import sys
 from pathlib import Path
-from typing import TypeVar
+from typing import Any, TypeVar
 
 import yaml
 
@@ -234,7 +234,7 @@ def operator_arguments(resources: list[dict]) -> dict[str, str]:
 # 실제 고정 chart의 CRD에서 스키마를 추출해 사용자 리소스 검증이 조용히 생략되지 않게 한다.
 def write_monitoring_schemas(resources: list[dict], output_dir: Path) -> None:
     """Use the pinned chart's CRDs for kubeconform instead of a moving registry."""
-    def strict_schema(value):
+    def strict_schema(value: Any) -> Any:
         if isinstance(value, list):
             return [strict_schema(item) for item in value]
         if not isinstance(value, dict):

@@ -15,7 +15,7 @@ from unittest import mock
 SCRIPTS_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(SCRIPTS_DIR))
 
-import bootstrap_route53_access_keys as bootstrap  # noqa: E402
+import bootstrap_route53_access_keys as bootstrap
 
 
 ACCOUNT_ID = "123456789012"

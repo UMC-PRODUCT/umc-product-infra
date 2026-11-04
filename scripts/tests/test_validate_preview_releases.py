@@ -16,7 +16,7 @@ from validate_preview_releases import ROOT, RELEASE_PATTERN, validate_handoff, v
 
 class PreviewReleaseTests(unittest.TestCase):
     def setUp(self) -> None:
-        self.record = {"release": {
+        self.record: dict = {"release": {
             "prNumber": "42", "headSha": "123456789012" + "a" * 28,
             "imageTag": "123456789012", "imageDigest": "sha256:" + "b" * 64,
         }}

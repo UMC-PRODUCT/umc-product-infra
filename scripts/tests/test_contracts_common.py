@@ -12,12 +12,12 @@ from unittest.mock import patch
 SCRIPTS_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(SCRIPTS_DIR))
 
-from contracts.aws import validate_app_storage_contract, validate_ses_contract  # noqa: E402
-from contracts.dns import external_dns_registry_config, validate_route53_contract  # noqa: E402
-from contracts.postgres import validate_postgres  # noqa: E402
-from contracts.preview_budget import validate_preview_budget  # noqa: E402
-from contracts.repository import validate_repository_identity  # noqa: E402
-from contracts.server_app import validate_reloader_argocd_contract  # noqa: E402
+from contracts.aws import validate_app_storage_contract, validate_ses_contract
+from contracts.dns import external_dns_registry_config, validate_route53_contract
+from contracts.postgres import validate_postgres
+from contracts.preview_budget import validate_preview_budget
+from contracts.repository import validate_repository_identity
+from contracts.server_app import validate_reloader_argocd_contract
 
 
 # 모듈마다 ROOT를 따로 patch해야 하면 하나를 빠뜨린 테스트가 실제 저장소를 조용히 검사한다.

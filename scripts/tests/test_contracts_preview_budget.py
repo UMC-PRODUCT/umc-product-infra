@@ -7,13 +7,14 @@ import shutil
 import sys
 import tempfile
 import unittest
+from collections.abc import Sequence
 from pathlib import Path
 from unittest.mock import patch
 
 SCRIPTS_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(SCRIPTS_DIR))
 
-from contracts.preview_budget import (  # noqa: E402
+from contracts.preview_budget import (
     pod_resource_totals,
     validate_preview_budget_arithmetic,
 )
@@ -28,7 +29,7 @@ def container(cpu: str, memory: str, limit: str, **fields: str) -> dict:
     }
 
 
-def pod(kind: str, *containers: tuple[str, str, str], init: tuple = ()) -> dict:
+def pod(kind: str, *containers: tuple[str, str, str], init: Sequence[tuple[str, str, str]] = ()) -> dict:
     spec = {"containers": [container(*item) for item in containers]}
     if init:
         spec["initContainers"] = [container(*item) for item in init]

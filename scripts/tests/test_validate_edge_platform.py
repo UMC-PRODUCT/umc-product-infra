@@ -19,11 +19,11 @@ from validate_edge_platform import validate_preview_wildcard_certificate, valida
 # 단일 공인 IDC 주소만 DNS 필터와 Grafana에 함께 허용하고 넓은 CIDR·사설·테스트 주소는 거부한다.
 class TargetGateTest(unittest.TestCase):
     def setUp(self) -> None:
-        self.base = {
+        self.base: dict = {
             "externalDNS": {"target": "1.255.226.166"},
             "certificate": {"issuerRef": {"name": "letsencrypt-production"}},
         }
-        self.grafana_values = {
+        self.grafana_values: dict = {
             "ingress": {
                 "enabled": False,
                 "annotations": {"external-dns.kubernetes.io/target": "1.255.226.166"},

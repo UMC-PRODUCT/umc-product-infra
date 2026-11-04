@@ -13,7 +13,7 @@ from unittest.mock import patch
 SCRIPTS_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(SCRIPTS_DIR))
 
-from contracts.aws import (  # noqa: E402
+from contracts.aws import (
     validate_app_storage_contract,
     validate_cloudformation_tags,
     validate_ses_contract,

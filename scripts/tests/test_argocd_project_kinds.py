@@ -31,7 +31,7 @@ class ValidationErrorsTest(unittest.TestCase):
     def setUp(self) -> None:
         self.directory = tempfile.TemporaryDirectory()
         self.output = Path(self.directory.name)
-        self.renders = {name: [] for names in CHART_RENDERS.values() for name in names}
+        self.renders: dict[str, list[dict]] = {name: [] for names in CHART_RENDERS.values() for name in names}
         reviewed = projects()
         first_render: dict[str, str] = {}
         for app in applications(self.output):

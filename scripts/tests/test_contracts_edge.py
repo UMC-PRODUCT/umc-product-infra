@@ -14,7 +14,7 @@ import yaml
 SCRIPTS_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(SCRIPTS_DIR))
 
-from contracts.edge import validate_edge_protection  # noqa: E402
+from contracts.edge import validate_edge_protection
 
 REPO_ROOT = SCRIPTS_DIR.parent
 CHART = REPO_ROOT / "charts" / "umc-product-server"

@@ -13,7 +13,7 @@ from unittest.mock import patch
 SCRIPTS_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(SCRIPTS_DIR))
 
-from contracts.repository import git_visible_files, validate_repository_identity  # noqa: E402
+from contracts.repository import git_visible_files, validate_repository_identity
 
 
 # 오래된 루트 runbooks가 없어도 새 checkout이 통과하고 docs/runbooks 누락은 실패해야 한다.
