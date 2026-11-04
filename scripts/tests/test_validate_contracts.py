@@ -25,7 +25,6 @@ from validate_contracts import (
     preview_cert_manager_resources,
     validate_app_storage_contract,
     validate_backup_role,
-    validate_backup_role_check,
     validate_cloudformation_tags,
     validate_edge_protection,
     validate_external_dns_record_names,
@@ -784,7 +783,7 @@ class ExternalDnsRecordNameTest(unittest.TestCase):
                 validate_route53_contract([render])
 
 
-# backup role의 추가 권한·약해진 최종 검사, 점검 Job의 다른 dump 옵션·예약 실행, exporter를 막는 wave는 실패해야 한다.
+# backup role의 추가 권한·약해진 최종 검사, backup Pod의 관리자·다른 role 접속, lock 무한 대기, exporter를 막는 wave는 실패해야 한다.
 class BackupRoleContractTest(unittest.TestCase):
     def setUp(self) -> None:
         directory = tempfile.TemporaryDirectory()
@@ -801,11 +800,9 @@ class BackupRoleContractTest(unittest.TestCase):
     def assert_rejected(self, message: str) -> None:
         with self.assertRaisesRegex(SystemExit, message):
             validate_backup_role(self.prod)
-            validate_backup_role_check(self.prod)
 
     def test_accepts_repository_manifests(self) -> None:
         validate_backup_role(self.prod)
-        validate_backup_role_check(self.prod)
 
     def add_grant(self, grant: str) -> None:
         self.replace(
@@ -854,21 +851,46 @@ class BackupRoleContractTest(unittest.TestCase):
         (self.prod / "postgres-exporter.yaml").rename(self.prod / "exporter.yaml")
         self.assert_rejected("postgres-exporter.yaml is missing")
 
-    def test_rejects_check_with_different_pg_dump_options(self) -> None:
+    def test_rejects_backup_dump_with_admin_secret(self) -> None:
         self.replace(
-            "backup-role-check-cronjob.yaml",
-            'pg_dump -Fc --lock-wait-timeout=5min -f "$backup_file"',
-            'pg_dump -Fc --no-owner --lock-wait-timeout=5min -f "$backup_file"',
+            "backup-cronjob.yaml",
+            "secretKeyRef: { name: postgres-backup, key: POSTGRES_BACKUP_PASSWORD }",
+            "secretKeyRef: { name: postgres-secrets, key: POSTGRES_PASSWORD }",
         )
-        self.assert_rejected("same image and pg_dump options")
+        self.assert_rejected("read-only backup role")
 
-    def test_rejects_scheduled_check(self) -> None:
-        self.replace("backup-role-check-cronjob.yaml", "suspend: true", "suspend: false")
-        self.assert_rejected("manual Job")
+    def test_rejects_backup_dump_as_admin_user(self) -> None:
+        self.replace("backup-cronjob.yaml", "value: umc_product_backup", "value: postgres")
+        self.assert_rejected("read-only backup role")
 
-    def test_rejects_check_schedule_in_backup_window(self) -> None:
-        self.replace("backup-role-check-cronjob.yaml", 'schedule: "0 14 * * *"', 'schedule: "0 3 * * *"')
-        self.assert_rejected("outside the 03:00 pg-backup window")
+    def test_rejects_backup_dump_with_other_role_secret(self) -> None:
+        self.replace(
+            "backup-cronjob.yaml",
+            "secretKeyRef: { name: postgres-backup, key: POSTGRES_BACKUP_PASSWORD }",
+            "secretKeyRef: { name: app-db, key: DATABASE_PASSWORD }",
+        )
+        self.assert_rejected("read-only backup role")
+
+    def test_rejects_admin_secret_elsewhere_in_backup_pod(self) -> None:
+        self.replace(
+            "backup-cronjob.yaml",
+            '                - name: AWS_PAGER\n                  value: ""\n',
+            '                - name: AWS_PAGER\n                  value: ""\n'
+            "              envFrom:\n                - secretRef: { name: postgres-secrets }\n",
+        )
+        self.assert_rejected("read-only backup role")
+
+    def test_rejects_backup_dump_without_lock_wait_timeout(self) -> None:
+        self.replace(
+            "backup-cronjob.yaml",
+            'pg_dump -Fc --lock-wait-timeout=5min -f "$backup_file"',
+            'pg_dump -Fc -f "$backup_file"',
+        )
+        self.assert_rejected("instead of waiting forever for table locks")
+
+    def test_rejects_backup_without_dump_container(self) -> None:
+        self.replace("backup-cronjob.yaml", "- name: dump\n", "- name: pg-dump\n")
+        self.assert_rejected("init container named dump")
 
 
 if __name__ == "__main__":
