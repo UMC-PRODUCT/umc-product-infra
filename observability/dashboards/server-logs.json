@@ -27,7 +27,7 @@
       }
     ],
     "cursorSync": "Crosshair",
-    "description": "로그 탐색 전용 대시보드. traceId / memberId / clientType / 레벨 / 텍스트 기반으로 Loki 로그를 필터링한다.",
+    "description": "에러 메시지와 원인을 찾을 때 연다. 로그 탐색 전용 대시보드. traceId / memberId / clientType / 레벨 / 텍스트 기반으로 Loki 로그를 필터링한다.",
     "editable": true,
     "elements": {
       "panel-1": {

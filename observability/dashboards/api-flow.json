@@ -27,7 +27,7 @@
       }
     ],
     "cursorSync": "Off",
-    "description": "Tempo 로 각 API 요청의 처리 흐름(계층/노드그래프)과 아웃박스 relay span link 를 확인하는 대시보드.",
+    "description": "특정 요청이 어디서 오래 걸렸는지 볼 때 연다. Tempo 로 각 API 요청의 처리 흐름(계층/노드그래프)과 아웃박스 relay span link 를 확인하는 대시보드.",
     "editable": true,
     "elements": {
       "panel-1": {

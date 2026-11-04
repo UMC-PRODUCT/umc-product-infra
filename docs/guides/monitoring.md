@@ -33,8 +33,9 @@ Grafana에서 앱·DB·서버 지표와 로그·trace를 보고, Argo CD에서 �
 ## 어떤 상황에 어떤 대시보드를 볼까?
 
 먼저 `UMC PRODUCT System Overview`를 열고, 이상이 있는 부분만 아래 상세 화면으로 좁혀 본다.
-아래 목록은 저장소가 배포하도록 선언한 dashboard 기준이다. 화면이나 데이터가 없으면 시간 범위와
-변수를 확인한 뒤 담당자에게 문의한다.
+홈 화면 맨 위 "어떤 화면을 열까" 패널에 아래 두 표의 요약이 링크로 있고, Kubernetes 링크는
+운영 namespace `app`과 보던 시간 범위를 그대로 가져간다. 아래 목록은 저장소가 배포하도록 선언한
+dashboard 기준이다. 화면이나 데이터가 없으면 시간 범위와 변수를 확인한 뒤 담당자에게 문의한다.
 
 ### UMC Product 폴더 — 앱과 운영 DB
 
@@ -109,6 +110,7 @@ Pod가 Pending이거나 재시작/OOM이 발생한 원인은 Argo CD의 해당 P
 - `Grafana Overview`
 
 Multi-Cluster는 여러 클러스터를 비교할 때 쓰는 화면이므로 현재 단일 클러스터에서는 먼저 볼 필요가 없다.
+chart가 항상 배포하므로 숨길 수는 없다. 이 폴더의 시간대는 UMC Product 폴더와 같은 KST다.
 
 </details>
 

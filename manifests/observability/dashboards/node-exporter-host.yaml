@@ -40,7 +40,7 @@ data:
           }
         ],
         "cursorSync": "Crosshair",
-        "description": "node_exporter default collector dashboard for the production Linux host.",
+        "description": "서버 전체 CPU·메모리·디스크가 부족할 때 연다. node_exporter default collector dashboard for the production Linux host.",
         "editable": true,
         "elements": {
           "panel-1": {
@@ -3240,10 +3240,8 @@ data:
           "node-exporter",
           "host",
           "prometheus",
-          "macos",
           "linux",
-          "default-collectors",
-          "power"
+          "default-collectors"
         ],
         "timeSettings": {
           "autoRefresh": "30s",

@@ -27,7 +27,7 @@
       }
     ],
     "cursorSync": "Crosshair",
-    "description": "구 API 제거 검토용 요청 근거. 앱 버전은 OTLP structured metadata로 조회하며 사용되지 않았다는 판정이나 자동 삭제를 제공하지 않는다.",
+    "description": "구 API를 어떤 앱 버전이 아직 호출하는지 볼 때 연다. 구 API 제거 검토용 요청 근거. 앱 버전은 OTLP structured metadata로 조회하며 사용되지 않았다는 판정이나 자동 삭제를 제공하지 않는다.",
     "editable": false,
     "elements": {
       "panel-1": {

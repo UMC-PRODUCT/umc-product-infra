@@ -40,7 +40,7 @@ data:
           }
         ],
         "cursorSync": "Crosshair",
-        "description": "[PROD ONLY] 운영 클러스터의 PostgreSQL 전용 상세 대시보드. postgres-exporter DB 내부 지표와 kube-state-metrics의 선언 상태를 보여준다. dev에는 이 exporter가 없으므로 dev 데이터로 해석하지 않는다.",
+        "description": "운영 DB 연결이 부족하거나 DB가 느릴 때 연다. [PROD ONLY] 운영 클러스터의 PostgreSQL 전용 상세 대시보드. postgres-exporter DB 내부 지표와 kube-state-metrics의 선언 상태를 보여준다. dev에는 이 exporter가 없으므로 dev 데이터로 해석하지 않는다.",
         "editable": true,
         "elements": {
           "panel-100": {
