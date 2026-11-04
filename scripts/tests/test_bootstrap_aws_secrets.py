@@ -98,6 +98,24 @@ class WorksheetParserTests(unittest.TestCase):
         with self.assertRaises(uploader.BootstrapError):
             uploader.parse_env_text(serialize_env(".env.dev", values), ".env.dev")
 
+    def test_report_discord_may_be_empty_only_in_dev_and_only_all_together(self) -> None:
+        report_keys = [key for key, _ in uploader.REPORT_DISCORD_PROPERTIES]
+        dev = valid_worksheets()[".env.dev"]
+        for key in report_keys:
+            dev[key] = ""
+        parsed = uploader.parse_env_text(serialize_env(".env.dev", dev), ".env.dev")
+        self.assertEqual({parsed[key] for key in report_keys}, {""})
+
+        prod = valid_worksheets()[".env.prod"]
+        prod[report_keys[0]] = ""
+        with self.assertRaises(uploader.BootstrapError):
+            uploader.parse_env_text(serialize_env(".env.prod", prod), ".env.prod")
+
+        values = valid_worksheets()
+        values[".env.dev"][report_keys[1]] = ""
+        with self.assertRaisesRegex(uploader.BootstrapError, "all empty or all set"):
+            uploader.validate_worksheet_values(values, "351284652562")
+
 
 # 원본 키의 목적지 매핑과 환경별 자격증명 분리를 검증해 다른 용도의 Secret 재사용을 막는다.
 class PayloadTests(unittest.TestCase):
@@ -115,7 +133,7 @@ class PayloadTests(unittest.TestCase):
 
         payloads = uploader.build_payloads(values)
 
-        self.assertEqual(len(payloads), 34)
+        self.assertEqual(len(payloads), 36)
         self.assertIn("APPLE_WEB_CLIENT_ID", payloads["/umc-product/prod/app-oauth"])
         self.assertEqual(
             payloads["/umc-product/prod/app-oauth"]["APPLE_WEB_CLIENT_ID"], ""
