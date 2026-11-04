@@ -79,7 +79,7 @@ python3 scripts/gen-configmaps.py --check
 주요 검사 범위:
 
 - 관측 원본과 생성된 ConfigMap·PrometheusRule의 drift
-- Python 문법과 [`tests/`](tests/) 단위 테스트
+- Python 문법, ruff lint·mypy 타입 검사와 [`tests/`](tests/) 단위 테스트
 - prod/dev/preview 앱 chart와 Secret chart Helm lint·render
 - 이미지 tag·digest, 환경값, Secret 이름, namespace와 NetworkPolicy 계약
 - PostgreSQL·PostGIS, preview DB lifecycle과 resource budget
@@ -93,7 +93,16 @@ python3 scripts/gen-configmaps.py --check
 
 Helm, PyYAML과 Git 작업 트리는 필수다. `cfn-lint`, `ansible-playbook`, `ansible-lint`,
 `kubeconform`, `promtool`, Docker가 없거나 chart version을 비교할 base ref가 없으면 관련 검사를
-건너뛰고, 마지막 줄에 건너뛴 검사를 모두 적는다.
+건너뛰고, 마지막 줄에 건너뛴 검사를 모두 적는다. ruff·mypy는 `python3` 환경에
+[`requirements-lint.txt`](requirements-lint.txt)와 같은 버전이 있을 때만 실행한다. 설정은 루트
+`pyproject.toml`에 있고, 로컬에서는 가상환경에 같은 목록을 설치한다.
+
+```bash
+python3 -m pip install --require-hashes --only-binary :all: -r scripts/requirements-lint.txt
+```
+
+버전을 올릴 때는 [`requirements-lint.in`](requirements-lint.in)을 고치고 `requirements-lint.txt`
+첫 줄에 적힌 `uv pip compile` 명령으로 hash 목록을 다시 만든다.
 
 ```text
 umc-infra validation passed (skipped: CloudFormation lint, Kubernetes schema validation)

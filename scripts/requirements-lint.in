@@ -1,0 +1,4 @@
+# scripts/ Python 정적 검사 도구의 직접 의존성이다. 바꾸면 requirements-lint.txt를 다시 만든다.
+ruff==0.17.1
+mypy==2.4.0
+types-PyYAML==6.0.12.20260906

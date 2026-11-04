@@ -15,6 +15,27 @@ optional_check() {
   return 1
 }
 
+# scripts/requirements-lint.txt에 고정한 버전이 python3 환경에 그대로 있을 때만 0을 반환한다.
+# 버전이 다른 ruff·mypy는 판정이 달라질 수 있어 설치되지 않은 것과 같이 건너뛴다.
+pinned_python_tools() {
+  python3 - "$@" <<'PY'
+import importlib.metadata
+import re
+import sys
+from pathlib import Path
+
+lock = Path("scripts/requirements-lint.txt").read_text(encoding="utf-8")
+pins = dict(re.findall(r"^([a-z0-9-]+)==(\S+)", lock, re.MULTILINE))
+for name in sys.argv[1:]:
+    try:
+        installed = importlib.metadata.version(name)
+    except importlib.metadata.PackageNotFoundError:
+        sys.exit(1)
+    if installed != pins.get(name):
+        sys.exit(1)
+PY
+}
+
 # 건너뛴 검사를 성공 문구 안에 드러내고, VALIDATE_STRICT=1이면 하나라도 있을 때 실패한다.
 finish_validation() {
   if ((${#skipped_checks[@]} == 0)); then

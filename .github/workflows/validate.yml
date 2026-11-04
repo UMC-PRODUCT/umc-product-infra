@@ -34,7 +34,9 @@ jobs:
         with:
           python-version: "3.13"
           cache: pip
-          cache-dependency-path: ansible/requirements.txt
+          cache-dependency-path: |
+            ansible/requirements.txt
+            scripts/requirements-lint.txt
 
       # 차트를 렌더하는 Helm 버전을 로컬 검증 계약과 동일하게 고정한다.
       - name: Set up Helm
@@ -84,6 +86,13 @@ jobs:
           python -m pip install --disable-pip-version-check
           -r ansible/requirements.txt
           cfn-lint==1.55.1
+
+      # scripts/ 정적 검사 도구는 전이 의존성까지 hash로 고정한 목록으로 설치한다.
+      - name: Install Python linters
+        run: >-
+          python -m pip install --disable-pip-version-check
+          --require-hashes --only-binary :all:
+          -r scripts/requirements-lint.txt
 
       # playbook이 사용하는 외부 모듈도 저장소의 고정 목록으로 준비한다.
       - name: Install pinned Ansible collections

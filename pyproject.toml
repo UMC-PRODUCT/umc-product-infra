@@ -1,0 +1,20 @@
+# scripts/ Python 정적 검사 설정이다. 도구 버전은 scripts/requirements-lint.txt에 고정하고
+# validate.sh가 실행한다. 저장소를 Python 패키지로 배포하지 않는다.
+
+[tool.ruff]
+target-version = "py313"
+src = ["scripts"]
+
+[tool.ruff.lint]
+# 기본 문법·이름 오류(E4·E7·E9·F)에 버그 패턴(B)과 실패를 숨기는 subprocess.run(PLW1510)만 더한다.
+select = ["E4", "E7", "E9", "F", "B", "PLW1510"]
+
+[tool.mypy]
+python_version = "3.13"
+files = ["scripts"]
+mypy_path = "scripts"
+explicit_package_bases = true
+# 테스트는 YAML 값을 object로 다뤄 index 오류가 대부분이고 실행 자체가 검증이므로 우선 제외한다.
+exclude = ["^scripts/tests/"]
+# stub 한계로 둔 type: ignore가 필요 없어지면 알려 준다.
+warn_unused_ignores = true

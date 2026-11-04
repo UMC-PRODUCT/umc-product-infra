@@ -431,6 +431,14 @@ for script in scripts/*.sh; do
   bash -n "$script"
 done
 
+# scripts/ Python의 이름 오류·버그 패턴과 타입 불일치를 잡는다. 설정은 pyproject.toml에 있다.
+if optional_check "Python lint" pinned_python_tools ruff; then
+  python3 -m ruff check --no-cache scripts
+fi
+if optional_check "Python type check" pinned_python_tools mypy types-pyyaml; then
+  python3 -m mypy --cache-dir "$validation_dir/mypy-cache"
+fi
+
 if optional_check "CloudFormation lint" command -v cfn-lint; then
   cfn-lint cloud/aws/*.yaml
 fi
