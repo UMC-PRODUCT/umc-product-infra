@@ -22,7 +22,8 @@ root Application은 이 release를 관리하지 않으므로 values 변경은 Gi
    ```bash
    git switch --detach origin/main
    VALIDATION_OUTPUT_DIR=/tmp/argocd-render-main ./scripts/validate.sh
-   git switch --detach <PR head>
+   git fetch origin pull/<PR 번호>/head
+   git switch --detach FETCH_HEAD
    VALIDATION_OUTPUT_DIR=/tmp/argocd-render-pr ./scripts/validate.sh
    diff -u /tmp/argocd-render-main/argocd.yaml /tmp/argocd-render-pr/argocd.yaml
    ```
@@ -82,6 +83,7 @@ root Application은 이 release를 관리하지 않으므로 values 변경은 Gi
 
 health 규칙을 `manifests/cluster/argocd-health.yaml`에서 Helm values로 옮긴
 [#41](https://github.com/UMC-PRODUCT/umc-product-infra/pull/41)의 1회 전환은 운영 클러스터에서 2026-11-04에 끝났다.
+예전 field manager(`umc-ansible-argocd-health`) 해제까지 마쳐 health 키 6개는 `helm`만 소유한다.
 `bootstrap.yml`로 새로 설치한 서버는 처음부터 Helm release가 `argocd-cm`을 소유하므로 이 전환이 필요 없다.
 #41 이전 상태의 클러스터를 다시 다룰 때만
 [전환 당시 절차](https://github.com/UMC-PRODUCT/umc-product-infra/blob/8e62f4f8bad8a6f0157e029b94eb926be270d682/docs/operations/argocd-config.md#기존-클러스터-전환-1회)를 따른다.

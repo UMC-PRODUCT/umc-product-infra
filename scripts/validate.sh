@@ -446,7 +446,7 @@ if optional_check "Ansible syntax check" command -v ansible-playbook; then
   )
 fi
 if optional_check "Ansible lint" command -v ansible-lint; then
-  (cd ansible && ansible-lint playbooks/ssh-access.yml playbooks/bootstrap.yml)
+  (cd ansible && ansible-lint playbooks/*.yml)
 fi
 
 if optional_check "Kubernetes schema validation" command -v kubeconform; then
