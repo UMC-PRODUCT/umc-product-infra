@@ -77,6 +77,8 @@ spec:
                   pg_dump -Fc --lock-wait-timeout=5min -f "$backup_file"
                   test -s "$backup_file"
                   pg_restore --list "$backup_file" >/dev/null
+                  # 예약 실행이 어떤 DB role로 dump했는지 log만으로 확인할 수 있게 남긴다. password는 출력하지 않는다.
+                  printf 'role=%s dump_bytes=%s\n' "$PGUSER" "$(wc -c <"$backup_file")"
                   (
                     cd /backup
                     sha256sum "$backup_name" >"${backup_name}.sha256"
