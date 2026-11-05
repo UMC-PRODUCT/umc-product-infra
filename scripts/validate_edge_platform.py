@@ -12,12 +12,13 @@ from pathlib import Path
 
 import yaml
 
+from contracts.dns import PREVIEW_DNS_DOMAIN
+
 
 ROOT = Path(__file__).resolve().parent.parent
 APPLICATION_DIR = ROOT / "argocd" / "applications" / "platform"
 IMAGE_DIGEST = re.compile(r"@sha256:[0-9a-f]{64}$")
 LETSENCRYPT_ISSUERS = {"letsencrypt-staging", "letsencrypt-production"}
-PREVIEW_DNS_DOMAIN = "preview.university.neordinary.com"
 EXPECTED = {
     "cert-manager": {
         "project": "cert-manager",
@@ -540,15 +541,11 @@ def validate_preview_wildcard_certificate() -> str:
     )
     spec = certificate["spec"]
     # wildcard는 한 label만 덮는다. preview. 하위 이름만 두면 zone 바로 아래 운영 host를 덮을 수 없다.
-    outside_preview = [
-        name for name in spec.get("dnsNames", []) if not name.endswith(f".{PREVIEW_DNS_DOMAIN}")
-    ]
     require(
-        not outside_preview,
-        f"preview: Certificate SANs must stay under {PREVIEW_DNS_DOMAIN} "
-        f"so they cannot cover production hosts: {outside_preview}",
+        spec.get("dnsNames") == [f"*.{PREVIEW_DNS_DOMAIN}"],
+        f"preview: Certificate SANs must be exactly *.{PREVIEW_DNS_DOMAIN} "
+        f"so they cannot cover production hosts: {spec.get('dnsNames')}",
     )
-    require(spec.get("dnsNames") == [f"*.{PREVIEW_DNS_DOMAIN}"], "preview: wildcard SAN")
     require(
         spec.get("secretName") == "preview-wildcard-tls",
         "preview: shared wildcard TLS Secret",

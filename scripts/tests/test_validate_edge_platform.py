@@ -132,7 +132,9 @@ spec:
                 )
             )
             with self.subTest(name=name), self.assertRaisesRegex(
-                SystemExit, "cannot cover production hosts: " + re.escape(repr([name]))
+                SystemExit,
+                "cannot cover production hosts: "
+                + re.escape(repr(["*.preview.university.neordinary.com", name])),
             ):
                 self.validate()
 

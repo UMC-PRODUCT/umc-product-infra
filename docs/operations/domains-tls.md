@@ -74,7 +74,7 @@ wildcard DNS record는 만들지 않는다. ExternalDNS는 `api-pr-27.preview.un
 cert-manager는 `preview` namespace에 `Certificate/preview-wildcard` 하나를 두고
 `*.preview.university.neordinary.com`을 `preview-wildcard-tls` Secret으로 발급한다.
 Preview host를 `preview.` 하위에만 두어 이 인증서가 `api.`, `argo.`, `grafana.` 같은 운영 host를 덮지 않게 한다.
-`scripts/validate_edge_platform.py`는 이 인증서에 `preview.` 밖 이름이 들어가면 실패한다.
+`scripts/validate_edge_platform.py`는 이 인증서의 이름이 `*.preview.university.neordinary.com` 하나가 아니면 실패한다.
 
 ## Hosted Zone와 public IP gate
 
