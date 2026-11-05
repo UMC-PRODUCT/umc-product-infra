@@ -191,6 +191,14 @@ externalSecrets:
     targetName: app-report-discord
     remoteKey: app-report-discord
     data: *appReportDiscordData
+  # dev QA 시딩 계정의 공통 비밀번호다. 서버 레포의 공개 기본값을 덮는다. prod·preview는 받지 않는다.
+  - name: app-seed
+    namespace: dev-app
+    store: aws-secretsmanager
+    targetName: app-seed
+    remoteKey: app-seed
+    data:
+      APP_SEED_DEFAULT_PASSWORD: APP_SEED_DEFAULT_PASSWORD
   - name: docs-basic-auth
     namespace: dev-app
     store: aws-secretsmanager

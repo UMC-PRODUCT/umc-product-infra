@@ -368,30 +368,33 @@ Job을 지우면 Argo CD selfHeal이 다시 만든다. 순서가 중요하다.
 3. 다음 03:00 KST 전에 끝낸다. `umc_product_backup`이 없으면 그날 `pg-backup`이 로그인에 실패해 backup이 생기지 않는다.
    `postgres-backup-role`은 마지막에 `umc_product_backup`의 최종 권한까지 검사하므로 Complete면 role이 준비된 것이다.
 
-`rerun_role_jobs`는 지운 Job이 5분 안에 다시 생기지 않으면 실패한다. `postgres` Application의
-auto-sync가 꺼져 있을 때 생기는 일이며, Argo CD에서 `postgres` Application을 sync한 뒤 다시 실행한다.
+`rerun_role_jobs`는 첫 인자로 namespace를, 나머지로 Job 이름을 받는다. 지운 Job이 5분 안에 다시
+생기지 않으면 실패한다. 해당 DB Application(`db`는 `postgres`, `dev-db`는 `dev-postgres`)의 auto-sync가
+꺼져 있을 때 생기는 일이며, Argo CD에서 그 Application을 sync한 뒤 다시 실행한다.
 함수 본문은 subshell이라 실패해도 접속한 셸은 닫히지 않는다.
-backup role password 회전([secrets 문서](../operations/secrets.md#postgresql-backup-role-password-회전))도
-이 함수로 `postgres-backup-role`만 다시 실행한다.
+backup role password 회전([secrets 문서](../operations/secrets.md#postgresql-backup-role-password-회전))과
+[dev DB 다시 만들기](dev-db-reset.md)도 이 함수로 Job을 다시 실행한다.
 
 ```bash
 rerun_role_jobs() (
   set -eu
-  sudo k3s kubectl delete job -n db "$@"
+  namespace="$1"
+  shift
+  sudo k3s kubectl delete job -n "$namespace" "$@"
   for job in "$@"; do
     deadline="$(($(date +%s) + 300))"
-    until sudo k3s kubectl get "job/$job" -n db >/dev/null 2>&1; do
+    until sudo k3s kubectl get "job/$job" -n "$namespace" >/dev/null 2>&1; do
       if [ "$(date +%s)" -ge "$deadline" ]; then
-        echo "job/$job 이 5분 안에 다시 생기지 않았습니다. postgres Application auto-sync를 확인하세요." >&2
+        echo "$namespace/job/$job 이 5분 안에 다시 생기지 않았습니다. DB Application auto-sync를 확인하세요." >&2
         exit 1
       fi
       sleep 5
     done
-    sudo k3s kubectl wait --for=condition=Complete "job/$job" -n db --timeout=600s
+    sudo k3s kubectl wait --for=condition=Complete "job/$job" -n "$namespace" --timeout=600s
   done
 )
 # 1. pg_restore 전
-rerun_role_jobs postgres-app-role
+rerun_role_jobs db postgres-app-role
 # 2. pg_restore 후
-rerun_role_jobs postgres-readonly-role postgres-exporter-role postgres-backup-role
+rerun_role_jobs db postgres-readonly-role postgres-exporter-role postgres-backup-role
 ```

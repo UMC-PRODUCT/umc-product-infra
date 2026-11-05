@@ -214,6 +214,31 @@ python3 scripts/bootstrap_aws_secrets.py \
 봇 토큰이 채팅·로그 등에 노출됐으면 개발자 포털에서 재발급하고 AWS source를 갱신한다. Reloader가
 Pod를 재시작한다.
 
+## dev QA 계정 비밀번호
+
+dev 앱은 기동할 때마다 QA 시딩을 실행해 전역 관리자를 포함한 QA 계정을 보장한다. 이 계정들의 공통
+비밀번호는 `/umc-product/dev/app-seed` source의 `APP_SEED_DEFAULT_PASSWORD`다. 값이 없으면 서버는 공개
+레포 `application.yml`의 기본값을 쓰고, dev 로그인 API는 공개이므로 누구나 시딩된 관리자로 로그인할 수 있다.
+
+- 값의 원본은 AWS source다. 팀원에게는 팀 Notion의 dev QA 계정 안내로만 전달하고 Git·chat·issue에 적지 않는다.
+- `bootstrap_aws_secrets.py`는 `.env.dev`의 값이 비었거나 서버의 공개 기본값과 같으면 거부한다.
+- prod·preview는 받지 않는다. 앱 chart가 dev 밖에서 `app-seed`를 참조하면 렌더를 실패시킨다.
+- 시딩은 이미 있는 계정을 건너뛰므로 값을 바꿔도 기존 계정의 비밀번호는 그대로다. 그래서 Reloader 대상에
+  넣지 않는다. 기존 계정까지 바꾸려면 [dev DB 다시 만들기](../runbooks/dev-db-reset.md)를 따른다.
+
+앱 Deployment는 `app-seed`를 `optional: false`로 읽고 Recreate 전략이라, Secret이 없으면 dev Pod가
+내려간 뒤 다시 뜨지 못한다. 아래 1~3단계는 이 변경을 머지하기 전에 끝낸다.
+
+1. 비밀번호를 정해 팀 Notion에 기록하고, 같은 값을 `.env.dev`의 `APP_SEED_DEFAULT_PASSWORD`에 입력한다.
+2. `cloud/aws/external-secrets-iam.yaml`을 반영해 DevRole에 `app-seed` 읽기 권한을 추가한다.
+3. `bootstrap_aws_secrets.py` dry-run으로 기존 source가 worksheet와 일치하는지 확인한 뒤
+   `--apply`로 `/umc-product/dev/app-seed`를 생성한다.
+4. 변경을 머지해 반영하고 `dev-app/app-seed` ExternalSecret이 `Ready=True`인지 확인한다.
+5. dev 롤아웃 뒤 QA 계정이 새 비밀번호로 로그인되고 공개 기본값으로는 거절되는지 확인한다.
+   거절되지 않으면 기존 계정이 기본값으로 남은 것이므로 dev DB를 다시 만든다.
+
+비밀번호가 팀 밖으로 노출됐으면 새 값으로 Notion·`.env.dev`·AWS source를 갱신하고 dev DB를 다시 만든다.
+
 ## 임시 Gmail SMTP와 SES 복귀
 
 백엔드의 `EMAIL_PROVIDER=ses|smtp` 지원 이미지가 필요하다. 기존 SES 전용 이미지에
@@ -352,7 +377,7 @@ Secret을 읽지 않으므로 문서 비밀번호 회전만으로 앱을 재시�
 1. `/umc-product/prod/postgres-backup`의 `POSTGRES_BACKUP_PASSWORD`를 새 값으로 갱신한다.
 2. `db/postgres-backup` ExternalSecret을 force-sync하고 `Ready=True`를 확인한다.
 3. backup runbook의 [`rerun_role_jobs`](../runbooks/backup-activation.md#운영-db-복구와-role-job-재실행)를
-   셸에 정의하고 `rerun_role_jobs postgres-backup-role`로 Job을 다시 실행해 DB role password를 바꾼다.
+   셸에 정의하고 `rerun_role_jobs db postgres-backup-role`로 Job을 다시 실행해 DB role password를 바꾼다.
    이 함수는 Job을 지운 뒤 Argo CD가 다시 만들 때까지 기다렸다가 Complete를 확인한다.
 4. [backup runbook 2단계](../runbooks/backup-activation.md#2-수동-backup)로 수동 backup을 실행하고 성공을 확인한다.
 5. 이전 version을 폐기한다.
