@@ -57,8 +57,8 @@ Secret 이름 검사는 값의 존재·유효성을 보장하지 않으므로 ES
 {{- if not (has $seedApiRuntimeEnabled (list "true" "false")) -}}
 {{- fail "APP_SEED_ENABLED는 true 또는 false여야 한다" -}}
 {{- end -}}
-{{- if and (eq $seedApiRuntimeEnabled "true") (or (not (has $environment (list "dev" "preview"))) (not .Values.testApi.enabled)) -}}
-{{- fail "APP_SEED_ENABLED=true는 보호된 test API Ingress를 사용하는 dev·preview 환경에서만 허용된다" -}}
+{{- if and (eq $seedApiRuntimeEnabled "true") (or (ne $environment "dev") (not .Values.testApi.enabled)) -}}
+{{- fail "APP_SEED_ENABLED=true는 보호된 test API Ingress를 사용하는 dev 환경에서만 허용된다" -}}
 {{- end -}}
 {{- $testApiRuntimeEnabled := lower (toString (get .Values.env "APP_TEST_API_ENABLED")) -}}
 {{- if not (has $testApiRuntimeEnabled (list "true" "false")) -}}

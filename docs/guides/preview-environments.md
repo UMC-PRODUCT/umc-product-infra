@@ -35,7 +35,8 @@ Argo CD의 `preview-head-sha`는 최신 PR 커밋, `preview-deployed-sha`는 배
 - API 주소: `https://api-pr-<PR번호>.university.neordinary.com`
 - API 문서: 위 주소의 `/docs/scalar.html`
 - 메일 수집함: `https://mail-pr-<PR번호>.university.neordinary.com`
-- 테스트용 토큰: 위 주소의 `/test/token/access`에서 회원 ID로 액세스 토큰을 받는다. dev와 같은 test·seed API가 열려 있다.
+- 테스트용 토큰: 위 주소의 `/test/token/access`에서 회원 ID로 액세스 토큰을 받는다. test API는 열려 있지만 seed API(`/test/seed/**`)는 꺼져 있다.
+  QA 계정은 PR DB를 만들 때 복원한 dev 데이터에 이미 있고, 비밀번호도 dev와 같다.
 - 로그·메트릭·트레이스: Grafana에서 서비스 `preview-umc-product-pr<PR번호>` 선택
   로그는 WARN 이상만, 요청(trace) 10개 중 약 1개만 Loki에 남는다. 요청별 원인은 Tempo trace에서 본다.
   로그로 요청 수를 세는 API 사용량 패널은 실제보다 적게 나오므로 요청 수는 trace나 metric으로 본다.

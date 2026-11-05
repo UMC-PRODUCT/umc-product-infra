@@ -63,8 +63,9 @@ env:
   SMTP_PORT: "1025"
   SMTP_USERNAME: umc-preview
   EMAIL_NO_REPLY_ADDRESS: no-reply-nonprod@university.neordinary.com
-  # dev와 같이 test·seed API를 연다. /test 경로는 아래 testApi Ingress의 Basic Auth로 보호한다.
-  APP_SEED_ENABLED: "true"
+  # QA 계정은 dev DB 복원으로 이미 있다. app-seed Secret이 없어 시딩하면 공개 기본 비밀번호로 계정이 생긴다.
+  APP_SEED_ENABLED: "false"
+  # /test 경로는 아래 testApi Ingress의 Basic Auth로 보호한다.
   APP_TEST_API_ENABLED: "true"
   DATABASE_URL: ""
   DATABASE_USERNAME: umc_product_preview_app
