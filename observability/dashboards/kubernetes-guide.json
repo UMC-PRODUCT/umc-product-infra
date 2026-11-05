@@ -1,0 +1,113 @@
+{
+  "apiVersion": "dashboard.grafana.app/v2",
+  "kind": "Dashboard",
+  "metadata": {
+    "name": "umc-product-kubernetes-guide"
+  },
+  "spec": {
+    "annotations": [
+      {
+        "kind": "AnnotationQuery",
+        "spec": {
+          "builtIn": true,
+          "enable": true,
+          "hide": true,
+          "iconColor": "rgba(0, 211, 255, 1)",
+          "name": "Annotations & Alerts",
+          "query": {
+            "datasource": {
+              "name": "-- Grafana --"
+            },
+            "group": "grafana",
+            "kind": "DataQuery",
+            "spec": {},
+            "version": "v0"
+          }
+        }
+      }
+    ],
+    "cursorSync": "Off",
+    "description": "Kubernetes 폴더에서 어떤 화면을 열지 모를 때 먼저 여는 안내. chart가 넣은 화면을 묶음·질문·여는 시점으로 정리하고 바로 가는 링크를 둔다.",
+    "editable": false,
+    "elements": {
+      "panel-1": {
+        "kind": "Panel",
+        "spec": {
+          "data": {
+            "kind": "QueryGroup",
+            "spec": {
+              "queries": [],
+              "queryOptions": {},
+              "transformations": []
+            }
+          },
+          "description": "상황별로 Kubernetes 폴더의 어느 화면을 열지 안내한다. docs/guides/monitoring.md 표의 요약이다.",
+          "id": 1,
+          "links": [],
+          "title": "어떤 화면을 열까",
+          "vizConfig": {
+            "group": "text",
+            "kind": "VizConfig",
+            "spec": {
+              "fieldConfig": {
+                "defaults": {},
+                "overrides": []
+              },
+              "options": {
+                "mode": "markdown",
+                "content": "이 폴더의 화면은 kube-prometheus-stack chart가 넣는다. 아래 표에서 상황에 맞는 묶음을 고르고, 넓은 범위에서 좁은 범위로 내려간다. 링크는 지금 시간 범위를 가져가고, namespace를 고르는 화면은 운영 API `app`으로 연다.\n\n| 묶음 | 화면 (넓은 범위 → 좁은 범위) | 답하는 질문 | 이럴 때 연다 |\n|---|---|---|---|\n| 자원 | [Cluster](/d/efa86fd1d0c121a26444b636a3f509a8?${__url_time_range}) → [Namespace (Pods)](/d/85a562078cdf77779eaa1add43ccec1e?var-namespace=app&${__url_time_range}) → [Pod](/d/6581e46e4e5c7ba40a07646395ef7b23?var-namespace=app&${__url_time_range}) | 누가 CPU·메모리를 쓰나. request/limit 대비 사용량, throttling | Pod 재시작·OOM, 노드 포화 알림 |\n| 자원 (배포 단위) | [Namespace (Workloads)](/d/a87fb0d919ec0ea5f6543124e16c42a5?var-namespace=app&${__url_time_range}) → [Workload](/d/a164a7f0339f99e89cea5cb47e9be617?var-namespace=app&${__url_time_range}) | Deployment·StatefulSet별 비교 | 배포 뒤 사용량 비교 |\n| 자원 (노드) | [Nodes Overview](/d/058020e04168bfdea0c52269cb699df2?${__url_time_range}) → [Node (Pods)](/d/200ac8fdbfbb74b39aff88118e4d1c2c?${__url_time_range}) | 노드별 사용량, 노드 한 대 안의 Pod 분포 | 특정 노드만 꽉 찼을 때 |\n| 네트워크 | [Cluster](/d/ff635a025bcfea7bc3dd4f508990a3e9?${__url_time_range}) → [Namespace (Pods)](/d/8b7a8b326d7a6f1f04244066368c67af?var-namespace=app&${__url_time_range}) → [Pod](/d/7a18067ce943a40ae25454675c19ff5c?var-namespace=app&${__url_time_range}) | 누가 트래픽을 주고받나, 패킷 drop | 송수신 급증, 네트워크 지연 의심 |\n| 네트워크 (배포 단위) | [Namespace (Workload)](/d/bbb2a765a623ae38130206c7d94a160f?var-namespace=app&${__url_time_range}) → [Workload](/d/728bf77cc1166d2f3133bf25846876cc?var-namespace=app&${__url_time_range}) | workload별 송수신 비교 | 특정 배포의 트래픽만 늘었을 때 |\n| 호스트 (USE) | [USE Method / Cluster](/d/3e97d1d02672cdd0861f4c97c64f89b2?${__url_time_range}) · [USE Method / Node](/d/fac67cfbe174d3ef53eb473d73d9212f?${__url_time_range}) · [Nodes](/d/7d57716318ee0dddbac5a7f451fb7753?${__url_time_range}) | 서버 자체가 한계인가 (사용률·포화·오류) | 앱 지표가 나쁜데 원인이 안 보일 때 |\n| 컨트롤 플레인 | [API server](/d/09ec8aa1e996d6ffcd6817bbaff4db1b?${__url_time_range}) · [Kubelet](/d/3138fa155d5915769fbded898ac09fd9?${__url_time_range}) · [CoreDNS](/d/vkQ0UHxik?${__url_time_range}) | Kubernetes 자체가 문제인가 | kubectl 느림, DNS 실패, Pod 생성 지연 |\n| 저장소 | [Persistent Volumes](/d/919b92a8e8041bd567af9edab12c840c?var-namespace=db&${__url_time_range}) | 볼륨 파일시스템 여유 | 디스크 알림 |\n| 모니터링 | [Prometheus](/d/9fa0d141-d019-4ad7-8bc5-42196ee308bd?${__url_time_range}) · [Alertmanager](/d/alertmanager-overview?${__url_time_range}) · [Grafana](/d/6be0s85Mk?${__url_time_range}) | 모니터링이 정상인가 | 화면이 비거나 알림이 안 올 때 |\n\n- namespace는 화면 위에서 바꾼다. 운영 API `app`, 개발 API `dev-app`, 운영 DB `db`, 개발 DB `dev-db`, 모니터링 `monitoring`이다.\n- Persistent Volumes는 운영 DB 볼륨이 있는 `db`로 연다. `local-path`라 여러 볼륨이 한 디스크를 공유하므로 이 화면의 사용량은 볼륨별 점유량이 아니다.\n- `Compute Resources / Multi-Cluster`는 여러 클러스터 비교용이다. 클러스터가 하나라 열지 않는다.\n- Pod Pending·재시작·OOM의 원인은 Argo CD의 해당 Pod → Events/Logs에서 본다.\n- 앱 요청·에러는 UMC Product 폴더의 [System Overview](/d/umc-product-system-overview?${__url_time_range})에서 본다. 자세한 설명은 [조회 가이드](https://github.com/UMC-PRODUCT/umc-product-infra/blob/main/docs/guides/monitoring.md)에 있다.\n"
+              }
+            }
+          }
+        }
+      }
+    },
+    "layout": {
+      "kind": "GridLayout",
+      "spec": {
+        "items": [
+          {
+            "kind": "GridLayoutItem",
+            "spec": {
+              "element": {
+                "kind": "ElementReference",
+                "name": "panel-1"
+              },
+              "height": 24,
+              "width": 24,
+              "x": 0,
+              "y": 0
+            }
+          }
+        ]
+      }
+    },
+    "links": [],
+    "liveNow": false,
+    "preload": false,
+    "tags": [
+      "umc-product",
+      "kubernetes-mixin"
+    ],
+    "timeSettings": {
+      "autoRefresh": "",
+      "autoRefreshIntervals": [
+        "5s",
+        "10s",
+        "30s",
+        "1m",
+        "5m",
+        "15m",
+        "30m",
+        "1h"
+      ],
+      "fiscalYearStartMonth": 0,
+      "from": "now-6h",
+      "hideTimepicker": false,
+      "timezone": "Asia/Seoul",
+      "to": "now"
+    },
+    "title": "0. Kubernetes 폴더 읽는 법",
+    "variables": []
+  }
+}
