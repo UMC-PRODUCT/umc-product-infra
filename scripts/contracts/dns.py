@@ -14,17 +14,8 @@ from contracts.common import CloudFormationLoader, require, yaml_documents
 
 # validate.sh가 Preview 렌더 견본으로 쓰는 PR 번호다.
 PREVIEW_SAMPLE_PR_NUMBER = "42"
-
-# Preview host를 preview. 하위 도메인으로 옮기는 동안 렌더에 없어도 IAM에 남겨 두는 패턴이다.
-# ExternalDNS가 옛 record를 지울 때까지 필요하다. 옮기기가 끝나면 이 목록을 지운다.
-PREVIEW_HOST_MIGRATION_PATTERNS = frozenset(
-    {
-        "api-pr-*.university.neordinary.com",
-        "mail-pr-*.university.neordinary.com",
-        "_external-dns.a-api-pr-*.university.neordinary.com",
-        "_external-dns.a-mail-pr-*.university.neordinary.com",
-    }
-)
+# Preview host는 이 하위 도메인에만 둔다. Preview 공용 wildcard 인증서가 운영 host를 덮지 않게 한다.
+PREVIEW_DNS_DOMAIN = "preview.university.neordinary.com"
 
 
 def external_dns_registry_config() -> dict:
@@ -68,7 +59,7 @@ def iam_string_like(pattern: str, value: str) -> bool:
 
 
 # 렌더된 host에서 ExternalDNS가 쓸 A·TXT 이름을 계산해 IAM 허용 패턴과 양방향으로 대조한다.
-# *는 Preview PR 번호 자리에만 허용한다. 견본 PR 번호로 바꾼 패턴은 실제 렌더 이름이어야 한다.
+# *는 preview. 하위 Preview PR 번호 자리에만 허용한다. 견본 PR 번호로 바꾼 패턴은 실제 렌더 이름이어야 한다.
 def validate_external_dns_record_names(
     allowed_patterns: list[str],
     hosts: set[str],
@@ -91,12 +82,13 @@ def validate_external_dns_record_names(
     for pattern in allowed_patterns:
         require(
             pattern.count("*") <= 1
-            and (
-                pattern in PREVIEW_HOST_MIGRATION_PATTERNS
-                or pattern.replace("*", PREVIEW_SAMPLE_PR_NUMBER) in record_names
-            ),
+            and pattern.replace("*", PREVIEW_SAMPLE_PR_NUMBER) in record_names,
             "ExternalDNS Route53 IAM pattern is broader than a rendered record "
             f"or no longer used: {pattern}",
+        )
+        require(
+            "*" not in pattern or pattern.endswith(f".{PREVIEW_DNS_DOMAIN}"),
+            f"ExternalDNS Route53 IAM wildcard must stay under {PREVIEW_DNS_DOMAIN}: {pattern}",
         )
 
 
@@ -205,7 +197,6 @@ def validate_route53_contract(render_paths: list[Path]) -> None:
                             "DELETE",
                         ],
                         "route53:ChangeResourceRecordSetsNormalizedRecordNames": [
-                            "_acme-challenge.${DnsZoneName}",
                             "_acme-challenge.preview.${DnsZoneName}",
                             "_acme-challenge.api.${DnsZoneName}",
                             "_acme-challenge.api-dev.${DnsZoneName}",

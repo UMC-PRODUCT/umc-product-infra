@@ -12,6 +12,8 @@ from pathlib import Path
 
 import yaml
 
+from contracts.dns import PREVIEW_DNS_DOMAIN
+
 
 ROOT = Path(__file__).resolve().parent.parent
 APPLICATION_DIR = ROOT / "argocd" / "applications" / "platform"
@@ -538,10 +540,11 @@ def validate_preview_wildcard_certificate() -> str:
         "preview: Certificate must follow ClusterIssuers",
     )
     spec = certificate["spec"]
+    # wildcard는 한 label만 덮는다. preview. 하위 이름만 두면 zone 바로 아래 운영 host를 덮을 수 없다.
     require(
-        spec.get("dnsNames")
-        == ["*.university.neordinary.com", "*.preview.university.neordinary.com"],
-        "preview: wildcard SAN",
+        spec.get("dnsNames") == [f"*.{PREVIEW_DNS_DOMAIN}"],
+        f"preview: Certificate SANs must be exactly *.{PREVIEW_DNS_DOMAIN} "
+        f"so they cannot cover production hosts: {spec.get('dnsNames')}",
     )
     require(
         spec.get("secretName") == "preview-wildcard-tls",

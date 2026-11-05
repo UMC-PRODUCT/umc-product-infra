@@ -66,6 +66,14 @@ class ExternalDnsRecordNameTest(unittest.TestCase):
         with self.assertRaisesRegex(SystemExit, f"no longer used: grafana.{ZONE}"):
             self.validate([*ALLOWED_PATTERNS, f"grafana.{ZONE}"], RENDERED_HOSTS)
 
+    # Preview host가 preview. 밖으로 돌아가면 렌더와 IAM이 서로 맞아도 실패해야 한다.
+    def test_rejects_pr_wildcard_outside_preview_subdomain(self) -> None:
+        patterns = [*ALLOWED_PATTERNS, f"api-pr-*.{ZONE}", f"_external-dns.a-api-pr-*.{ZONE}"]
+        with self.assertRaisesRegex(
+            SystemExit, rf"wildcard must stay under preview\.{ZONE}: api-pr-\*\.{ZONE}"
+        ):
+            self.validate(patterns, RENDERED_HOSTS | {f"api-pr-42.{ZONE}"})
+
     def test_collects_only_opted_in_ingress_hosts(self) -> None:
         documents = [
             {

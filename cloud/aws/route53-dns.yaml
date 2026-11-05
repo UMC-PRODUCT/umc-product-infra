@@ -52,8 +52,7 @@ Resources:
                       - UPSERT
                       - DELETE
                     route53:ChangeResourceRecordSetsNormalizedRecordNames:
-                      - !Sub "_acme-challenge.${DnsZoneName}"
-                      # Preview 공용 인증서의 *.preview. 이름 검증용이다.
+                      # Preview 공용 인증서의 *.preview. 이름 검증용이다. zone 전체 wildcard용 apex 이름은 두지 않는다.
                       - !Sub "_acme-challenge.preview.${DnsZoneName}"
                       - !Sub "_acme-challenge.api.${DnsZoneName}"
                       - !Sub "_acme-challenge.api-dev.${DnsZoneName}"
@@ -89,7 +88,7 @@ Resources:
                 Action: route53:ListResourceRecordSets
                 Resource: !Sub "arn:${AWS::Partition}:route53:::hostedzone/${Route53HostedZoneId}"
               - Sid: ManageOnlyUmcIngressAndOwnershipRecords
-                # 이 zone의 나열된 이름·유형에 한해 변경한다. *는 Preview PR 번호 자리에만 쓴다.
+                # 이 zone의 나열된 이름·유형에 한해 변경한다. *는 preview. 하위 Preview PR 번호 자리에만 쓴다.
                 Effect: Allow
                 Action: route53:ChangeResourceRecordSets
                 Resource: !Sub "arn:${AWS::Partition}:route53:::hostedzone/${Route53HostedZoneId}"
@@ -106,8 +105,6 @@ Resources:
                     route53:ChangeResourceRecordSetsNormalizedRecordNames:
                       - !Sub "api.${DnsZoneName}"
                       - !Sub "api-dev.${DnsZoneName}"
-                      - !Sub "api-pr-*.${DnsZoneName}"
-                      - !Sub "mail-pr-*.${DnsZoneName}"
                       - !Sub "api-pr-*.preview.${DnsZoneName}"
                       - !Sub "mail-pr-*.preview.${DnsZoneName}"
                       - !Sub "grafana.${DnsZoneName}"
@@ -115,8 +112,6 @@ Resources:
                       # ExternalDNS v0.21은 A record ownership TXT에 a-를 붙인다.
                       - !Sub "_external-dns.a-api.${DnsZoneName}"
                       - !Sub "_external-dns.a-api-dev.${DnsZoneName}"
-                      - !Sub "_external-dns.a-api-pr-*.${DnsZoneName}"
-                      - !Sub "_external-dns.a-mail-pr-*.${DnsZoneName}"
                       - !Sub "_external-dns.a-api-pr-*.preview.${DnsZoneName}"
                       - !Sub "_external-dns.a-mail-pr-*.preview.${DnsZoneName}"
                       - !Sub "_external-dns.a-grafana.${DnsZoneName}"

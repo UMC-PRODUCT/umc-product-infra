@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import re
 import shutil
 import sys
 import tempfile
@@ -113,6 +114,29 @@ spec:
   dnsNames: [api.university.neordinary.com]
   issuerRef: {group: cert-manager.io, kind: Issuer, name: preview-selfsigned}
 """)
+
+    # Preview 공용 인증서가 다시 zone 전체나 운영 host 이름을 담으면 실패해야 한다.
+    def test_rejects_certificate_name_outside_preview_subdomain(self) -> None:
+        certificate_path = self.root / "manifests" / "cert-manager" / "preview-wildcard-certificate.yaml"
+        original = certificate_path.read_text()
+        for name in (
+            "*.university.neordinary.com",
+            "api.university.neordinary.com",
+            "university.neordinary.com",
+            "*.neordinary.com",
+        ):
+            certificate_path.write_text(
+                original.replace(
+                    '    - "*.preview.university.neordinary.com"\n',
+                    f'    - "*.preview.university.neordinary.com"\n    - "{name}"\n',
+                )
+            )
+            with self.subTest(name=name), self.assertRaisesRegex(
+                SystemExit,
+                "cannot cover production hosts: "
+                + re.escape(repr(["*.preview.university.neordinary.com", name])),
+            ):
+                self.validate()
 
 
 if __name__ == "__main__":
