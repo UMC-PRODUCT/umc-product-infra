@@ -97,15 +97,15 @@ class EmailTransportTests(unittest.TestCase):
             "--set-string", "image.tag=0123456789ab",
             "--set-string", "image.digest=sha256:" + "a" * 64,
             "--set", "fullnameOverride=umc-product-server-pr-42",
-            "--set", "ingress.host=api-pr-42.university.neordinary.com",
-            "--set", "ingress.tls[0].hosts[0]=api-pr-42.university.neordinary.com",
-            "--set", "mailCapture.uiHost=mail-pr-42.university.neordinary.com",
+            "--set", "ingress.host=api-pr-42.preview.university.neordinary.com",
+            "--set", "ingress.tls[0].hosts[0]=api-pr-42.preview.university.neordinary.com",
+            "--set", "mailCapture.uiHost=mail-pr-42.preview.university.neordinary.com",
             "--set", "createDatabase.name=umc_product_pr42",
             "--set", "env.DATABASE_URL=jdbc:postgresql://postgres-preview.preview.svc.cluster.local:5432/umc_product_pr42",
             "--set", "env.SPRING_APPLICATION_NAME=preview-umc-product-pr42",
             "--set", "env.APP_ENVIRONMENT=preview-pr-42",
-            "--set", "env.SSO_ISSUER=https://api-pr-42.university.neordinary.com",
-            "--set", "env.CERTIFICATE_VERIFICATION_URL_TEMPLATE=https://api-pr-42.university.neordinary.com/api/v1/certificates/verify/{serialNumber}",
+            "--set", "env.SSO_ISSUER=https://api-pr-42.preview.university.neordinary.com",
+            "--set", "env.CERTIFICATE_VERIFICATION_URL_TEMPLATE=https://api-pr-42.preview.university.neordinary.com/api/v1/certificates/verify/{serialNumber}",
             "--set", "env.DEMODAY_QR_BASE_URL=https://university.neordinary.com",
         ]
 
@@ -140,7 +140,7 @@ class EmailTransportTests(unittest.TestCase):
                          {item["secret"]["secretName"] for item in pod["volumes"] if "secret" in item})
         ingress = next(item for item in documents
                        if item["kind"] == "Ingress" and item["metadata"]["name"].endswith("-mail"))
-        self.assertEqual(ingress["spec"]["rules"][0]["host"], "mail-pr-42.university.neordinary.com")
+        self.assertEqual(ingress["spec"]["rules"][0]["host"], "mail-pr-42.preview.university.neordinary.com")
         self.assertEqual(ingress["spec"]["tls"][0]["secretName"], "preview-wildcard-tls")
         self.assertIn("-mail-basic-auth@kubernetescrd",
                       ingress["metadata"]["annotations"]["traefik.ingress.kubernetes.io/router.middlewares"])
@@ -154,9 +154,15 @@ class EmailTransportTests(unittest.TestCase):
             with self.subTest(override=override):
                 self.assertNotEqual(self.render_preview(override).returncode, 0)
 
+    # Preview 공용 인증서는 preview. 하위 이름만 덮는다. 옛 host는 렌더 단계에서 막는다.
+    def test_preview_mail_ui_rejects_host_outside_preview_subdomain(self) -> None:
+        result = self.render_preview("mailCapture.uiHost=mail-pr-42.university.neordinary.com")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("*.preview.university.neordinary.com이어야 함", result.stderr)
+
     def test_preview_mail_ui_rejects_empty_tls_with_clear_message(self) -> None:
         command = self.preview_command()
-        tls_host = command.index("ingress.tls[0].hosts[0]=api-pr-42.university.neordinary.com")
+        tls_host = command.index("ingress.tls[0].hosts[0]=api-pr-42.preview.university.neordinary.com")
         del command[tls_host - 1:tls_host + 1]
         result = subprocess.run(
             [*command, "--set-json", "ingress.tls=[]"],

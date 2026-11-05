@@ -23,13 +23,13 @@ from contracts.dns import (
 ZONE = "university.neordinary.com"
 ALLOWED_PATTERNS = [
     f"api.{ZONE}",
-    f"api-pr-*.{ZONE}",
-    f"mail-pr-*.{ZONE}",
+    f"api-pr-*.preview.{ZONE}",
+    f"mail-pr-*.preview.{ZONE}",
     f"_external-dns.a-api.{ZONE}",
-    f"_external-dns.a-api-pr-*.{ZONE}",
-    f"_external-dns.a-mail-pr-*.{ZONE}",
+    f"_external-dns.a-api-pr-*.preview.{ZONE}",
+    f"_external-dns.a-mail-pr-*.preview.{ZONE}",
 ]
-RENDERED_HOSTS = {f"api.{ZONE}", f"api-pr-42.{ZONE}", f"mail-pr-42.{ZONE}"}
+RENDERED_HOSTS = {f"api.{ZONE}", f"api-pr-42.preview.{ZONE}", f"mail-pr-42.preview.{ZONE}"}
 OPT_IN_FILTER = "external-dns.kubernetes.io/managed-by=umc-infra"
 OPT_IN_ANNOTATIONS = {"external-dns.kubernetes.io/managed-by": "umc-infra"}
 
@@ -49,9 +49,9 @@ class ExternalDnsRecordNameTest(unittest.TestCase):
             self.validate(ALLOWED_PATTERNS, RENDERED_HOSTS | {f"docs-pr-42.{ZONE}"})
 
     def test_rejects_host_without_ownership_txt_permission(self) -> None:
-        patterns = [p for p in ALLOWED_PATTERNS if p != f"_external-dns.a-mail-pr-*.{ZONE}"]
+        patterns = [p for p in ALLOWED_PATTERNS if p != f"_external-dns.a-mail-pr-*.preview.{ZONE}"]
         with self.assertRaisesRegex(
-            SystemExit, f"record name: _external-dns.a-mail-pr-42.{ZONE}"
+            SystemExit, f"record name: _external-dns.a-mail-pr-42.preview.{ZONE}"
         ):
             self.validate(patterns, RENDERED_HOSTS)
 
@@ -110,7 +110,7 @@ class ExternalDnsRecordNameTest(unittest.TestCase):
         ingress = {
             "kind": "Ingress",
             "metadata": {"annotations": OPT_IN_ANNOTATIONS},
-            "spec": {"rules": [{"host": f"inbox-pr-42.{ZONE}"}]},
+            "spec": {"rules": [{"host": f"inbox-pr-42.preview.{ZONE}"}]},
         }
         with tempfile.TemporaryDirectory() as directory:
             render = Path(directory, "preview-pr-42-desired-state.yaml")

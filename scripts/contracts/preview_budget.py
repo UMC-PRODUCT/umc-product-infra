@@ -137,7 +137,7 @@ def validate_preview_budget() -> None:
     )
     require(
         parameters.get("ingress.host")
-        == "api-pr-{{ .number }}.university.neordinary.com",
+        == "api-pr-{{ .number }}.preview.university.neordinary.com",
         "preview: exact public hostname",
     )
     require(
@@ -150,12 +150,12 @@ def validate_preview_budget() -> None:
     )
     require(
         parameters.get("env.SSO_ISSUER")
-        == "https://api-pr-{{ .number }}.university.neordinary.com",
+        == "https://api-pr-{{ .number }}.preview.university.neordinary.com",
         "preview: dynamic SSO issuer",
     )
     require(
         parameters.get("env.CERTIFICATE_VERIFICATION_URL_TEMPLATE")
-        == "https://api-pr-{{ .number }}.university.neordinary.com/api/v1/certificates/verify/{serialNumber}",
+        == "https://api-pr-{{ .number }}.preview.university.neordinary.com/api/v1/certificates/verify/{serialNumber}",
         "preview: dynamic certificate verification URL",
     )
     require(

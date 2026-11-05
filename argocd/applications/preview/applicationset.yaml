@@ -99,12 +99,12 @@ spec:
             - name: fullnameOverride
               value: "umc-product-server-pr-{{ .number }}"
             - name: ingress.host
-              value: "api-pr-{{ .number }}.university.neordinary.com"
+              value: "api-pr-{{ .number }}.preview.university.neordinary.com"
             # PR별 메일 수집함. 공용 wildcard 인증서가 덮는다.
             - name: mailCapture.uiHost
-              value: "mail-pr-{{ .number }}.university.neordinary.com"
+              value: "mail-pr-{{ .number }}.preview.university.neordinary.com"
             - name: ingress.tls[0].hosts[0]
-              value: "api-pr-{{ .number }}.university.neordinary.com"
+              value: "api-pr-{{ .number }}.preview.university.neordinary.com"
             # 모든 PR은 preview namespace의 공용 와일드카드 TLS Secret을 사용한다.
             # Certificate는 PR Application 밖에서 관리해 PR 삭제 시 함께 지워지지 않는다.
             - name: createDatabase.name
@@ -119,9 +119,9 @@ spec:
             # URL 계열은 PR 마다 호스트가 달라야 해서 시크릿이 아니라 여기서 채운다.
             # k8s 는 env가 envFrom을 덮으므로 공통 Secret에 값이 있어도 이쪽이 이긴다.
             - name: env.SSO_ISSUER
-              value: "https://api-pr-{{ .number }}.university.neordinary.com"
+              value: "https://api-pr-{{ .number }}.preview.university.neordinary.com"
             - name: env.CERTIFICATE_VERIFICATION_URL_TEMPLATE
-              value: "https://api-pr-{{ .number }}.university.neordinary.com/api/v1/certificates/verify/{serialNumber}"
+              value: "https://api-pr-{{ .number }}.preview.university.neordinary.com/api/v1/certificates/verify/{serialNumber}"
             # QR을 여는 웹 주소는 dev와 동일하게 사용한다. PR별 API origin과는 별개다.
             - name: env.DEMODAY_QR_BASE_URL
               value: "https://university.neordinary.com"

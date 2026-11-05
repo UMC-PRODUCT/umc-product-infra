@@ -16,13 +16,13 @@ from contracts.common import CloudFormationLoader, require, yaml_documents
 PREVIEW_SAMPLE_PR_NUMBER = "42"
 
 # Preview host를 preview. 하위 도메인으로 옮기는 동안 렌더에 없어도 IAM에 남겨 두는 패턴이다.
-# 옮기기가 끝나면 이 목록을 지운다.
+# ExternalDNS가 옛 record를 지울 때까지 필요하다. 옮기기가 끝나면 이 목록을 지운다.
 PREVIEW_HOST_MIGRATION_PATTERNS = frozenset(
     {
-        "api-pr-*.preview.university.neordinary.com",
-        "mail-pr-*.preview.university.neordinary.com",
-        "_external-dns.a-api-pr-*.preview.university.neordinary.com",
-        "_external-dns.a-mail-pr-*.preview.university.neordinary.com",
+        "api-pr-*.university.neordinary.com",
+        "mail-pr-*.university.neordinary.com",
+        "_external-dns.a-api-pr-*.university.neordinary.com",
+        "_external-dns.a-mail-pr-*.university.neordinary.com",
     }
 )
 
