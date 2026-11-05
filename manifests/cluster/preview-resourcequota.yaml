@@ -23,5 +23,7 @@ spec:
     requests.memory: 6688Mi
     limits.memory: 9792Mi
     # PVC는 이 namespace의 공용 PostgreSQL data 하나(5Gi)뿐이다. PR chart가 PVC를 만들지 못하게 막는다.
+    # 이 두 값과 위 Certificate 수는 설계상 상시 100%라 prometheus.yaml의 Discord route가 이 세 resource의
+    # KubeQuotaFullyUsed를 버린다. hard limit을 바꾸면 그 route도 고친다.
     count/persistentvolumeclaims: "1"
     requests.storage: 5Gi
