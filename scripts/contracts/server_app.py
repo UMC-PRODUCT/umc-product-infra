@@ -300,6 +300,7 @@ def validate_render(
     expected_environment = {
         "prod": {
             "APP_SEED_ENABLED": "false",
+            "APP_SEED_QA_AUTO_RUN": None,
             "APP_TEST_API_ENABLED": "false",
             "FCM_ENABLED": "true",
             "OPENAPI_ENABLE": "true",
@@ -324,6 +325,7 @@ def validate_render(
         },
         "dev": {
             "APP_SEED_ENABLED": "true",
+            "APP_SEED_QA_AUTO_RUN": "true",
             "APP_TEST_API_ENABLED": "true",
             "FCM_ENABLED": "true",
             "OPENAPI_ENABLE": "true",

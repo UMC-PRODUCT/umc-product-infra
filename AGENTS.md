@@ -72,6 +72,7 @@ ansible-lint playbooks/*.yml
 | Secret 추가·변경·회전 | `docs/operations/secrets.md` |
 | DNS·TLS·Route 53 | `docs/operations/domains-tls.md` |
 | backup 최초 활성화 | `docs/runbooks/backup-activation.md` |
+| dev DB 다시 만들기 | `docs/runbooks/dev-db-reset.md` |
 
 문서의 고정 계약과 코드가 다르면 코드를 먼저 확인하고, 차이를 사용자에게 알린 뒤 둘을 함께
 수정한다. 날짜별 진행률과 일회성 감사 결과는 저장소 문서가 아니라 Issue나 Project에서 관리한다.
