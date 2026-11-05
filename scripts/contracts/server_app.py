@@ -352,7 +352,7 @@ def validate_render(
             "DATABASE_URL": "jdbc:postgresql://postgres.dev-db.svc.cluster.local:5432/umc_product_dev",
         },
         "preview": {
-            "APP_SEED_ENABLED": "true",
+            "APP_SEED_ENABLED": "false",
             "APP_TEST_API_ENABLED": "true",
             "FCM_ENABLED": "false",
             "SPRING_PROFILES_ACTIVE": "dev",
