@@ -133,7 +133,8 @@ for number in (42, 43):
     assert env["DEMODAY_QR_BASE_URL"] == "https://university.neordinary.com"
     assert env["DATABASE_URL"].endswith(f"/umc_product_pr{number}")
     assert env["OPENAPI_ENABLE"] == "true"
-    assert env["APP_TEST_API_ENABLED"] == env["APP_SEED_ENABLED"] == "true"
+    assert env["APP_TEST_API_ENABLED"] == "true"
+    assert env["APP_SEED_ENABLED"] == "false"
     assert ingress["spec"]["rules"][0]["host"] == f"api-pr-{number}.university.neordinary.com"
     assert ingress["spec"]["tls"][0]["secretName"] == "preview-wildcard-tls"
     assert len([item for item in documents if item["kind"] == "Job"]) == 2
@@ -355,6 +356,13 @@ if helm template umc-product-preview-42 charts/umc-product-server \
   --set 'requiredSecrets={app-db,app-jwt,app-oauth,app-storage,app-email,app-fcm}' \
   >/dev/null 2>&1; then
   echo "preview app-fcm unexpectedly passed" >&2
+  exit 1
+fi
+# Preview는 app-seed가 없으므로 seed API를 열 수 없다.
+if helm template umc-product-preview-42 charts/umc-product-server \
+  -f charts/umc-product-server/values-preview.yaml "${preview_args[@]}" \
+  --set-string env.APP_SEED_ENABLED=true >/dev/null 2>&1; then
+  echo "preview APP_SEED_ENABLED=true unexpectedly passed" >&2
   exit 1
 fi
 if helm template umc-product-preview-42 charts/umc-product-server \
