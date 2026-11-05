@@ -14,7 +14,6 @@ SCRIPTS_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(SCRIPTS_DIR))
 
 from contracts.dns import (
-    PREVIEW_HOST_MIGRATION_PATTERNS,
     external_dns_hosts,
     validate_external_dns_record_names,
     validate_route53_contract,
@@ -66,10 +65,6 @@ class ExternalDnsRecordNameTest(unittest.TestCase):
     def test_rejects_pattern_without_rendered_host(self) -> None:
         with self.assertRaisesRegex(SystemExit, f"no longer used: grafana.{ZONE}"):
             self.validate([*ALLOWED_PATTERNS, f"grafana.{ZONE}"], RENDERED_HOSTS)
-
-    # Preview host 이전 기간에는 렌더되지 않은 이전 대상 패턴만 IAM에 남길 수 있다.
-    def test_accepts_preview_migration_patterns_without_rendered_host(self) -> None:
-        self.validate([*ALLOWED_PATTERNS, *sorted(PREVIEW_HOST_MIGRATION_PATTERNS)], RENDERED_HOSTS)
 
     def test_collects_only_opted_in_ingress_hosts(self) -> None:
         documents = [
