@@ -342,7 +342,7 @@ Preview 문서를 처음 활성화하기 전에 prod/dev와 다른 비밀번호�
 실제 비밀번호나 htpasswd 결과를 chat·Git·명령 인자에 남기지 않는다.
 
 AWS source 준비와 `preview/docs-basic-auth` ExternalSecret의 `Ready=True`를 확인한 뒤
-Preview 문서 설정을 배포한다. 각 PR의 `https://api-pr-<PR번호>.university.neordinary.com/docs`와
+Preview 문서 설정을 배포한다. 각 PR의 `https://api-pr-<PR번호>.preview.university.neordinary.com/docs`와
 `/docs-json`에서 익명 요청 `401`, 자격증명 입력 후 `200`을 확인한다. 비밀번호 회전은 이
 Preview source 한 곳에서 수행하며 모든 PR 문서에 함께 적용된다. 일반 앱 Pod는 문서 인증
 Secret을 읽지 않으므로 문서 비밀번호 회전만으로 앱을 재시작하지 않는다.

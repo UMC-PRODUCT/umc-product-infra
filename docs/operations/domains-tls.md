@@ -29,8 +29,8 @@ ExternalDNS는 API, Preview 메일 수집함, Grafana와 Argo CD record만 소�
 |---|---|---|
 | prod API | `api.university.neordinary.com` | Route 53 A record → public direct HTTPS, API 인증 |
 | dev API | `api-dev.university.neordinary.com` | Route 53 A record → public direct HTTPS, API 인증 |
-| PR preview API | `api-pr-<PR>.university.neordinary.com` | Route 53 exact A record → public direct HTTPS, API 인증 |
-| PR preview 메일 수집함 | `mail-pr-<PR>.university.neordinary.com` | Route 53 exact A record → public direct HTTPS, Preview 공용 Basic Auth |
+| PR preview API | `api-pr-<PR>.preview.university.neordinary.com` | Route 53 exact A record → public direct HTTPS, API 인증 |
+| PR preview 메일 수집함 | `mail-pr-<PR>.preview.university.neordinary.com` | Route 53 exact A record → public direct HTTPS, Preview 공용 Basic Auth |
 | Grafana | 관리자가 전달하는 Grafana host | Route 53 A record → public direct HTTPS, Grafana 로그인 필수 |
 | Argo CD | 관리자가 전달하는 Argo CD host | Route 53 A record → public direct HTTPS, Argo CD 로그인 필수 |
 
@@ -68,11 +68,13 @@ Argo CD는 비공유 `admin`과 공용 조회 계정 `umc-viewer`를 사용한�
 - Argo CD: controller, ClusterIssuer, Certificate, Ingress desired state
 - 제공업체 방화벽과 UFW: 공인 SSH `22/tcp`와 HTTPS `443/tcp`를 허용하고 DB `5432/tcp`와 Kubernetes API `6443/tcp`는 비공개로 유지
 
-wildcard DNS record는 만들지 않는다. ExternalDNS는 `api-pr-27.university.neordinary.com`,
-`mail-pr-27.university.neordinary.com` 같은 exact record를 PR마다 만들고 PR 삭제 시 TXT ownership
+wildcard DNS record는 만들지 않는다. ExternalDNS는 `api-pr-27.preview.university.neordinary.com`,
+`mail-pr-27.preview.university.neordinary.com` 같은 exact record를 PR마다 만들고 PR 삭제 시 TXT ownership
 범위에서 정리한다.
 cert-manager는 `preview` namespace에 `Certificate/preview-wildcard` 하나를 두고
-`*.university.neordinary.com`을 `preview-wildcard-tls` Secret으로 발급한다.
+`*.preview.university.neordinary.com`을 `preview-wildcard-tls` Secret으로 발급한다.
+Preview host를 `preview.` 하위로 옮기는 동안에는 옛 `*.university.neordinary.com`도 함께 담는다.
+그동안 이 인증서는 `api.`, `argo.`, `grafana.` 같은 운영 host도 덮는다.
 
 ## Hosted Zone와 public IP gate
 
@@ -124,10 +126,13 @@ ExternalDNS `annotationFilter`와 같은 annotation을 가진 것만이다.
 |---|---|---|
 | prod API | `api.<zone>` | `_external-dns.a-api.<zone>` |
 | dev API | `api-dev.<zone>` | `_external-dns.a-api-dev.<zone>` |
-| PR preview API | `api-pr-*.<zone>` | `_external-dns.a-api-pr-*.<zone>` |
-| PR preview 메일 수집함 | `mail-pr-*.<zone>` | `_external-dns.a-mail-pr-*.<zone>` |
+| PR preview API | `api-pr-*.preview.<zone>` | `_external-dns.a-api-pr-*.preview.<zone>` |
+| PR preview 메일 수집함 | `mail-pr-*.preview.<zone>` | `_external-dns.a-mail-pr-*.preview.<zone>` |
 | Grafana | `grafana.<zone>` | `_external-dns.a-grafana.<zone>` |
 | Argo CD | `argo.<zone>` | `_external-dns.a-argo.<zone>` |
+
+Preview host를 옮기는 동안에는 ExternalDNS가 옛 record를 지울 수 있게 `api-pr-*.<zone>`,
+`mail-pr-*.<zone>`와 각 ownership TXT 패턴도 IAM에 남긴다.
 
 ## 최초 활성화 순서
 

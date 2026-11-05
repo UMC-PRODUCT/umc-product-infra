@@ -25,7 +25,7 @@ def edge_expectation(environment: str) -> tuple[str, str, str]:
             "umc-product-server",
         ),
         "preview": (
-            "api-pr-42.university.neordinary.com",
+            "api-pr-42.preview.university.neordinary.com",
             "preview-wildcard-tls",
             "umc-product-server-pr-42",
         ),
@@ -384,7 +384,7 @@ def validate_active_preview_edge_fixture(path: Path) -> None:
         and item["metadata"]["name"] == "umc-product-server-pr-42-mail"
     )
     require(
-        mail_ingress["spec"]["rules"][0]["host"] == "mail-pr-42.university.neordinary.com"
+        mail_ingress["spec"]["rules"][0]["host"] == "mail-pr-42.preview.university.neordinary.com"
         and mail_ingress["spec"]["tls"][0]["secretName"] == "preview-wildcard-tls"
         and mail_ingress["metadata"]["annotations"]["traefik.ingress.kubernetes.io/router.middlewares"]
         == router_middlewares("preview", "rate-limit", "in-flight", "mail-basic-auth"),

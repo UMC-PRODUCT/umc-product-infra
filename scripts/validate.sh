@@ -135,7 +135,7 @@ for number in (42, 43):
     assert env["OPENAPI_ENABLE"] == "true"
     assert env["APP_TEST_API_ENABLED"] == "true"
     assert env["APP_SEED_ENABLED"] == "false"
-    assert ingress["spec"]["rules"][0]["host"] == f"api-pr-{number}.university.neordinary.com"
+    assert ingress["spec"]["rules"][0]["host"] == f"api-pr-{number}.preview.university.neordinary.com"
     assert ingress["spec"]["tls"][0]["secretName"] == "preview-wildcard-tls"
     assert len([item for item in documents if item["kind"] == "Job"]) == 2
     # 누락된 발행 digest로는 Preview를 열지 못한다.
@@ -338,11 +338,11 @@ preview_args=(
   --set-string env.DATABASE_URL=jdbc:postgresql://postgres-preview.preview.svc.cluster.local:5432/umc_product_pr42
   --set-string env.SPRING_APPLICATION_NAME=preview-umc-product-pr42
   --set-string env.APP_ENVIRONMENT=preview-pr-42
-  --set-string env.SSO_ISSUER=https://api-pr-42.university.neordinary.com
-  --set-string 'env.CERTIFICATE_VERIFICATION_URL_TEMPLATE=https://api-pr-42.university.neordinary.com/api/v1/certificates/verify/{serialNumber}'
-  --set-string ingress.host=api-pr-42.university.neordinary.com
-  --set-string 'ingress.tls[0].hosts[0]=api-pr-42.university.neordinary.com'
-  --set-string mailCapture.uiHost=mail-pr-42.university.neordinary.com
+  --set-string env.SSO_ISSUER=https://api-pr-42.preview.university.neordinary.com
+  --set-string 'env.CERTIFICATE_VERIFICATION_URL_TEMPLATE=https://api-pr-42.preview.university.neordinary.com/api/v1/certificates/verify/{serialNumber}'
+  --set-string ingress.host=api-pr-42.preview.university.neordinary.com
+  --set-string 'ingress.tls[0].hosts[0]=api-pr-42.preview.university.neordinary.com'
+  --set-string mailCapture.uiHost=mail-pr-42.preview.university.neordinary.com
 )
 # Preview는 FCM 활성화와 Firebase Secret 주입을 모두 금지한다.
 if helm template umc-product-preview-42 charts/umc-product-server \

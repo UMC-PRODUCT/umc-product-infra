@@ -95,7 +95,7 @@ ingress:
   host: preview.example.invalid
   tls:
     - hosts: [preview.example.invalid]
-      # preview namespace에 한 번만 발급하는 *.university.neordinary.com 인증서다.
+      # preview namespace에 한 번만 발급하는 *.preview.university.neordinary.com 인증서다.
       secretName: preview-wildcard-tls
 
 # PR마다 Certificate를 만들지 않는다. 모든 Preview Ingress가 위 공용 Secret을 참조한다.
