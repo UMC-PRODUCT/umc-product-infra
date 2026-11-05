@@ -73,7 +73,8 @@ wildcard DNS record는 만들지 않는다. ExternalDNS는 `api-pr-27.preview.un
 범위에서 정리한다.
 cert-manager는 `preview` namespace에 `Certificate/preview-wildcard` 하나를 두고
 `*.preview.university.neordinary.com`을 `preview-wildcard-tls` Secret으로 발급한다.
-Preview host를 `preview.` 하위에만 두어 이 인증서가 `api.`, `argo.`, `grafana.` 같은 운영 host를 덮지 않게 한다.
+Preview host를 `preview.` 하위로 옮기는 동안에는 옛 `*.university.neordinary.com`도 함께 담는다.
+그동안 이 인증서는 `api.`, `argo.`, `grafana.` 같은 운영 host도 덮는다.
 
 ## Hosted Zone와 public IP gate
 
@@ -129,6 +130,9 @@ ExternalDNS `annotationFilter`와 같은 annotation을 가진 것만이다.
 | PR preview 메일 수집함 | `mail-pr-*.preview.<zone>` | `_external-dns.a-mail-pr-*.preview.<zone>` |
 | Grafana | `grafana.<zone>` | `_external-dns.a-grafana.<zone>` |
 | Argo CD | `argo.<zone>` | `_external-dns.a-argo.<zone>` |
+
+Preview host를 옮기는 동안에는 ExternalDNS가 옛 record를 지울 수 있게 `api-pr-*.<zone>`,
+`mail-pr-*.<zone>`와 각 ownership TXT 패턴도 IAM에 남긴다.
 
 ## 최초 활성화 순서
 
