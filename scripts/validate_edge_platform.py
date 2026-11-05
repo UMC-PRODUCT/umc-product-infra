@@ -539,7 +539,8 @@ def validate_preview_wildcard_certificate() -> str:
     )
     spec = certificate["spec"]
     require(
-        spec.get("dnsNames") == ["*.university.neordinary.com"],
+        spec.get("dnsNames")
+        == ["*.university.neordinary.com", "*.preview.university.neordinary.com"],
         "preview: wildcard SAN",
     )
     require(
