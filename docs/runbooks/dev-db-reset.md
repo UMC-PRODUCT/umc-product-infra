@@ -11,17 +11,12 @@ dev 데이터가 모두 사라지고 되돌릴 수 없다. prod·Preview DB에�
 
 ## 전제
 
-- 서버 레포에서 원하는 시딩 코드가 develop에 머지되어 dev에 배포됐다.
-  `sudo k3s kubectl -n dev-app get deploy umc-product-server -o jsonpath='{.spec.template.spec.containers[0].image}'`가
-  `values-dev.yaml`의 image digest와 같아야 한다.
 - 실행자는 `umc-ssh-admins` 그룹으로 서버에 SSH 접속할 수 있다.
-- `values-dev.yaml`의 `APP_SEED_QA_AUTO_RUN`이 `"true"`이면 앱 기동 뒤 QA 시딩이 자동으로 돈다.
-  아니면 6단계에서 API를 직접 부른다.
 
 ## 중단 조건
 
 - 2단계 확인에서 ICU `ko` collation이 0개면 멈춘다. 이미지에 ICU가 없다는 뜻이다.
-- 3단계 Job 중 하나라도 `Complete`가 되지 않으면 앱을 재시작하지 않는다. 확장과 앱 권한 없이
+- 3단계 `rerun_role_jobs`가 실패하면 앱을 재시작하지 않는다. 확장과 앱 권한 없이
   Flyway가 돌면 첫 migration부터 실패한다.
 
 ## 절차
@@ -53,18 +48,13 @@ sudo k3s kubectl -n dev-db exec postgres-0 -- sh -c 'psql -U "$POSTGRES_USER" -d
 ### 3. 초기 설정 Job 다시 실행
 
 새 DB에는 PostGIS·`btree_gist` 확장, 앱 role 권한, Preview 덤프 role 권한이 없다.
-두 Job을 지우면 Argo CD `dev-postgres`가 다시 만들어 실행한다.
+backup runbook의 [`rerun_role_jobs`](backup-activation.md#운영-db-복구와-role-job-재실행)를 셸에 정의한 뒤
+두 Job을 다시 실행한다. 함수는 Job을 지우고 Argo CD `dev-postgres`가 다시 만들 때까지 기다린 뒤
+`Complete`를 확인한다.
 
 ```bash
-sudo k3s kubectl -n dev-db delete job postgres-app-role postgres-preview-dump-role
+rerun_role_jobs dev-db postgres-app-role postgres-preview-dump-role
 ```
-
-```bash
-sudo k3s kubectl -n dev-db get jobs
-```
-
-두 Job이 `1/1`이 될 때까지 다시 확인한다. 몇 분이 지나도 Job이 생기지 않으면 Argo CD에서
-`dev-postgres`를 Sync한다.
 
 ### 4. locale 확인
 
@@ -88,25 +78,24 @@ sudo k3s kubectl -n dev-app rollout status deployment umc-product-server
 
 ### 6. QA 시딩 확인
 
-`APP_SEED_QA_AUTO_RUN`이 켜져 있으면 앱 로그에서 단계별 결과를 확인한다. 처음에는 계정 비밀번호
-해시 때문에 수십 초 걸린다.
+앱이 뜬 뒤 `QA 시딩 자동 실행` 로그를 5분까지 기다린다.
 
 ```bash
-sudo k3s kubectl -n dev-app logs deployment/umc-product-server --since=10m | grep 'QA 시딩 자동 실행'
+timeout 300 sh -c 'until sudo k3s kubectl -n dev-app logs deployment/umc-product-server --since=15m | grep "QA 시딩 자동 실행"; do sleep 10; done'
 ```
 
-7개 단계가 모두 `APPLIED`면 된다. 꺼져 있으면 dev test API의 Basic Auth로
+모든 단계가 `APPLIED`면 된다. 5분 안에 로그가 없으면 dev test API의 Basic Auth로
 `POST https://api-dev.university.neordinary.com/test/seed/qa`를 한 번 부른다.
 
 ### 7. 매칭 리허설 출발선
 
-리허설을 바로 할 계획이면 `POST https://api-dev.university.neordinary.com/test/seed/projects/starting-line`을
-부른다. 응답의 `failed`가 0이어야 한다. 사용법은 서버 레포
-`docs/onboarding/test/project-matching-rehearsal.md`에 있다.
+리허설을 바로 할 계획이면 서버 레포의
+[프로젝트 매칭 리허설 문서](https://github.com/UMC-PRODUCT/umc-product-server/blob/develop/docs/onboarding/test/project-matching-rehearsal.md)를
+따라 출발선을 만든다.
 
 ## 확인
 
 - 4단계 locale이 `i|ko-KR|C.UTF-8`이다.
 - 앱 readiness가 정상이고 Flyway 에러가 없다.
-- QA 시딩 7개 단계가 `APPLIED`, 다시 부르면 `UNCHANGED`다.
+- QA 시딩 결과가 모두 `APPLIED`다.
 - Preview 생성 시 dev 덤프가 성공한다. `postgres-preview-dump-role` Job이 새 DB에 권한을 다시 줬기 때문이다.

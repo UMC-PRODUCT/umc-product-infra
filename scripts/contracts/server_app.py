@@ -303,7 +303,6 @@ def validate_render(
     expected_environment = {
         "prod": {
             "APP_SEED_ENABLED": "false",
-            "APP_SEED_QA_AUTO_RUN": None,
             "APP_TEST_API_ENABLED": "false",
             "FCM_ENABLED": "true",
             "OPENAPI_ENABLE": "true",
@@ -367,6 +366,11 @@ def validate_render(
     }[environment]
     for key, expected in expected_environment.items():
         require(environment_values.get(key) == expected, f"{environment}: env {key}")
+    if environment != "dev":
+        require(
+            "APP_SEED_QA_AUTO_RUN" not in environment_values,
+            f"{environment}: QA seed auto-run must stay dev-only",
+        )
 
     require(
         "SSO_SOCIAL_GOOGLE_CLIENT_SECRET" not in environment_values,

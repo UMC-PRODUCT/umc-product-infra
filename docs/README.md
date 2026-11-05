@@ -35,6 +35,7 @@
 데이터 삭제·서비스 중단 가능성이 있다. 각 문서의 대상, 사전 조건, 중단·복구 조건을 읽은 뒤 실행한다.
 
 - [DB 자동 백업 활성화와 외부 복원 검증](runbooks/backup-activation.md)
+- [dev DB 다시 만들기와 QA 시딩](runbooks/dev-db-reset.md)
 - [서버 이전·DB 복원·DNS 전환](runbooks/cafe24-migration.md)
 - [모니터링 수집 스택 교체](runbooks/monitoring-operator-migration.md)
 - [Preview 활성화 준비·배포 실패·DB 정리 실패 대응](runbooks/preview-operations.md)

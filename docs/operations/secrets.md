@@ -377,7 +377,7 @@ Secret을 읽지 않으므로 문서 비밀번호 회전만으로 앱을 재시�
 1. `/umc-product/prod/postgres-backup`의 `POSTGRES_BACKUP_PASSWORD`를 새 값으로 갱신한다.
 2. `db/postgres-backup` ExternalSecret을 force-sync하고 `Ready=True`를 확인한다.
 3. backup runbook의 [`rerun_role_jobs`](../runbooks/backup-activation.md#운영-db-복구와-role-job-재실행)를
-   셸에 정의하고 `rerun_role_jobs postgres-backup-role`로 Job을 다시 실행해 DB role password를 바꾼다.
+   셸에 정의하고 `rerun_role_jobs db postgres-backup-role`로 Job을 다시 실행해 DB role password를 바꾼다.
    이 함수는 Job을 지운 뒤 Argo CD가 다시 만들 때까지 기다렸다가 Complete를 확인한다.
 4. [backup runbook 2단계](../runbooks/backup-activation.md#2-수동-backup)로 수동 backup을 실행하고 성공을 확인한다.
 5. 이전 version을 폐기한다.
