@@ -77,7 +77,7 @@ def build(theme: dict) -> None:
             pg_d = StatefulSet("PostgreSQL 18 + PostGIS 3.6\nDB umc_product_dev")
 
         with Cluster("ns preview · 최대 2 · PR별 앱/API", graph_attr=ca):
-            ing_p = Ingress("api-pr-<PR>.university.neordinary.com\npublic API · 앱 인증")
+            ing_p = Ingress("api-pr-<PR>.preview.\nuniversity.neordinary.com\npublic API · 앱 인증")
             app_p = Deployment("umc-product-server-pr-<PR>")
             pg_p = StatefulSet("postgres-preview\nPR별 database")
 

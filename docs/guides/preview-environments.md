@@ -32,15 +32,15 @@ Argo CD의 `preview-head-sha`는 최신 PR 커밋, `preview-deployed-sha`는 배
 
 ## 2. 접속과 테스트
 
-- API 주소: `https://api-pr-<PR번호>.university.neordinary.com`
+- API 주소: `https://api-pr-<PR번호>.preview.university.neordinary.com`
 - API 문서: 위 주소의 `/docs/scalar.html`
-- 메일 수집함: `https://mail-pr-<PR번호>.university.neordinary.com`
+- 메일 수집함: `https://mail-pr-<PR번호>.preview.university.neordinary.com`
 - 테스트용 토큰: 위 주소의 `/test/token/access`에서 회원 ID로 액세스 토큰을 받는다. dev와 같은 test·seed API가 열려 있다.
 - 로그·메트릭·트레이스: Grafana에서 서비스 `preview-umc-product-pr<PR번호>` 선택
   로그는 WARN 이상만, 요청(trace) 10개 중 약 1개만 Loki에 남는다. 요청별 원인은 Tempo trace에서 본다.
   로그로 요청 수를 세는 API 사용량 패널은 실제보다 적게 나오므로 요청 수는 trace나 metric으로 본다.
 
-예를 들어 PR 27의 API 주소는 `https://api-pr-27.university.neordinary.com`이다.
+예를 들어 PR 27의 API 주소는 `https://api-pr-27.preview.university.neordinary.com`이다.
 앱에서 테스트할 때는 API 서버 주소를 해당 Preview 주소로 바꾼다.
 `/docs`, `/docs-json`, `/test`는 고정 계정 `umc-docs`의 Basic Auth로 보호된다.
 모든 PR이 Preview 전용 비밀번호를 공유하며 PR 생성·삭제·재배포 때 바뀌지 않는다.
@@ -88,7 +88,7 @@ PR을 닫거나 `preview` 라벨을 제거하면 Preview와 전용 DB가 자동�
 ## 테스트할 때 알아둘 점
 
 - **이메일:** Preview는 메일을 실제 수신자에게 보내지 않는다. 앱이 보낸 메일은 같은 Pod의 Mailpit에 모이고,
-  `https://mail-pr-<PR번호>.university.neordinary.com`에서 원래 수신자·제목·본문을 확인한다.
+  `https://mail-pr-<PR번호>.preview.university.neordinary.com`에서 원래 수신자·제목·본문을 확인한다.
   문서·test API와 같은 Preview 공용 Basic Auth를 쓰며, PR마다 수신함이 따로다. Pod가 다시 뜨면 수신함은 비워진다.
   실제 메일 서비스에서의 도착·스팸 판정은 dev에서 확인한다.
 - **소셜 로그인:** 모바일 앱이 받은 Google·Kakao·Apple 토큰을 Preview API로 보내는 흐름을 테스트한다.

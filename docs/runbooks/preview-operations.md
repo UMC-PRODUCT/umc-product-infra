@@ -45,7 +45,7 @@ Git에 복구할 이미지를 반영하는 작업과 DB 복원은 따로 판단�
 
 ### TLS와 수용량
 
-- 공용 `preview/preview-wildcard` Certificate는 `*.university.neordinary.com`에 대해
+- 공용 `preview/preview-wildcard` Certificate는 `*.preview.university.neordinary.com`에 대해
   `letsencrypt-production`을 사용한다. 최신 generation의 `Ready=True`와 `preview-wildcard-tls` 존재를 확인한다.
 - Route53 A/TXT는 Ingress별로 ExternalDNS가 관리한다. wildcard DNS 레코드를 쓰는 구조가 아니며,
   API 요청은 IDC의 Traefik `443/TCP`로 직접 들어온다.

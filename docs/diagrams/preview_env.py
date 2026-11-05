@@ -73,13 +73,13 @@ def build(theme: dict) -> None:
                 fontcolor=fg,
             )
             certificate = Secret(
-                "공용 wildcard Certificate\n*.university.neordinary.com\nPR 삭제 후에도 유지",
+                "공용 wildcard Certificate\n*.preview.university.neordinary.com\nPR 삭제 후에도 유지",
                 fontcolor=fg,
             )
             with Cluster("PR별 리소스 · ApplicationSet이 Deployment/Ingress 활성화", graph_attr=ca):
                 service = Service("umc-product-server-pr-42\nService quota로 자리 확보", fontcolor=fg)
                 ingress = Ingress(
-                    "api-pr-42.university.neordinary.com\nExternalDNS exact record",
+                    "api-pr-42.preview.university.neordinary.com\nExternalDNS exact record",
                     fontcolor=fg,
                 )
                 app = Deployment(
