@@ -15,6 +15,17 @@ from contracts.common import CloudFormationLoader, require, yaml_documents
 # validate.sh가 Preview 렌더 견본으로 쓰는 PR 번호다.
 PREVIEW_SAMPLE_PR_NUMBER = "42"
 
+# Preview host를 preview. 하위 도메인으로 옮기는 동안 렌더에 없어도 IAM에 남겨 두는 패턴이다.
+# 옮기기가 끝나면 이 목록을 지운다.
+PREVIEW_HOST_MIGRATION_PATTERNS = frozenset(
+    {
+        "api-pr-*.preview.university.neordinary.com",
+        "mail-pr-*.preview.university.neordinary.com",
+        "_external-dns.a-api-pr-*.preview.university.neordinary.com",
+        "_external-dns.a-mail-pr-*.preview.university.neordinary.com",
+    }
+)
+
 
 def external_dns_registry_config() -> dict:
     application = yaml.safe_load(
@@ -80,7 +91,10 @@ def validate_external_dns_record_names(
     for pattern in allowed_patterns:
         require(
             pattern.count("*") <= 1
-            and pattern.replace("*", PREVIEW_SAMPLE_PR_NUMBER) in record_names,
+            and (
+                pattern in PREVIEW_HOST_MIGRATION_PATTERNS
+                or pattern.replace("*", PREVIEW_SAMPLE_PR_NUMBER) in record_names
+            ),
             "ExternalDNS Route53 IAM pattern is broader than a rendered record "
             f"or no longer used: {pattern}",
         )
@@ -192,6 +206,7 @@ def validate_route53_contract(render_paths: list[Path]) -> None:
                         ],
                         "route53:ChangeResourceRecordSetsNormalizedRecordNames": [
                             "_acme-challenge.${DnsZoneName}",
+                            "_acme-challenge.preview.${DnsZoneName}",
                             "_acme-challenge.api.${DnsZoneName}",
                             "_acme-challenge.api-dev.${DnsZoneName}",
                             "_acme-challenge.grafana.${DnsZoneName}",

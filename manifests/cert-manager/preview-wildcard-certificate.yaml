@@ -10,7 +10,9 @@ metadata:
 spec:
   secretName: preview-wildcard-tls
   dnsNames:
+    # Preview host를 preview. 하위 도메인으로 옮기는 동안만 두 이름을 함께 둔다.
     - "*.university.neordinary.com"
+    - "*.preview.university.neordinary.com"
   issuerRef:
     group: cert-manager.io
     kind: ClusterIssuer

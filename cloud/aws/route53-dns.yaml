@@ -53,6 +53,8 @@ Resources:
                       - DELETE
                     route53:ChangeResourceRecordSetsNormalizedRecordNames:
                       - !Sub "_acme-challenge.${DnsZoneName}"
+                      # Preview 공용 인증서의 *.preview. 이름 검증용이다.
+                      - !Sub "_acme-challenge.preview.${DnsZoneName}"
                       - !Sub "_acme-challenge.api.${DnsZoneName}"
                       - !Sub "_acme-challenge.api-dev.${DnsZoneName}"
                       - !Sub "_acme-challenge.grafana.${DnsZoneName}"
@@ -106,6 +108,8 @@ Resources:
                       - !Sub "api-dev.${DnsZoneName}"
                       - !Sub "api-pr-*.${DnsZoneName}"
                       - !Sub "mail-pr-*.${DnsZoneName}"
+                      - !Sub "api-pr-*.preview.${DnsZoneName}"
+                      - !Sub "mail-pr-*.preview.${DnsZoneName}"
                       - !Sub "grafana.${DnsZoneName}"
                       - !Sub "argo.${DnsZoneName}"
                       # ExternalDNS v0.21은 A record ownership TXT에 a-를 붙인다.
@@ -113,6 +117,8 @@ Resources:
                       - !Sub "_external-dns.a-api-dev.${DnsZoneName}"
                       - !Sub "_external-dns.a-api-pr-*.${DnsZoneName}"
                       - !Sub "_external-dns.a-mail-pr-*.${DnsZoneName}"
+                      - !Sub "_external-dns.a-api-pr-*.preview.${DnsZoneName}"
+                      - !Sub "_external-dns.a-mail-pr-*.preview.${DnsZoneName}"
                       - !Sub "_external-dns.a-grafana.${DnsZoneName}"
                       - !Sub "_external-dns.a-argo.${DnsZoneName}"
       Tags:
