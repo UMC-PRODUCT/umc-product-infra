@@ -72,7 +72,7 @@ env:
   EMAIL_NO_REPLY_ADDRESS: umcproduct1227@gmail.com
   GOOGLE_CLIENT_ID_LIST: "882297658822-ag179p23eqhc5lti8ue5cgbf5phekbfh.apps.googleusercontent.com,882297658822-qaf493b6fu6a9f33artnu435jimkoome.apps.googleusercontent.com,882297658822-gsl0u8uo78qtt5h0ggkm421sml9c02pd.apps.googleusercontent.com,882297658822-d47kcffbv3eoms278pak6rcv21lhcei8.apps.googleusercontent.com,655033275728-f7jpdingakk1f4im8reegjmioth8jvnv.apps.googleusercontent.com"
   APP_SEED_ENABLED: "true"
-  # 앱 기동 뒤 QA 시딩(/test/seed/qa)을 한 번 실행한다. 이미 있는 데이터는 건너뛰므로 켜 둔 채로 둔다.
+  # 앱이 기동할 때마다 QA 시딩(/test/seed/qa와 같음)을 실행한다. 이미 있는 데이터는 건너뛰므로 켜 둔 채로 둔다.
   APP_SEED_QA_AUTO_RUN: "true"
   # 개발 앱 전용 role과 DB를 사용한다. 비밀번호는 dev-app의 app-db Secret에서 주입한다.
   DATABASE_URL: jdbc:postgresql://postgres.dev-db.svc.cluster.local:5432/umc_product_dev
