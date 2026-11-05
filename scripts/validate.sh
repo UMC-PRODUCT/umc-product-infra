@@ -358,6 +358,7 @@ if helm template umc-product-preview-42 charts/umc-product-server \
   echo "preview app-fcm unexpectedly passed" >&2
   exit 1
 fi
+# Preview는 app-seed가 없으므로 seed API를 열 수 없다.
 if helm template umc-product-preview-42 charts/umc-product-server \
   -f charts/umc-product-server/values-preview.yaml "${preview_args[@]}" \
   --set-string env.APP_SEED_ENABLED=true >/dev/null 2>&1; then
