@@ -14,6 +14,8 @@ from contracts.common import ROOT, CloudFormationLoader, require, yaml_documents
 BASE_REQUIRED_SECRETS = ["app-db", "app-jwt", "app-oauth", "app-storage", "app-email"]
 # prod·dev만 받는 Secret. preview는 FCM과 신고 봇을 쓰지 않는다.
 NONPREVIEW_REQUIRED_SECRETS = [*BASE_REQUIRED_SECRETS, "app-fcm", "app-report-discord"]
+# QA 시딩 계정 비밀번호는 시딩 자동 실행을 켠 dev만 받는다.
+DEV_REQUIRED_SECRETS = [*NONPREVIEW_REQUIRED_SECRETS, "app-seed"]
 
 
 # AWS 원본 경로와 Kubernetes Secret의 namespace·키 매핑·보존 정책을 함께 대조한다.
@@ -22,7 +24,7 @@ def validate_secrets(path: Path) -> None:
     stores = [item for item in resources if item.get("kind") == "SecretStore"]
     external_secrets = [item for item in resources if item.get("kind") == "ExternalSecret"]
     require(len(stores) == 9, f"SecretStore count is {len(stores)}, expected 9")
-    require(len(external_secrets) == 38, f"ExternalSecret count is {len(external_secrets)}, expected 38")
+    require(len(external_secrets) == 39, f"ExternalSecret count is {len(external_secrets)}, expected 39")
 
     expected_names = {
         "app": set(NONPREVIEW_REQUIRED_SECRETS + ["docs-basic-auth"]),
@@ -34,7 +36,7 @@ def validate_secrets(path: Path) -> None:
             "postgres-backup",
             "backup-s3",
         },
-        "dev-app": set(NONPREVIEW_REQUIRED_SECRETS + ["docs-basic-auth"]),
+        "dev-app": set(DEV_REQUIRED_SECRETS + ["docs-basic-auth"]),
         "dev-db": {"app-db", "postgres-secrets", "postgres-preview-dump"},
         "preview": set(
             BASE_REQUIRED_SECRETS + ["postgres-preview-secrets", "docs-basic-auth", "dev-db-dump"]
@@ -79,6 +81,7 @@ def validate_secrets(path: Path) -> None:
         "app-storage": {"S3_ACCESS_KEY_ID", "S3_SECRET_ACCESS_KEY"},
         "app-fcm": {"FIREBASE_CONFIGURATION"},
         "app-report-discord": {"REPORT_DISCORD_BOT_TOKEN", "REPORT_DISCORD_PUBLIC_KEY", "REPORT_DISCORD_GUILD_ID", "REPORT_DISCORD_CHANNEL_ID", "REPORT_DISCORD_MODERATOR_ROLE_ID"},
+        "app-seed": {"APP_SEED_DEFAULT_PASSWORD"},
         "docs-basic-auth": {"users"},
         "postgres-exporter": {"POSTGRES_EXPORTER_PASSWORD"},
         "postgres-backup": {"POSTGRES_BACKUP_PASSWORD"},
@@ -122,7 +125,7 @@ def validate_secrets(path: Path) -> None:
     )
     iam_sources = set(re.findall(r"secret:(/umc-product/[^\"\n]+)-\?{6}", iam_text))
     require(sources == iam_sources, f"Secrets Manager/IAM paths differ: {sources ^ iam_sources}")
-    require(len(sources) == 36, f"Secrets Manager source count is {len(sources)}, expected 36")
+    require(len(sources) == 37, f"Secrets Manager source count is {len(sources)}, expected 37")
     iam_template = yaml.load(iam_text, Loader=CloudFormationLoader)
     dev_resources = iam_template["Resources"]["DevRole"]["Properties"]["Policies"][0][
         "PolicyDocument"
@@ -148,8 +151,8 @@ def validate_secrets(path: Path) -> None:
         "secret uploader paths/properties must match rendered ExternalSecrets",
     )
     require(
-        len(SECRET_SPECS) == len(uploader_properties) == 36,
-        "secret uploader must contain 36 unique sources",
+        len(SECRET_SPECS) == len(uploader_properties) == 37,
+        "secret uploader must contain 37 unique sources",
     )
     renamed_properties = {
         "/umc-product/prod/backup-s3": {

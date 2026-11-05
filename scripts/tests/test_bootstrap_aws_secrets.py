@@ -116,6 +116,21 @@ class WorksheetParserTests(unittest.TestCase):
         with self.assertRaisesRegex(uploader.BootstrapError, "all empty or all set"):
             uploader.validate_worksheet_values(values, "351284652562")
 
+    def test_seed_password_is_dev_only_and_not_the_public_default(self) -> None:
+        self.assertIn("APP_SEED_DEFAULT_PASSWORD", uploader.expected_env_keys(".env.dev"))
+        self.assertNotIn("APP_SEED_DEFAULT_PASSWORD", uploader.expected_env_keys(".env.prod"))
+        self.assertNotIn("APP_SEED_DEFAULT_PASSWORD", uploader.expected_env_keys(".env.preview"))
+
+        dev = valid_worksheets()[".env.dev"]
+        dev["APP_SEED_DEFAULT_PASSWORD"] = ""
+        with self.assertRaisesRegex(uploader.BootstrapError, "APP_SEED_DEFAULT_PASSWORD must not be empty"):
+            uploader.parse_env_text(serialize_env(".env.dev", dev), ".env.dev")
+
+        values = valid_worksheets()
+        values[".env.dev"]["APP_SEED_DEFAULT_PASSWORD"] = uploader.PUBLIC_SEED_DEFAULT_PASSWORD
+        with self.assertRaisesRegex(uploader.BootstrapError, "public server default"):
+            uploader.validate_worksheet_values(values, "351284652562")
+
 
 # 원본 키의 목적지 매핑과 환경별 자격증명 분리를 검증해 다른 용도의 Secret 재사용을 막는다.
 class PayloadTests(unittest.TestCase):
@@ -133,7 +148,7 @@ class PayloadTests(unittest.TestCase):
 
         payloads = uploader.build_payloads(values)
 
-        self.assertEqual(len(payloads), 36)
+        self.assertEqual(len(payloads), 37)
         self.assertIn("APPLE_WEB_CLIENT_ID", payloads["/umc-product/prod/app-oauth"])
         self.assertEqual(
             payloads["/umc-product/prod/app-oauth"]["APPLE_WEB_CLIENT_ID"], ""

@@ -17,6 +17,7 @@ from contracts.edge import (
 )
 from contracts.external_secrets import (
     BASE_REQUIRED_SECRETS,
+    DEV_REQUIRED_SECRETS,
     NONPREVIEW_REQUIRED_SECRETS,
 )
 from contracts.postgres import POSTGIS_IMAGE
@@ -255,9 +256,11 @@ def validate_render(
         container["securityContext"]["readOnlyRootFilesystem"] is True,
         f"{environment}: read-only root filesystem",
     )
-    expected_required_secrets = (
-        NONPREVIEW_REQUIRED_SECRETS if environment in {"prod", "dev"} else BASE_REQUIRED_SECRETS
-    )
+    expected_required_secrets = {
+        "prod": NONPREVIEW_REQUIRED_SECRETS,
+        "dev": DEV_REQUIRED_SECRETS,
+        "preview": BASE_REQUIRED_SECRETS,
+    }[environment]
     require(
         [item["secretRef"]["name"] for item in container["envFrom"]]
         == expected_required_secrets,
@@ -383,6 +386,10 @@ def validate_render(
     provider = environment_values.get("EMAIL_PROVIDER")
     require(provider in {"ses", "smtp"}, f"{environment}: email provider")
     require("SMTP_PASSWORD" not in environment_values, "SMTP password must come from Secret")
+    require(
+        "APP_SEED_DEFAULT_PASSWORD" not in environment_values,
+        "seed account password must come from Secret",
+    )
     if provider == "smtp" and environment == "preview":
         # Preview는 Pod 안 Mailpit으로만 보낸다. 외부 SMTP 주소나 Gmail 계정을 쓰지 않는다.
         for key, expected in {

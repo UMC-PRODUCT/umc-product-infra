@@ -69,6 +69,9 @@ REPORT_DISCORD_PROPERTIES = (
     ("REPORT_DISCORD_CHANNEL_ID", "REPORT_DISCORD_CHANNEL_ID"),
     ("REPORT_DISCORD_MODERATOR_ROLE_ID", "REPORT_DISCORD_MODERATOR_ROLE_ID"),
 )
+# dev QA 시딩 계정 공통 비밀번호. 서버 레포 application.yml의 공개 기본값을 쓰면 누구나 시딩된 관리자로 로그인한다.
+SEED_PROPERTIES = (("APP_SEED_DEFAULT_PASSWORD", "APP_SEED_DEFAULT_PASSWORD"),)
+PUBLIC_SEED_DEFAULT_PASSWORD = "password12!"
 POSTGRES_PROPERTIES = (
     ("POSTGRES_USER", "POSTGRES_USER"),
     ("POSTGRES_PASSWORD", "POSTGRES_PASSWORD"),
@@ -179,6 +182,7 @@ SECRET_SPECS = (
         "dev",
     ),
     SecretSpec("/umc-product/dev/app-report-discord", ".env.dev", REPORT_DISCORD_PROPERTIES, "dev"),
+    SecretSpec("/umc-product/dev/app-seed", ".env.dev", SEED_PROPERTIES, "dev"),
     SecretSpec(
         "/umc-product/dev/docs-basic-auth",
         ".env.dev",
@@ -414,6 +418,9 @@ def validate_worksheet_values(values: dict[str, dict[str, str]], account_id: str
     report_filled = [bool(values[".env.dev"][key]) for key in report_keys]
     if any(report_filled) and not all(report_filled):
         raise BootstrapError(".env.dev REPORT_DISCORD_* must be all empty or all set")
+
+    if values[".env.dev"]["APP_SEED_DEFAULT_PASSWORD"] == PUBLIC_SEED_DEFAULT_PASSWORD:
+        raise BootstrapError(".env.dev APP_SEED_DEFAULT_PASSWORD must not be the public server default")
 
     docs_users = [
         values[env_file]["DOCS_BASIC_AUTH_USERS"]

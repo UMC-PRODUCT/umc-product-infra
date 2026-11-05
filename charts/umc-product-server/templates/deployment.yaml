@@ -191,6 +191,13 @@ Secret 이름 검사는 값의 존재·유효성을 보장하지 않으므로 ES
 {{- if and (eq $environment "preview") (has "app-report-discord" .Values.requiredSecrets) -}}
 {{- fail "preview 환경에서는 app-report-discord를 사용할 수 없다" -}}
 {{- end -}}
+{{/* QA 시딩 자동 실행이 SUPER_ADMIN을 만드는 dev는 서버의 공개 기본 비밀번호 대신 app-seed 값을 쓴다. */}}
+{{- if and (eq $environment "dev") (not (has "app-seed" .Values.requiredSecrets)) -}}
+{{- fail "dev는 requiredSecrets에 app-seed가 필요하다" -}}
+{{- end -}}
+{{- if and (ne $environment "dev") (has "app-seed" .Values.requiredSecrets) -}}
+{{- fail "prod·preview에서는 app-seed를 사용할 수 없다" -}}
+{{- end -}}
 {{/* DB/JWT 회전은 적용 순서 검토가 필요하므로 Reloader 자동 재시작 목록에서 제외한다. */}}
 {{- $expectedReloadSecrets := ternary (list "app-oauth" "app-storage" "app-email" "app-fcm" "app-report-discord") (list "app-oauth" "app-storage" "app-email") (ne $environment "preview") -}}
 {{- if ne (toJson .Values.reloader.secretNames) (toJson $expectedReloadSecrets) -}}

@@ -100,6 +100,8 @@ requiredSecrets:
   - app-email
   - app-fcm
   - app-report-discord
+  # QA 시딩 계정 비밀번호. 이미 만든 계정은 바뀌지 않으므로 Reloader 대상에 넣지 않는다.
+  - app-seed
 
 reloader:
   secretNames:
