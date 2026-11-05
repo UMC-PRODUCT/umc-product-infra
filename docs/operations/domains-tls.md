@@ -73,8 +73,8 @@ wildcard DNS record는 만들지 않는다. ExternalDNS는 `api-pr-27.preview.un
 범위에서 정리한다.
 cert-manager는 `preview` namespace에 `Certificate/preview-wildcard` 하나를 두고
 `*.preview.university.neordinary.com`을 `preview-wildcard-tls` Secret으로 발급한다.
-Preview host를 `preview.` 하위로 옮기는 동안에는 옛 `*.university.neordinary.com`도 함께 담는다.
-그동안 이 인증서는 `api.`, `argo.`, `grafana.` 같은 운영 host도 덮는다.
+Preview host를 `preview.` 하위에만 두어 이 인증서가 `api.`, `argo.`, `grafana.` 같은 운영 host를 덮지 않게 한다.
+`scripts/validate_edge_platform.py`는 이 인증서에 `preview.` 밖 이름이 들어가면 실패한다.
 
 ## Hosted Zone와 public IP gate
 
@@ -115,10 +115,10 @@ challenge TXT 작성과 변경 상태 조회, ExternalDNS에는 exact A/TXT reco
 필요한 최소 권한만 준다.
 
 ExternalDNS IAM은 아래 이름의 A record와 ownership TXT만 변경할 수 있다. TXT 이름은
-`txtPrefix: _external-dns.`와 record type `a-`를 host 앞에 붙인 형태다. `*`는 Preview PR 번호
-자리에만 쓴다. Ingress host를 추가하면 `cloud/aws/route53-dns.yaml`의 허용 목록과 이 표를 함께
+`txtPrefix: _external-dns.`와 record type `a-`를 host 앞에 붙인 형태다. `*`는 `preview.` 하위
+Preview PR 번호 자리에만 쓴다. Ingress host를 추가하면 `cloud/aws/route53-dns.yaml`의 허용 목록과 이 표를 함께
 바꾸고 stack을 갱신한다. `scripts/contracts/dns.py`는 렌더된 Ingress host가 허용 목록에
-없거나 허용 목록이 렌더된 host보다 넓으면 실패한다. Preview host는 ApplicationSet parameter로
+없거나 허용 목록이 렌더된 host보다 넓거나 `*` 패턴이 `preview.` 밖이면 실패한다. Preview host는 ApplicationSet parameter로
 렌더한 PR 42 결과, Grafana host는 Argo CD values로 렌더한 chart 결과에서 읽는다. 대상 Ingress는
 ExternalDNS `annotationFilter`와 같은 annotation을 가진 것만이다.
 
@@ -130,9 +130,6 @@ ExternalDNS `annotationFilter`와 같은 annotation을 가진 것만이다.
 | PR preview 메일 수집함 | `mail-pr-*.preview.<zone>` | `_external-dns.a-mail-pr-*.preview.<zone>` |
 | Grafana | `grafana.<zone>` | `_external-dns.a-grafana.<zone>` |
 | Argo CD | `argo.<zone>` | `_external-dns.a-argo.<zone>` |
-
-Preview host를 옮기는 동안에는 ExternalDNS가 옛 record를 지울 수 있게 `api-pr-*.<zone>`,
-`mail-pr-*.<zone>`와 각 ownership TXT 패턴도 IAM에 남긴다.
 
 ## 최초 활성화 순서
 

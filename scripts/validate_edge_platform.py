@@ -17,6 +17,7 @@ ROOT = Path(__file__).resolve().parent.parent
 APPLICATION_DIR = ROOT / "argocd" / "applications" / "platform"
 IMAGE_DIGEST = re.compile(r"@sha256:[0-9a-f]{64}$")
 LETSENCRYPT_ISSUERS = {"letsencrypt-staging", "letsencrypt-production"}
+PREVIEW_DNS_DOMAIN = "preview.university.neordinary.com"
 EXPECTED = {
     "cert-manager": {
         "project": "cert-manager",
@@ -538,11 +539,16 @@ def validate_preview_wildcard_certificate() -> str:
         "preview: Certificate must follow ClusterIssuers",
     )
     spec = certificate["spec"]
+    # wildcard는 한 label만 덮는다. preview. 하위 이름만 두면 zone 바로 아래 운영 host를 덮을 수 없다.
+    outside_preview = [
+        name for name in spec.get("dnsNames", []) if not name.endswith(f".{PREVIEW_DNS_DOMAIN}")
+    ]
     require(
-        spec.get("dnsNames")
-        == ["*.university.neordinary.com", "*.preview.university.neordinary.com"],
-        "preview: wildcard SAN",
+        not outside_preview,
+        f"preview: Certificate SANs must stay under {PREVIEW_DNS_DOMAIN} "
+        f"so they cannot cover production hosts: {outside_preview}",
     )
+    require(spec.get("dnsNames") == [f"*.{PREVIEW_DNS_DOMAIN}"], "preview: wildcard SAN")
     require(
         spec.get("secretName") == "preview-wildcard-tls",
         "preview: shared wildcard TLS Secret",
