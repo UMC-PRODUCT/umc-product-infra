@@ -61,8 +61,10 @@ Prometheus 규칙의 `api`는 요청·지연, `database-cache`는 HikariCP·캐�
 
 ## Dashboard 배포 허용 목록
 
-다음 UMC 원본 아홉 개를 Grafana sidecar가 읽는 ConfigMap으로 생성하며 `UMC Product` folder에 둔다.
-Chart의 기본 dashboard는 별도 `Kubernetes` folder로 들어온다.
+다음 UMC 원본 열 개를 Grafana sidecar가 읽는 ConfigMap으로 생성한다. `DASHBOARD_ALLOWLIST`가
+원본마다 folder를 정한다. `kubernetes-guide.json`만 `Kubernetes` folder에 두고 나머지는 `UMC Product`
+folder에 둔다. Chart의 기본 dashboard는 `Kubernetes` folder로 들어온다. 그 folder의 chart 화면은
+이 저장소에서 제목·설명을 바꿀 수 없으므로 안내 dashboard를 같은 folder에 넣는다.
 
 Application Detail과 API 호환성의 Service 변수는 Loki label 목록이 아닌 Prometheus의
 `application` label을 사용한다. recording rule `umc_product_service_fallback_info`가 앱 signal이
@@ -75,6 +77,8 @@ Overview는 prod/dev만 비교한다. 원본 변경 시 이 변수와 dashboard 
 - `api-lifecycle.json` — API·클라이언트 버전별 호출과 계측 누락 현황
 - `cache.json`
 - `graphql.json`
+- `kubernetes-guide.json` — Kubernetes folder의 chart 화면 묶음과 링크. 제목을 `0.`으로 시작해 이름순
+  목록 맨 위에 둔다. `kubernetes-mixin` tag로 chart 화면의 Kubernetes 링크 목록에도 보인다
 - `node-exporter-host.json`
 - `postgresql-detail.json` — production PostgreSQL exporter·Kubernetes 선언 자원
 - `server-default.json` — 애플리케이션/JVM/HikariCP/로그 상세

@@ -24,17 +24,22 @@ ROOT = HERE.parent
 OUTPUT = ROOT / "manifests"
 DASHBOARD_DIRECTORY = pathlib.Path("observability/dashboards")
 
-DASHBOARD_ALLOWLIST = (
-    "api-flow.json",
-    "api-lifecycle.json",
-    "cache.json",
-    "graphql.json",
-    "node-exporter-host.json",
-    "postgresql-detail.json",
-    "server-default.json",
-    "server-logs.json",
-    "system-overview.json",
-)
+UMC_PRODUCT_FOLDER = "UMC Product"
+# chart dashboard가 들어가는 folder다.
+KUBERNETES_FOLDER = "Kubernetes"
+# 배포할 dashboard 원본 → Grafana folder.
+DASHBOARD_ALLOWLIST = {
+    "api-flow.json": UMC_PRODUCT_FOLDER,
+    "api-lifecycle.json": UMC_PRODUCT_FOLDER,
+    "cache.json": UMC_PRODUCT_FOLDER,
+    "graphql.json": UMC_PRODUCT_FOLDER,
+    "kubernetes-guide.json": KUBERNETES_FOLDER,
+    "node-exporter-host.json": UMC_PRODUCT_FOLDER,
+    "postgresql-detail.json": UMC_PRODUCT_FOLDER,
+    "server-default.json": UMC_PRODUCT_FOLDER,
+    "server-logs.json": UMC_PRODUCT_FOLDER,
+    "system-overview.json": UMC_PRODUCT_FOLDER,
+}
 PROMETHEUS_RULE_SOURCE = "prometheus-alerts.yaml"
 LOKI_RULE_SOURCE = "loki-alerts.yaml"
 LOKI_RULE_KEY = "default-log-alerts.yml"
@@ -78,12 +83,12 @@ def block_scalar(text: str, indent: int) -> str:
     return "\n".join((pad + line).rstrip() for line in text.splitlines())
 
 
-def configmap(name: str, filename: str, content: str, *, dashboard: bool = False) -> str:
-    dashboard_label = '    grafana_dashboard: "1"\n' if dashboard else ""
+def configmap(name: str, filename: str, content: str, *, folder: str | None = None) -> str:
+    dashboard_label = '    grafana_dashboard: "1"\n' if folder else ""
     dashboard_folder = (
         "  annotations:\n"
-        "    grafana_folder: /tmp/dashboards/UMC Product\n"
-        if dashboard else ""
+        f"    grafana_folder: /tmp/dashboards/{folder}\n"
+        if folder else ""
     )
     return (
         "# 자동 생성 — observability/ 원본은 직접 수정하고 scripts/gen-configmaps.py를 재실행하세요.\n"
@@ -243,7 +248,7 @@ def desired_outputs(source_root: pathlib.Path) -> dict[pathlib.Path, str]:
     dashboard_source = source_root / "dashboards"
     rule_source = source_root / "rules"
     desired: dict[pathlib.Path, str] = {}
-    for filename in DASHBOARD_ALLOWLIST:
+    for filename, folder in DASHBOARD_ALLOWLIST.items():
         source = dashboard_source / filename
         dashboard = canonical_dashboard(filename, read_text(source))
         relative_output = DASHBOARD_DIRECTORY / pathlib.Path(filename).with_suffix(".yaml")
@@ -251,7 +256,7 @@ def desired_outputs(source_root: pathlib.Path) -> dict[pathlib.Path, str]:
             f"dashboard-{pathlib.Path(filename).stem.replace('_', '-')}",
             filename,
             dashboard,
-            dashboard=True,
+            folder=folder,
         )
 
     prometheus = k3s_prometheus_rules(read_text(rule_source / PROMETHEUS_RULE_SOURCE))
