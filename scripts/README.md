@@ -79,7 +79,7 @@ python3 scripts/gen-configmaps.py --check
 주요 검사 범위:
 
 - 관측 원본과 생성된 ConfigMap·PrometheusRule의 drift
-- Python 문법과 [`tests/`](tests/) 단위 테스트
+- Python 문법, ruff lint·mypy 타입 검사와 [`tests/`](tests/) 단위 테스트
 - prod/dev/preview 앱 chart와 Secret chart Helm lint·render
 - 이미지 tag·digest, 환경값, Secret 이름, namespace와 NetworkPolicy 계약
 - PostgreSQL·PostGIS, preview DB lifecycle과 resource budget
@@ -98,6 +98,20 @@ Helm, PyYAML과 Git 작업 트리는 필수다. `cfn-lint`, `ansible-playbook`, 
 ```text
 umc-infra validation passed (skipped: CloudFormation lint, Kubernetes schema validation)
 ```
+
+ruff·mypy는 `VALIDATE_LINT_PYTHON`(기본 `python3`)이 가리키는 Python에
+[`requirements-lint.txt`](requirements-lint.txt)와 같은 버전이 있을 때만 실행하고, 다르면 고정 버전과
+찾은 버전을 skip 줄에 적는다. 설정은 루트 `pyproject.toml`에 있다. hash 고정 목록에는 PyYAML이 없으므로
+CI처럼 lint 도구만 별도 가상환경에 설치하고, PyYAML은 `validate.sh`를 실행하는 `python3`에 그대로 둔다.
+
+```bash
+python3 -m venv ~/.venvs/umc-infra-lint
+~/.venvs/umc-infra-lint/bin/python -m pip install --require-hashes --only-binary :all: -r scripts/requirements-lint.txt
+VALIDATE_LINT_PYTHON=~/.venvs/umc-infra-lint/bin/python ./scripts/validate.sh
+```
+
+버전을 올릴 때는 [`requirements-lint.in`](requirements-lint.in)을 고치고 `requirements-lint.txt`
+첫 줄에 적힌 `uv pip compile` 명령으로 hash 목록을 다시 만든다.
 
 `VALIDATE_STRICT=1`이면 건너뛴 검사가 하나라도 있을 때 실패한다. CI는 모든 도구를 설치하고
 이 모드로 실행한다.
@@ -131,6 +145,8 @@ Kubernetes 상태는 바꾸지 않는다. 최종 기준은
 
 `validate_contracts.py`는 `main()`에서 아래 모듈의 검사를 순서대로 부른다. 계약을 고치거나 추가할
 때는 해당 영역 모듈만 열면 되고, 새 검사 함수는 `main()`에서 호출해야 실행된다.
+test API values(`testApi`) 검사는 별도 모듈 없이 `validate_contracts.py`의 `main()`에 있다.
+모든 모듈은 `common.ROOT`를 호출할 때 읽으므로 테스트는 `contracts.common.ROOT` 하나만 바꾸면 된다.
 
 | 파일 | 검사 영역 |
 |---|---|
@@ -153,6 +169,7 @@ Kubernetes 상태는 바꾸지 않는다. 최종 기준은
 | [`test_ansible_bootstrap_contracts.py`](tests/test_ansible_bootstrap_contracts.py) | K3s installer pin, server-side apply, 개인 OpenSSH·UFW와 비공개 Kubernetes API |
 | [`test_bootstrap_aws_secrets.py`](tests/test_bootstrap_aws_secrets.py) | worksheet parser, 37개 source mapping, 환경 분리, stdin 전달과 오류 메시지 비노출 |
 | [`test_bootstrap_route53_access_keys.py`](tests/test_bootstrap_route53_access_keys.py) | 안전한 `.env.prod`, Route53 stack 계약, access key 발급과 실패 rollback |
+| [`test_bootstrap_env_assignments.py`](tests/test_bootstrap_env_assignments.py) | access key bootstrap 3종이 `\1`·`\g<0>`·끝 역슬래시 같은 값도 `.env`에 그대로 기록 |
 | [`test_api_lifecycle_dashboard.py`](tests/test_api_lifecycle_dashboard.py) | API 제거 검토 대시보드의 미관측 표시, 버전 분포와 개인정보 비노출 |
 | [`test_email_transport.py`](tests/test_email_transport.py) | 메일 provider 전환 시 발신자·Secret prefix·SMTP egress, Preview Mailpit 격리 |
 | [`test_migration_bootstrap.py`](tests/test_migration_bootstrap.py) | 서버 이전용 root Application 단계별 제외 범위와 ExternalDNS 보류 |

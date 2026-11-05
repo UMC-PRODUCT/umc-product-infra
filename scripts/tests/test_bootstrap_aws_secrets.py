@@ -5,13 +5,14 @@ import subprocess
 import sys
 import unittest
 from pathlib import Path
+from typing import Any
 from unittest import mock
 
 
 SCRIPTS_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(SCRIPTS_DIR))
 
-import bootstrap_aws_secrets as uploader  # noqa: E402
+import bootstrap_aws_secrets as uploader
 
 
 def valid_worksheets() -> dict[str, dict[str, str]]:
@@ -334,7 +335,7 @@ class AwsTransportTests(unittest.TestCase):
             (("token", "PREVIEW_GITHUB_TOKEN"),),
             "platform",
         )
-        observed: dict[str, object] = {}
+        observed: dict[str, Any] = {}
 
         def fake_run(command: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
             observed["command"] = command

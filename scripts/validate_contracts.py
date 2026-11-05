@@ -8,12 +8,13 @@ from pathlib import Path
 
 import yaml
 
+from contracts import common
 from contracts.aws import (
     validate_app_storage_contract,
     validate_cloudformation_tags,
     validate_ses_contract,
 )
-from contracts.common import ROOT, require
+from contracts.common import require
 from contracts.dns import validate_route53_contract
 from contracts.edge import (
     validate_active_edge_fixture,
@@ -43,7 +44,7 @@ def main() -> int:
     validate_preview_budget()
     validate_reloader_argocd_contract()
     base_values = yaml.safe_load(
-        (ROOT / "charts" / "umc-product-server" / "values.yaml").read_text(
+        (common.ROOT / "charts" / "umc-product-server" / "values.yaml").read_text(
             encoding="utf-8"
         )
     )
@@ -55,10 +56,10 @@ def main() -> int:
         },
         "test API base values must be disabled and reuse docs-basic-auth",
     )
-    for environment, filename in zip(("prod", "dev", "preview"), sys.argv[1:4]):
+    for environment, filename in zip(("prod", "dev", "preview"), sys.argv[1:4], strict=True):
         overlay = yaml.safe_load(
             (
-                ROOT
+                common.ROOT
                 / "charts"
                 / "umc-product-server"
                 / f"values-{environment}.yaml"

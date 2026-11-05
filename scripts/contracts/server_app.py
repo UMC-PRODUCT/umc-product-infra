@@ -7,7 +7,8 @@ from typing import NamedTuple
 
 import yaml
 
-from contracts.common import ROOT, require, resource, yaml_documents
+from contracts import common
+from contracts.common import require, resource, yaml_documents
 from contracts.edge import (
     edge_expectation,
     validate_documentation_ingress_contract,
@@ -112,7 +113,7 @@ def pod_secret_references(pod: dict) -> list[SecretReference]:
 def preview_cert_manager_resources() -> list[dict]:
     return [
         item
-        for path in sorted((ROOT / "manifests" / "cert-manager").glob("*.yaml"))
+        for path in sorted((common.ROOT / "manifests" / "cert-manager").glob("*.yaml"))
         for item in yaml_documents(path)
         if item.get("metadata", {}).get("namespace") == "preview"
     ]
@@ -179,7 +180,7 @@ def validate_preview_mail_capture_tls(
         key_readers == {"mailpit"},
         "preview: only Mailpit may read the loopback private key",
     )
-    builder = next(
+    builder: dict = next(
         (item for item in pod.get("initContainers", []) if item["name"] == "mail-capture-truststore"),
         {},
     )
@@ -288,7 +289,7 @@ def validate_render(
         f"{environment}: Reloader trigger must be a workload annotation",
     )
     environment_values = {item["name"]: item.get("value") for item in container["env"]}
-    common = {
+    shared_environment = {
         "MANAGEMENT_ENDPOINT_HEALTH_PROBES_ENABLED": "true",
         "MANAGEMENT_SERVER_PORT": "9090",
         "OTEL_URL": "http://otel-collector.monitoring.svc.cluster.local:4318",
@@ -297,7 +298,7 @@ def validate_render(
         "S3_REGION": "ap-northeast-2",
         "SES_REGION": "ap-northeast-2",
     }
-    for key, expected in common.items():
+    for key, expected in shared_environment.items():
         require(environment_values.get(key) == expected, f"{environment}: env {key}")
 
     expected_environment = {
@@ -492,7 +493,7 @@ def validate_render(
                 f"{environment}: active Ingress requires production Certificate",
             )
         source_values = yaml.safe_load(
-            (ROOT / "charts" / "umc-product-server" / "values.yaml").read_text(
+            (common.ROOT / "charts" / "umc-product-server" / "values.yaml").read_text(
                 encoding="utf-8"
             )
         )
@@ -634,7 +635,7 @@ def validate_reloader_argocd_contract() -> None:
     }
     for relative_path, (deployment_name, namespace) in expected_applications.items():
         application = resource(
-            yaml_documents(ROOT / "argocd" / "applications" / relative_path),
+            yaml_documents(common.ROOT / "argocd" / "applications" / relative_path),
             "Application",
         )
         spec = application["spec"]
@@ -661,7 +662,7 @@ def validate_reloader_argocd_contract() -> None:
 
     applicationset = resource(
         yaml_documents(
-            ROOT / "argocd" / "applications" / "preview" / "applicationset.yaml"
+            common.ROOT / "argocd" / "applications" / "preview" / "applicationset.yaml"
         ),
         "ApplicationSet",
     )

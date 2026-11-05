@@ -4,7 +4,6 @@ import argparse
 import contextlib
 import io
 import json
-import os
 import stat
 import sys
 import tempfile
@@ -16,7 +15,7 @@ from unittest import mock
 SCRIPTS_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(SCRIPTS_DIR))
 
-import bootstrap_route53_access_keys as bootstrap  # noqa: E402
+import bootstrap_route53_access_keys as bootstrap
 
 
 ACCOUNT_ID = "123456789012"
@@ -228,7 +227,7 @@ class EnvFileContractTests(unittest.TestCase):
                     contents += "CERT_MANAGER_ROUTE53_ACCESS_KEY_ID=\n"
                 path = self.make_env(root, contents)
 
-                def check(command: list[str], _cwd: Path) -> bool:
+                def check(command: list[str], _cwd: Path, case: str = case) -> bool:
                     if command[1] == "check-ignore":
                         return case != "not-ignored"
                     if command[1] == "ls-files":

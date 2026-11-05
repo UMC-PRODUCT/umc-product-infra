@@ -16,6 +16,7 @@ import fnmatch
 import json
 import re
 import sys
+from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -139,11 +140,16 @@ class ManifestLoader(yaml.SafeLoader):
     pass
 
 
-ManifestLoader.add_constructor("tag:yaml.org,2002:value", ManifestLoader.construct_scalar)
+def construct_value_tag(loader: ManifestLoader, node: yaml.ScalarNode) -> str:
+    return loader.construct_scalar(node)
+
+
+ManifestLoader.add_constructor("tag:yaml.org,2002:value", construct_value_tag)
 
 
 def load_yaml(path: Path) -> list[dict]:
     text = path.read_text(encoding="utf-8")
+    items: Iterable[object]
     if path.suffix == ".json":
         loaded = json.loads(text)
         items = loaded if isinstance(loaded, list) else [loaded]

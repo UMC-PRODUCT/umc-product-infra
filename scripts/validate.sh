@@ -431,6 +431,20 @@ for script in scripts/*.sh; do
   bash -n "$script"
 done
 
+# scripts/ Python의 이름 오류·버그 패턴과 타입 불일치를 잡는다. 설정은 pyproject.toml에 있다.
+# 도구가 Ansible 의존성 버전을 바꾸지 않도록 별도 가상환경의 python을 VALIDATE_LINT_PYTHON으로 받는다.
+lint_python="${VALIDATE_LINT_PYTHON:-python3}"
+if lint_status="$(pinned_python_tools "$lint_python" ruff)"; then
+  "$lint_python" -m ruff check --no-cache scripts
+else
+  skip_check "Python lint" "$lint_status"
+fi
+if lint_status="$(pinned_python_tools "$lint_python" mypy types-pyyaml)"; then
+  "$lint_python" -m mypy --cache-dir "$validation_dir/mypy-cache"
+else
+  skip_check "Python type check" "$lint_status"
+fi
+
 if optional_check "CloudFormation lint" command -v cfn-lint; then
   cfn-lint cloud/aws/*.yaml
 fi

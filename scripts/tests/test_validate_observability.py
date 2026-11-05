@@ -431,6 +431,11 @@ class LokiIngestionLimitsTest(unittest.TestCase):
             with self.subTest(ceiling=ceiling), self.assertRaisesRegex(SystemExit, "replay_memory_ceiling"):
                 validate_loki_memory(self.resources, config)
 
+    def test_Pod_template이_없으면_검증_실패로_멈춘다(self) -> None:
+        del self.resources[0]["spec"]["template"]["spec"]
+        with self.assertRaisesRegex(SystemExit, "Loki: StatefulSet must have a Pod template"):
+            validate_loki_memory(self.resources, self.config)
+
 
 # compactor 삭제는 되돌릴 수 없으므로 보존기간이 늘거나 줄어드는 어떤 변경도 막는다.
 class LokiRetentionTest(unittest.TestCase):

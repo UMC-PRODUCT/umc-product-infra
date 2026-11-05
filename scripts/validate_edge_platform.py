@@ -117,7 +117,7 @@ def render(name: str, output_dir: Path) -> tuple[dict, list[dict]]:
         for item in yaml.safe_load_all(completed.stdout)
         if isinstance(item, dict) and item.get("kind")
     ]
-    require(resources, f"{name}: rendered no resources")
+    require(bool(resources), f"{name}: rendered no resources")
     return application, resources
 
 
@@ -175,7 +175,7 @@ def validate_cert_manager(resources: list[dict]) -> None:
     require("--enable-certificate-owner-ref=true" in args, "cert-manager: Certificate ownerRef")
     require("--max-concurrent-challenges=5" in args, "cert-manager: challenge budget")
     solver_args = [arg for arg in args if arg.startswith("--acme-http01-solver-image=")]
-    require(len(solver_args) == 1 and IMAGE_DIGEST.search(solver_args[0]), "cert-manager: solver image")
+    require(len(solver_args) == 1 and IMAGE_DIGEST.search(solver_args[0]) is not None, "cert-manager: solver image")
     require(
         sum(item.get("kind") == "CustomResourceDefinition" for item in resources) == 6,
         "cert-manager: CRD set",

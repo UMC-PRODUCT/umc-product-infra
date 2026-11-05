@@ -34,7 +34,7 @@ class RepositoryLayoutTest(unittest.TestCase):
 
     def validate(self) -> None:
         with (
-            patch("contracts.repository.ROOT", self.root),
+            patch("contracts.common.ROOT", self.root),
             patch("contracts.repository.git_visible_files", return_value=[]),
         ):
             validate_repository_identity()

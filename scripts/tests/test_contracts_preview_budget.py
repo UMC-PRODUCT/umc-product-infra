@@ -7,6 +7,7 @@ import shutil
 import sys
 import tempfile
 import unittest
+from collections.abc import Sequence
 from pathlib import Path
 from unittest.mock import patch
 
@@ -28,7 +29,7 @@ def container(cpu: str, memory: str, limit: str, **fields: str) -> dict:
     }
 
 
-def pod(kind: str, *containers: tuple[str, str, str], init: tuple = ()) -> dict:
+def pod(kind: str, *containers: tuple[str, str, str], init: Sequence[tuple[str, str, str]] = ()) -> dict:
     spec = {"containers": [container(*item) for item in containers]}
     if init:
         spec["initContainers"] = [container(*item) for item in init]
@@ -86,7 +87,7 @@ class PreviewBudgetArithmeticTest(unittest.TestCase):
             shutil.copy(REPO_ROOT / relative, self.root / relative)
 
     def validate(self, resources: list[dict]) -> None:
-        with patch("contracts.preview_budget.ROOT", self.root):
+        with patch("contracts.common.ROOT", self.root):
             validate_preview_budget_arithmetic(resources)
 
     def test_accepts_two_slots_with_two_dropdb_jobs(self) -> None:

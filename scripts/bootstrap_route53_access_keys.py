@@ -121,7 +121,8 @@ def replace_env_assignments(contents: str, values: dict[str, str]) -> str:
             raise BootstrapError(f"generated value for {key} contains a newline")
         updated, count = re.subn(
             rf"^{re.escape(key)}=$",
-            lambda _match, replacement=f"{key}={value}": replacement,
+            # re 치환 문자열은 역슬래시를 해석하므로 값이 그대로 들어가도록 escape한다.
+            f"{key}={value}".replace("\\", r"\\"),
             updated,
             count=1,
             flags=re.MULTILINE,
@@ -281,4 +282,4 @@ if __name__ == "__main__":
         raise SystemExit(main())
     except BootstrapError as error:
         print(f"error: {error}", file=sys.stderr)
-        raise SystemExit(1)
+        raise SystemExit(1) from None

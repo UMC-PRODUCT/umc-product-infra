@@ -11,6 +11,7 @@ import subprocess
 import sys
 import urllib.request
 from pathlib import Path
+from typing import IO
 
 import yaml
 
@@ -221,7 +222,7 @@ def require(condition: bool, message: str) -> None:
 
 
 def run(
-    command: list[str], *, stdout: object = subprocess.PIPE
+    command: list[str], *, stdout: int | IO[str] = subprocess.PIPE
 ) -> subprocess.CompletedProcess:
     completed = subprocess.run(
         command,

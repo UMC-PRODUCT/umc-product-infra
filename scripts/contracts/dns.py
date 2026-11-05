@@ -7,8 +7,9 @@ from pathlib import Path
 
 import yaml
 
+from contracts import common
 from contracts.aws import AWS_REGION
-from contracts.common import ROOT, CloudFormationLoader, require, yaml_documents
+from contracts.common import CloudFormationLoader, require, yaml_documents
 
 
 # validate.sh가 Preview 렌더 견본으로 쓰는 PR 번호다.
@@ -17,7 +18,7 @@ PREVIEW_SAMPLE_PR_NUMBER = "42"
 
 def external_dns_registry_config() -> dict:
     application = yaml.safe_load(
-        (ROOT / "argocd" / "applications" / "platform" / "external-dns.yaml").read_text(
+        (common.ROOT / "argocd" / "applications" / "platform" / "external-dns.yaml").read_text(
             encoding="utf-8"
         )
     )
@@ -64,7 +65,7 @@ def validate_external_dns_record_names(
     txt_prefix: str,
     record_types: list[str],
 ) -> None:
-    require(hosts, "ExternalDNS: no opted-in Ingress host was collected")
+    require(bool(hosts), "ExternalDNS: no opted-in Ingress host was collected")
     record_names = set(hosts) | {
         f"{txt_prefix}{record_type.lower()}-{host}"
         for host in hosts
@@ -90,7 +91,7 @@ def external_dns_desired_hosts(render_paths: list[Path], annotation_filter: str)
     documents = [document for path in render_paths for document in yaml_documents(path)]
     documents += [
         document
-        for path in sorted((ROOT / "manifests").rglob("*.yaml"))
+        for path in sorted((common.ROOT / "manifests").rglob("*.yaml"))
         for document in yaml_documents(path)
     ]
     return external_dns_hosts(documents, annotation_filter)
@@ -98,7 +99,7 @@ def external_dns_desired_hosts(render_paths: list[Path], annotation_filter: str)
 
 # 기존 위임 zone을 재생성하지 않고 인증서용 TXT와 앱용 DNS 변경 권한을 분리하는지 확인한다.
 def validate_route53_contract(render_paths: list[Path]) -> None:
-    template_path = ROOT / "cloud" / "aws" / "route53-dns.yaml"
+    template_path = common.ROOT / "cloud" / "aws" / "route53-dns.yaml"
     with template_path.open(encoding="utf-8") as stream:
         template = yaml.load(stream, Loader=CloudFormationLoader)
     require(isinstance(template, dict), "Route53 CloudFormation document")

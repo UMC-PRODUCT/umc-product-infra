@@ -8,7 +8,8 @@ from pathlib import Path
 import yaml
 
 from bootstrap_aws_secrets import SECRET_SPECS
-from contracts.common import ROOT, CloudFormationLoader, require, yaml_documents
+from contracts import common
+from contracts.common import CloudFormationLoader, require, yaml_documents
 
 
 BASE_REQUIRED_SECRETS = ["app-db", "app-jwt", "app-oauth", "app-storage", "app-email"]
@@ -120,7 +121,7 @@ def validate_secrets(path: Path) -> None:
                 datum["remoteRef"]["property"]
             )
     sources = set(source_properties)
-    iam_text = (ROOT / "cloud" / "aws" / "external-secrets-iam.yaml").read_text(
+    iam_text = (common.ROOT / "cloud" / "aws" / "external-secrets-iam.yaml").read_text(
         encoding="utf-8"
     )
     iam_sources = set(re.findall(r"secret:(/umc-product/[^\"\n]+)-\?{6}", iam_text))

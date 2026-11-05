@@ -31,6 +31,7 @@ import subprocess
 import sys
 import tempfile
 import urllib.request
+from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -87,8 +88,8 @@ class PanelQuery:
 def deployed_dashboards() -> list[Path]:
     """gen-configmaps.py의 허용 목록만 검사한다. 보관만 하는 원본은 Grafana에 가지 않는다."""
     spec = importlib.util.spec_from_file_location("gen_configmaps", ROOT / "scripts" / "gen-configmaps.py")
+    assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
-    assert spec.loader is not None
     sys.modules[spec.name] = module
     spec.loader.exec_module(module)
     return [DASHBOARD_DIR / name for name in module.DASHBOARD_ALLOWLIST]
@@ -152,7 +153,7 @@ def panel_queries(path: Path) -> list[PanelQuery]:
     return queries
 
 
-def raw_queries(dashboard: dict):
+def raw_queries(dashboard: dict) -> Iterator[tuple[str, str, str]]:
     if dashboard.get("apiVersion", "").startswith("dashboard.grafana.app/v2"):
         for name, element in dashboard["spec"]["elements"].items():
             if element.get("kind") != "Panel":
@@ -171,7 +172,7 @@ def raw_queries(dashboard: dict):
                 yield f"panel-{panel.get('id', '?')}", target.get("refId", "?"), expr
 
 
-def v1_panels(panels: list):
+def v1_panels(panels: list) -> Iterator[dict]:
     for panel in panels:
         yield panel
         yield from v1_panels(panel.get("panels", []))

@@ -76,9 +76,9 @@ class AccessManifestsTest(unittest.TestCase):
 class AccessReleaseTest(unittest.TestCase):
     def setUp(self) -> None:
         labels = {"app.kubernetes.io/name": "argocd-server", "app.kubernetes.io/instance": "argocd"}
-        self.service = {"type": "ClusterIP", "selector": labels,
+        self.service: dict = {"type": "ClusterIP", "selector": labels,
                         "ports": [{"name": "http", "port": 80, "targetPort": 8080}]}
-        self.template = {"metadata": {"labels": labels}, "spec": {"containers": [{
+        self.template: dict = {"metadata": {"labels": labels}, "spec": {"containers": [{
             "ports": [{"name": "server", "containerPort": 8080}],
         }]}}
         self.documents = [

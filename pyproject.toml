@@ -1,0 +1,44 @@
+# scripts/ Python 정적 검사 설정이다. 도구 버전은 scripts/requirements-lint.txt에 고정하고
+# validate.sh가 실행한다. 저장소를 Python 패키지로 배포하지 않는다.
+
+[tool.ruff]
+target-version = "py313"
+
+[tool.ruff.lint]
+# 기본 문법·이름 오류(E4·E7·E9·F)에 버그 패턴(B), 실패를 숨기는 subprocess.run(PLW1510),
+# shell 실행(S602·S604·S605)과 쓸모없어진 noqa(RUF100)만 더한다.
+select = ["E4", "E7", "E9", "F", "B", "PLW1510", "RUF100", "S602", "S604", "S605"]
+
+[tool.ruff.lint.per-file-ignores]
+# 테스트는 scripts/ 경로 상수를 만들어 sys.path에 넣은 뒤 검사 대상을 import한다.
+"scripts/tests/*" = ["E402"]
+
+[tool.mypy]
+python_version = "3.13"
+files = ["scripts"]
+mypy_path = "scripts"
+explicit_package_bases = true
+check_untyped_defs = true
+disallow_untyped_defs = true
+# stub 한계로 둔 type: ignore가 필요 없어지면 알려 준다.
+warn_unused_ignores = true
+
+# unittest 메서드까지 반환 타입을 요구하지 않는다. 본문은 check_untyped_defs로 검사한다.
+[[tool.mypy.overrides]]
+module = "tests.*"
+disallow_untyped_defs = false
+
+# YAML 값을 object로 깊게 다루는 큰 테스트 4개다. 타입을 맞추려면 테스트 대부분을 고쳐야 한다.
+[[tool.mypy.overrides]]
+module = [
+  "tests.test_ansible_bootstrap_contracts",
+  "tests.test_api_lifecycle_dashboard",
+  "tests.test_argocd_playbook_contracts",
+  "tests.test_validate_observability",
+]
+ignore_errors = true
+
+# Ansible은 CI의 별도 환경에만 있고 lint 환경에는 설치하지 않는다.
+[[tool.mypy.overrides]]
+module = "ansible.*"
+ignore_missing_imports = true

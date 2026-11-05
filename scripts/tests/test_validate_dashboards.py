@@ -15,7 +15,7 @@ from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from validate_dashboards import (  # noqa: E402
+from validate_dashboards import (
     BUILTIN_VARIABLES,
     PanelQuery,
     check_metric_names,
@@ -136,7 +136,7 @@ RATE_LIMIT_PANELS = {("panel-34", "A"): "app_rate", ("panel-34", "B"): "edge_rat
                      ("panel-35", "A"): "app_total", ("panel-35", "B"): "edge_total"}
 # 30초 scrape를 흉내 낸다. series 값 '0+600x20'은 30초마다 600씩, 10분 동안 늘어나는 counter다.
 # 기대값의 [] 는 No data, {} 는 label 없는 합계 한 줄이다. 외삽 오차 때문에 소수 셋째 자리로 반올림해 비교한다.
-RATE_LIMIT_SCENARIOS = {
+RATE_LIMIT_SCENARIOS: dict[str, tuple[str, dict[str, str], dict[str, list[tuple[str, float]]]]] = {
     "edge는_Traefik_429에서_앱_429를_뺀_값이고_앱은_blocked만_센다": ("10m", {
         ENTRYPOINT_429: "0+600x20", SERVICE_429: "0+240x20", APP_BLOCKED: "0+240x20", APP_ALLOWED: "0+3000x20",
     }, {"edge_rate": [("{}", 12)], "edge_total": [("{}", 7200)],
@@ -166,9 +166,10 @@ RATE_LIMIT_SCENARIOS = {
 # 429 패널 쿼리를 대시보드에서 그대로 꺼내 promtool에 가상 series를 넣고 값을 확인한다.
 class RateLimitPanelsTest(unittest.TestCase):
     def setUp(self) -> None:
-        self.promtool = shutil.which("promtool")
-        if self.promtool is None:
+        promtool = shutil.which("promtool")
+        if promtool is None:
             self.skipTest("promtool not installed; 429 panel behaviour tests skipped")
+        self.promtool = promtool
         path = Path(__file__).resolve().parents[2] / "observability/dashboards/server-default.json"
         dashboard = json.loads(path.read_text(encoding="utf-8"))
         variables = {**dashboard_variables(dashboard),

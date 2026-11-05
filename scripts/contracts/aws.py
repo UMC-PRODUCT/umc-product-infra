@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import yaml
 
-from contracts.common import ROOT, CloudFormationLoader, require
+from contracts import common
+from contracts.common import CloudFormationLoader, require
 
 
 AWS_ACCOUNT_ID = "351284652562"
@@ -13,7 +14,7 @@ AWS_REGION = "ap-northeast-2"
 
 # 환경별 bucket·IAM 사용자·CORS와 앱 설정을 대조해 비운영 앱의 운영 저장소 사용을 막는다.
 def validate_app_storage_contract() -> None:
-    template_path = ROOT / "cloud" / "aws" / "app-storage-s3.yaml"
+    template_path = common.ROOT / "cloud" / "aws" / "app-storage-s3.yaml"
     with template_path.open(encoding="utf-8") as stream:
         template = yaml.load(stream, Loader=CloudFormationLoader)
     require(isinstance(template, dict), "app storage CloudFormation document")
@@ -171,7 +172,7 @@ def validate_app_storage_contract() -> None:
 
     for environment, config in expected_config.items():
         values_path = (
-            ROOT / "charts" / "umc-product-server" / f"values-{environment}.yaml"
+            common.ROOT / "charts" / "umc-product-server" / f"values-{environment}.yaml"
         )
         with values_path.open(encoding="utf-8") as stream:
             values = yaml.safe_load(stream)
@@ -190,7 +191,7 @@ def validate_app_storage_contract() -> None:
 
 # SES identity·DNS 설정과 환경별 발신자 권한이 같은 메일 발송 계약을 가리키는지 검사한다.
 def validate_ses_contract() -> None:
-    template_path = ROOT / "cloud" / "aws" / "ses-email.yaml"
+    template_path = common.ROOT / "cloud" / "aws" / "ses-email.yaml"
     with template_path.open(encoding="utf-8") as stream:
         template = yaml.load(stream, Loader=CloudFormationLoader)
     require(isinstance(template, dict), "SES CloudFormation document")
@@ -443,7 +444,7 @@ def validate_ses_contract() -> None:
 # 계정에서 스택 밖 수동 자원과 구분하고 용도를 찾을 수 있도록 IAM·S3 자원에 같은 태그를 붙인다.
 def validate_cloudformation_tags() -> None:
     tagged_types = {"AWS::IAM::User", "AWS::IAM::Role", "AWS::S3::Bucket"}
-    for template_path in sorted((ROOT / "cloud" / "aws").glob("*.yaml")):
+    for template_path in sorted((common.ROOT / "cloud" / "aws").glob("*.yaml")):
         with template_path.open(encoding="utf-8") as stream:
             template = yaml.load(stream, Loader=CloudFormationLoader)
         for name, item in template.get("Resources", {}).items():

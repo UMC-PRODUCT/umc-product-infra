@@ -42,7 +42,7 @@ class CloudFormationContractTest(unittest.TestCase):
         path.write_text(text.replace(old, new), encoding="utf-8")
 
     def validate(self, validator) -> None:
-        with patch("contracts.aws.ROOT", self.root):
+        with patch("contracts.common.ROOT", self.root):
             validator()
 
     def test_repository_templates_pass(self) -> None:
