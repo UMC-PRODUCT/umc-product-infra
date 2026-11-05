@@ -33,8 +33,9 @@ Grafana에서 앱·DB·서버 지표와 로그·trace를 보고, Argo CD에서 �
 ## 어떤 상황에 어떤 대시보드를 볼까?
 
 먼저 `UMC PRODUCT System Overview`를 열고, 이상이 있는 부분만 아래 상세 화면으로 좁혀 본다.
-홈 화면 맨 위 "어떤 화면을 열까" 패널에 아래 두 표의 요약이 링크로 있고, Kubernetes 링크는
-운영 namespace `app`과 보던 시간 범위를 그대로 가져간다. 아래 목록은 저장소가 배포하도록 선언한
+홈 화면 맨 위 "어떤 화면을 열까" 패널에 UMC Product 표의 요약이 링크로 있다. Kubernetes 표의 요약과
+링크는 Kubernetes 폴더 맨 위 `0. Kubernetes 폴더 읽는 법`에 있고, 운영 namespace `app`과 보던 시간 범위를
+그대로 가져간다. 아래 목록은 저장소가 배포하도록 선언한
 dashboard 기준이다. 화면이나 데이터가 없으면 시간 범위와 변수를 확인한 뒤 담당자에게 문의한다.
 
 ### UMC Product 폴더 — 앱과 운영 DB
@@ -67,6 +68,9 @@ prod·dev·local 선택지는 앱 signal이 비어도 유지된다. `local-umc-p
 Overview는 prod/dev만 비교한다. Preview 앱의 알림은 Discord로 보내지 않는다.
 
 ### Kubernetes 폴더 — 클러스터와 Pod 자원
+
+Grafana에서는 이 폴더 맨 위 `0. Kubernetes 폴더 읽는 법`이 화면을 묶음·질문·여는 시점으로 나누고 바로 가는
+링크를 준다. 아래 표는 같은 내용을 상황 기준으로 정리한 것이다.
 
 | 이런 상황이면 | 열 대시보드 | 먼저 볼 것 |
 |---|---|---|
