@@ -265,7 +265,7 @@ python3 scripts/bootstrap_nonprod_aws_access_keys.py \
 
 [`bootstrap_aws_secrets.py`](bootstrap_aws_secrets.py)는 세 worksheet를 읽어 Helm의
 ExternalSecret 계약과 일치하는 37개 JSON source를 구성한다. 이 중 prod/dev/preview의
-`docs-basic-auth` source는 Scalar/OpenAPI 문서용 bcrypt htpasswd 값을, prod의
+`docs-basic-auth` source는 Swagger UI/OpenAPI 문서용 bcrypt htpasswd 값을, prod의
 `postgres-exporter`와 `postgres-backup` source는 각각 모니터링·백업 전용 DB role password를 공급한다.
 
 기본 실행은 AWS를 변경하지 않는 **dry-run**이다.

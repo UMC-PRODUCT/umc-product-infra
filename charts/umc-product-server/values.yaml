@@ -69,7 +69,6 @@ edgeProtection:
   webSocketInFlight:
     amount: 1000
 
-# Scalar/OpenAPI 문서는 일반 API와 분리된 Ingress에서 Basic Auth로 보호한다.
 # existingSecret은 htpasswd 형식의 users key를 가진 Kubernetes Secret이다.
 documentation:
   enabled: false

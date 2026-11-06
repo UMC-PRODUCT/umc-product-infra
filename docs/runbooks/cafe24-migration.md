@@ -188,7 +188,7 @@ scheduler·외부 API 호출·데이터 정리 작업은 실행될 수 있다. �
 브라우저 접속은 기존 서버를 볼 수 있으므로 새 서버 검증의 증거로 쓰지 않는다.
 
 ```bash
-curl --resolve "api.university.neordinary.com:443:${TARGET_PUBLIC_IP:?새 서버 공인 IPv4 필요}" --silent --show-error -o /dev/null -w '%{http_code}\n' https://api.university.neordinary.com/docs/scalar.html
+curl --resolve "api.university.neordinary.com:443:${TARGET_PUBLIC_IP:?새 서버 공인 IPv4 필요}" --silent --show-error -o /dev/null -w '%{http_code}\n' https://api.university.neordinary.com/docs/swagger-ui/index.html
 ```
 
 readiness는 Pod의 management port 9090에 있고 외부 Service의 8080에는 노출하지 않는다.
