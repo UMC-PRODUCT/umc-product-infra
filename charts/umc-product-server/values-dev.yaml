@@ -28,6 +28,13 @@ ingress:
 certificate:
   enabled: true
 
+edgeProtection:
+  rateLimit:
+    average: 1000
+    burst: 5000
+  inFlight:
+    amount: 2000
+
 resources:
   requests:
     cpu: 250m
