@@ -41,6 +41,8 @@ Argo CD의 `preview-head-sha`는 최신 PR 커밋, `preview-deployed-sha`는 배
 - 로그·메트릭·트레이스: Grafana에서 서비스 `preview-umc-product-pr<PR번호>` 선택
   로그는 WARN 이상만, 요청(trace) 10개 중 약 1개만 Loki에 남는다. 요청별 원인은 Tempo trace에서 본다.
   로그로 요청 수를 세는 API 사용량 패널은 실제보다 적게 나오므로 요청 수는 trace나 metric으로 본다.
+- 요청 제한: Traefik은 IP별로 초당 1000회, 순간 5000회, 동시 요청 2000개까지 받는다. 앱 limiter는 dev와 같이 켜져 있다.
+  로그인한 요청은 계정별 초당 20회·분당 300회, 비로그인 요청은 IP별 초당 5회·분당 60회다. 부하 테스트는 계정을 나눠 보낸다.
 
 예를 들어 PR 27의 API 주소는 `https://api-pr-27.preview.university.neordinary.com`이다.
 앱에서 테스트할 때는 API 서버 주소를 해당 Preview 주소로 바꾼다.

@@ -59,6 +59,8 @@ Traefik 패널 값은 Traefik이 보낸 `429`에서 앱이 돌려준 `429`를 �
 
 환경 하나만 바꿀 때는
 `values-prod.yaml`·`values-dev.yaml`·`values-preview.yaml`에 `edgeProtection`의 바꿀 키만 덮어쓴다.
+dev와 Preview는 부하 테스트를 위해 초당 1000회, 순간 5000회, 동시 요청 2000개로 넓혔다. 운영은 위 값 그대로다.
+Traefik은 운영과 함께 쓰고 메모리 상한이 512Mi이며, 동시 요청 2000개에서 쓰는 메모리는 아직 측정하지 않았다. 첫 부하 테스트 때는 Traefik 메모리를 지켜본다.
 값은 1 이상의 정수여야 하고, 0은 Traefik에서 무제한이라 렌더가 실패한다. Grafana도 public HTTPS로 열지만 익명 접근과 회원가입은 끄고 운영자가
 발급한 사람별 Grafana 계정만 사용한다. 기본 Organization role은 `Viewer`다.
 Argo CD는 비공유 `admin`과 공용 조회 계정 `umc-viewer`를 사용한다. 익명 접근은 끄며,

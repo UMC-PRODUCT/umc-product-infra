@@ -18,6 +18,13 @@ networkPolicy:
 
 priorityClassName: preview-lowest
 
+edgeProtection:
+  rateLimit:
+    average: 1000
+    burst: 5000
+  inFlight:
+    amount: 2000
+
 # dev와 같은 자원이다. 같은 JVM 옵션(MaxRAMPercentage=75)에서 힙 상한도 dev와 같아진다.
 resources:
   requests:
