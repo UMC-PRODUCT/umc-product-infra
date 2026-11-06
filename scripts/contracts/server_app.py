@@ -352,6 +352,8 @@ def validate_render(
             "DATABASE_URL": "jdbc:postgresql://postgres.dev-db.svc.cluster.local:5432/umc_product_dev",
         },
         "preview": {
+            "API_RATE_LIMIT_AUTH_REQUESTS_PER_SECOND": "1000",
+            "API_RATE_LIMIT_AUTH_REQUESTS_PER_MINUTE": "60000",
             "APP_SEED_ENABLED": "false",
             "APP_TEST_API_ENABLED": "true",
             "FCM_ENABLED": "false",
@@ -367,6 +369,11 @@ def validate_render(
     }[environment]
     for key, expected in expected_environment.items():
         require(environment_values.get(key) == expected, f"{environment}: env {key}")
+    if environment != "preview":
+        for key in ("API_RATE_LIMIT_AUTH_REQUESTS_PER_SECOND", "API_RATE_LIMIT_AUTH_REQUESTS_PER_MINUTE"):
+            require(key not in environment_values, f"{environment}: {key} must keep the application default")
+    for key in ("API_RATE_LIMIT_ENABLED", "API_RATE_LIMIT_ANON_REQUESTS_PER_SECOND", "API_RATE_LIMIT_ANON_REQUESTS_PER_MINUTE"):
+        require(key not in environment_values, f"{environment}: {key} must keep the application default")
     if environment != "dev":
         require(
             "APP_SEED_QA_AUTO_RUN" not in environment_values,
