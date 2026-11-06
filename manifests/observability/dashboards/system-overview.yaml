@@ -40,7 +40,7 @@ data:
           }
         ],
         "cursorSync": "Crosshair",
-        "description": "어디가 문제인지 모를 때 먼저 여는 홈 화면. UMC PRODUCT 운영 landing dashboard. prod/dev 앱의 metric signal과 RED, error logs, HikariCP 포화를 비교한다. PostgreSQL과 Linux host 영역은 PROD ONLY이며 dev exporter를 가정하지 않는다. 현재 수집하지 않는 cAdvisor Pod 실제 사용량은 표시하지 않는다.",
+        "description": "어디가 문제인지 모를 때 먼저 여는 홈 화면. UMC PRODUCT 운영 landing dashboard. prod/dev 앱의 metric signal과 RED, error logs, HikariCP 포화를 비교한다. PostgreSQL과 Linux host 영역은 PROD ONLY이며 dev exporter를 가정하지 않는다. 현재 수집하지 않는 cAdvisor Pod 실제 사용량은 표시하지 않는다. Traefik edge 행만 prod/dev 비교가 아니라 모든 host 합계다.",
         "editable": true,
         "elements": {
           "panel-1": {
@@ -520,7 +520,7 @@ data:
                     "overrides": []
                   },
                   "options": {
-                    "content": "이 화면에서 prod/dev 요청량·5xx 비율·응답 시간과 운영 DB·호스트 요약을 먼저 보고, 이상한 부분만 아래 화면으로 좁힌다. 링크는 지금 보는 시간 범위를 그대로 가져간다.\n\n| 상황 | 화면 | 먼저 볼 것 |\n|---|---|---|\n| API가 느리거나 에러가 늘었다 | [Application Detail](/d/umc-product-server-default?${__url_time_range}) | HTTP 응답 시간, JVM 메모리·GC, HikariCP 포화 |\n| 에러 메시지와 원인을 찾는다 | [서버팀 로그 탐색](/d/umc-product-server-logs?${__url_time_range}) | 같은 시간대 ERROR 로그와 trace ID |\n| 특정 요청이 어디서 오래 걸렸는지 본다 | [API 처리 흐름 (Tempo)](/d/umc-product-api-flow?${__url_time_range}) | trace의 구간별 처리 시간 |\n| 구 API를 어떤 앱 버전이 아직 호출하는지 본다 | [API 호환성 · 사용 현황](/d/umc-product-api-lifecycle?${__url_time_range}) | 경로·메서드별 호출, 버전 누락 |\n| 운영 DB 연결이 부족하거나 DB가 느리다 | [PostgreSQL Detail](/d/umc-product-postgresql-detail?${__url_time_range}) | 접속 수, transaction·lock, DB 용량 |\n| 서버 전체 CPU·메모리·디스크가 부족하다 | [Node Exporter Host Metrics](/d/umc-product-node-exporter-host?${__url_time_range}) | 호스트 CPU·메모리·디스크·네트워크 |\n| 캐시가 잘 동작하는지 본다 | [Cache](/d/umc-product-cache?${__url_time_range}) | Caffeine hit/miss, 적중률 |\n| GraphQL 요청만 느리다 | [GraphQL](/d/umc-product-graphql?${__url_time_range}) | 요청량·지연·오류 |\n\n클러스터·Pod 자원, 네트워크, 호스트, 저장소, 모니터링 자체의 상태는 Kubernetes 폴더에서 본다. [0. Kubernetes 폴더 읽는 법](/d/umc-product-kubernetes-guide?${__url_time_range})에 상황별로 열 화면과 바로 가는 링크가 있다.\n\nPod가 Pending이거나 재시작·OOM이 난 원인은 Argo CD의 해당 Pod → Events/Logs에서 본다. 자세한 설명은 [조회 가이드](https://github.com/UMC-PRODUCT/umc-product-infra/blob/main/docs/guides/monitoring.md)에 있다.\n",
+                    "content": "이 화면에서 prod/dev 요청량·5xx 비율·응답 시간과 운영 DB·호스트 요약을 먼저 보고, 이상한 부분만 아래 화면으로 좁힌다. 링크는 지금 보는 시간 범위를 그대로 가져간다.\n\n| 상황 | 화면 | 먼저 볼 것 |\n|---|---|---|\n| API가 느리거나 에러가 늘었다 | [Application Detail](/d/umc-product-server-default?${__url_time_range}) | HTTP 응답 시간, JVM 메모리·GC, HikariCP 포화 |\n| 요청이 몰려 429가 난다 | 이 화면의 Traefik edge 패널 → [Application Detail](/d/umc-product-server-default?${__url_time_range}) | Traefik 차단 수, 앱 limiter 차단과 API별 429 |\n| 에러 메시지와 원인을 찾는다 | [서버팀 로그 탐색](/d/umc-product-server-logs?${__url_time_range}) | 같은 시간대 ERROR 로그와 trace ID |\n| 특정 요청이 어디서 오래 걸렸는지 본다 | [API 처리 흐름 (Tempo)](/d/umc-product-api-flow?${__url_time_range}) | trace의 구간별 처리 시간 |\n| 구 API를 어떤 앱 버전이 아직 호출하는지 본다 | [API 호환성 · 사용 현황](/d/umc-product-api-lifecycle?${__url_time_range}) | 경로·메서드별 호출, 버전 누락 |\n| 운영 DB 연결이 부족하거나 DB가 느리다 | [PostgreSQL Detail](/d/umc-product-postgresql-detail?${__url_time_range}) | 접속 수, transaction·lock, DB 용량 |\n| 서버 전체 CPU·메모리·디스크가 부족하다 | [Node Exporter Host Metrics](/d/umc-product-node-exporter-host?${__url_time_range}) | 호스트 CPU·메모리·디스크·네트워크 |\n| 캐시가 잘 동작하는지 본다 | [Cache](/d/umc-product-cache?${__url_time_range}) | Caffeine hit/miss, 적중률 |\n\n클러스터·Pod 자원, 네트워크, 호스트, 저장소, 모니터링 자체의 상태는 Kubernetes 폴더에서 본다. [0. Kubernetes 폴더 읽는 법](/d/umc-product-kubernetes-guide?${__url_time_range})에 상황별로 열 화면과 바로 가는 링크가 있다.\n\nPod가 Pending이거나 재시작·OOM이 난 원인은 Argo CD의 해당 Pod → Events/Logs에서 본다. 자세한 설명은 [조회 가이드](https://github.com/UMC-PRODUCT/umc-product-infra/blob/main/docs/guides/monitoring.md)에 있다.\n",
                     "mode": "markdown"
                   }
                 }
@@ -565,6 +565,208 @@ data:
                     ]
                   }
                 }
+              }
+            }
+          },
+          "panel-16": {
+            "kind": "Panel",
+            "spec": {
+              "data": {
+                "kind": "QueryGroup",
+                "spec": {
+                  "queries": [
+                    {
+                      "kind": "PanelQuery",
+                      "spec": {
+                        "hidden": false,
+                        "query": {
+                          "datasource": {
+                            "name": "prometheus"
+                          },
+                          "group": "prometheus",
+                          "kind": "DataQuery",
+                          "spec": {
+                            "editorMode": "code",
+                            "expr": "clamp_min(sum(rate(traefik_entrypoint_requests_total{code=\"429\"}[$__rate_interval])) - (sum(rate(traefik_service_requests_total{code=\"429\"}[$__rate_interval])) or vector(0)), 0) or sum(rate(traefik_entrypoint_requests_total[$__rate_interval])) * 0",
+                            "legendFormat": "Traefik edge",
+                            "range": true
+                          },
+                          "version": "v0"
+                        },
+                        "refId": "A"
+                      }
+                    }
+                  ],
+                  "queryOptions": {},
+                  "transformations": []
+                }
+              },
+              "description": "앱에 닿기 전에 Traefik이 막은 요청 수(Traefik 429 − 앱 429). 어떤 변수도 따르지 않는 모든 host 합계이고 앱 로그에 남지 않는다. 0은 수집 중 차단이 늘지 않았다는 뜻이고, No data는 수집 실패다. Traefik이 재시작된 뒤 앱이 처음 429를 돌려준 때는 값이 잠깐 튈 수 있어 같은 시각 Application Detail의 `429 차단 — 규칙별`과 함께 본다. 자세한 한계는 docs/operations/domains-tls.md에 있다.",
+              "id": 16,
+              "links": [],
+              "title": "Traefik edge 429 — 모든 host",
+              "vizConfig": {
+                "group": "timeseries",
+                "kind": "VizConfig",
+                "spec": {
+                  "fieldConfig": {
+                    "defaults": {
+                      "color": {
+                        "mode": "palette-classic"
+                      },
+                      "custom": {
+                        "axisBorderShow": false,
+                        "axisCenteredZero": false,
+                        "axisColorMode": "text",
+                        "axisLabel": "",
+                        "axisPlacement": "auto",
+                        "barAlignment": 0,
+                        "barWidthFactor": 0.6,
+                        "drawStyle": "line",
+                        "fillOpacity": 20,
+                        "gradientMode": "none",
+                        "hideFrom": {
+                          "legend": false,
+                          "tooltip": false,
+                          "viz": false
+                        },
+                        "insertNulls": false,
+                        "lineInterpolation": "linear",
+                        "lineWidth": 2,
+                        "pointSize": 5,
+                        "scaleDistribution": {
+                          "type": "linear"
+                        },
+                        "showPoints": "never",
+                        "showValues": false,
+                        "spanNulls": false,
+                        "stacking": {
+                          "group": "A",
+                          "mode": "none"
+                        },
+                        "thresholdsStyle": {
+                          "mode": "off"
+                        }
+                      },
+                      "thresholds": {
+                        "mode": "absolute",
+                        "steps": [
+                          {
+                            "color": "green",
+                            "value": 0
+                          },
+                          {
+                            "color": "red",
+                            "value": 1
+                          }
+                        ]
+                      },
+                      "unit": "reqps"
+                    },
+                    "overrides": []
+                  },
+                  "options": {
+                    "annotations": {
+                      "clustering": -1,
+                      "multiLane": false
+                    },
+                    "legend": {
+                      "calcs": [],
+                      "displayMode": "list",
+                      "placement": "bottom",
+                      "showLegend": true
+                    },
+                    "tooltip": {
+                      "hideZeros": false,
+                      "mode": "multi",
+                      "sort": "desc"
+                    }
+                  }
+                },
+                "version": "13.0.1"
+              }
+            }
+          },
+          "panel-17": {
+            "kind": "Panel",
+            "spec": {
+              "data": {
+                "kind": "QueryGroup",
+                "spec": {
+                  "queries": [
+                    {
+                      "kind": "PanelQuery",
+                      "spec": {
+                        "hidden": false,
+                        "query": {
+                          "datasource": {
+                            "name": "prometheus"
+                          },
+                          "group": "prometheus",
+                          "kind": "DataQuery",
+                          "spec": {
+                            "editorMode": "code",
+                            "expr": "clamp_min(sum(increase(traefik_entrypoint_requests_total{code=\"429\"}[$__range])) - (sum(increase(traefik_service_requests_total{code=\"429\"}[$__range])) or vector(0)), 0) or sum(increase(traefik_entrypoint_requests_total[$__range])) * 0",
+                            "format": "time_series",
+                            "instant": true,
+                            "legendFormat": "Traefik edge",
+                            "range": false
+                          },
+                          "version": "v0"
+                        },
+                        "refId": "A"
+                      }
+                    }
+                  ],
+                  "queryOptions": {},
+                  "transformations": []
+                }
+              },
+              "description": "선택한 시간 범위의 같은 값(Traefik 429 − 앱 429). 읽는 법은 왼쪽 패널 설명을 본다.",
+              "id": 17,
+              "links": [],
+              "title": "Traefik edge 429 수 · 선택 범위",
+              "vizConfig": {
+                "group": "stat",
+                "kind": "VizConfig",
+                "spec": {
+                  "fieldConfig": {
+                    "defaults": {
+                      "color": {
+                        "mode": "thresholds"
+                      },
+                      "thresholds": {
+                        "mode": "absolute",
+                        "steps": [
+                          {
+                            "color": "green",
+                            "value": 0
+                          }
+                        ]
+                      },
+                      "unit": "short"
+                    },
+                    "overrides": []
+                  },
+                  "options": {
+                    "colorMode": "value",
+                    "graphMode": "none",
+                    "justifyMode": "auto",
+                    "orientation": "auto",
+                    "percentChangeColorMode": "standard",
+                    "reduceOptions": {
+                      "calcs": [
+                        "lastNotNull"
+                      ],
+                      "fields": "",
+                      "values": false
+                    },
+                    "showPercentChange": false,
+                    "textMode": "value_and_name",
+                    "wideLayout": true
+                  }
+                },
+                "version": "13.0.1"
               }
             }
           },
@@ -1523,6 +1725,46 @@ data:
                           "spec": {
                             "element": {
                               "kind": "ElementReference",
+                              "name": "panel-16"
+                            },
+                            "height": 8,
+                            "width": 16,
+                            "x": 0,
+                            "y": 0
+                          }
+                        },
+                        {
+                          "kind": "GridLayoutItem",
+                          "spec": {
+                            "element": {
+                              "kind": "ElementReference",
+                              "name": "panel-17"
+                            },
+                            "height": 8,
+                            "width": 8,
+                            "x": 16,
+                            "y": 0
+                          }
+                        }
+                      ]
+                    }
+                  },
+                  "title": "Traefik edge — 모든 host"
+                }
+              },
+              {
+                "kind": "RowsLayoutRow",
+                "spec": {
+                  "collapse": false,
+                  "layout": {
+                    "kind": "GridLayout",
+                    "spec": {
+                      "items": [
+                        {
+                          "kind": "GridLayoutItem",
+                          "spec": {
+                            "element": {
+                              "kind": "ElementReference",
                               "name": "panel-8"
                             },
                             "height": 4,
@@ -1683,7 +1925,7 @@ data:
               "node-exporter-mixin"
             ],
             "targetBlank": false,
-            "title": "Node Exporter (chart)",
+            "title": "Node Exporter (chart · 보조)",
             "type": "dashboards",
             "url": ""
           }

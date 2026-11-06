@@ -1055,7 +1055,7 @@ data:
               {
                 "kind": "RowsLayoutRow",
                 "spec": {
-                  "collapse": true,
+                  "collapse": false,
                   "layout": {
                     "kind": "GridLayout",
                     "spec": {

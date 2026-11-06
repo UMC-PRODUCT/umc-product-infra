@@ -61,7 +61,7 @@ Prometheus 규칙의 `api`는 요청·지연, `database-cache`는 HikariCP·캐�
 
 ## Dashboard 배포 허용 목록
 
-다음 UMC 원본 열 개를 Grafana sidecar가 읽는 ConfigMap으로 생성한다. `DASHBOARD_ALLOWLIST`가
+다음 UMC 원본 아홉 개를 Grafana sidecar가 읽는 ConfigMap으로 생성한다. `DASHBOARD_ALLOWLIST`가
 원본마다 folder를 정한다. `kubernetes-guide.json`만 `Kubernetes` folder에 두고 나머지는 `UMC Product`
 folder에 둔다. Chart의 기본 dashboard는 `Kubernetes` folder로 들어온다. 그 folder의 chart 화면은
 이 저장소에서 제목·설명을 바꿀 수 없으므로 안내 dashboard를 같은 folder에 넣는다.
@@ -71,19 +71,18 @@ Application Detail과 API 호환성의 Service 변수는 Loki label 목록이 �
 잠시 비어도 prod/dev/local 선택지를 유지하고, `process_uptime_milliseconds`가 지금 떠 있는
 `preview-umc-product-prN`을 더한다. 변수 regex는 이 네 형태만 남겨 `x-umc-product` 같은 기본값 이름을
 숨긴다. Application Detail의 `All`은 prod/dev/local만 묶고 Preview PR은 직접 골라야 보인다.
-Overview는 prod/dev만 비교한다. 원본 변경 시 이 변수와 dashboard 간 링크를 함께 확인한다.
+Overview는 prod/dev만 비교하고, Traefik edge 행만 모든 host 합계다. 원본 변경 시 이 변수와 dashboard 간 링크를 함께 확인한다.
 
 - `api-flow.json`
 - `api-lifecycle.json` — API·클라이언트 버전별 호출과 계측 누락 현황
 - `cache.json`
-- `graphql.json`
 - `kubernetes-guide.json` — Kubernetes folder의 chart 화면 묶음과 링크. 제목을 `0.`으로 시작해 이름순
   목록 맨 위에 둔다. `kubernetes-mixin` tag로 chart 화면의 Kubernetes 링크 목록에도 보인다
 - `node-exporter-host.json`
 - `postgresql-detail.json` — production PostgreSQL exporter·Kubernetes 선언 자원
 - `server-default.json` — 애플리케이션/JVM/HikariCP/로그 상세
 - `server-logs.json`
-- `system-overview.json` — prod/dev 앱 비교와 production 인프라 요약 landing
+- `system-overview.json` — prod/dev 앱 비교, Traefik edge 차단과 production 인프라 요약 landing
 
 `api-lifecycle.json`은 native OTLP structured metadata를 직접 조회한다. `clientVersion`은
 인덱스 label이나 Prometheus label로 추가하지 않는다. 기본 7일로 시작하며 14/30일과 점검용
@@ -98,6 +97,8 @@ Overview는 prod/dev만 비교한다. 원본 변경 시 이 변수와 dashboard 
 
 전용 plugin, token 또는 현재 K3s에 없는 datasource 의존성을 제거하고 검증한 뒤에만
 [`DASHBOARD_ALLOWLIST`](../scripts/gen-configmaps.py)에 추가한다.
+
+`graphql.json`은 운영 GraphQL 요청이 거의 없어 원본만 보관한다. 복원할 때는 허용 목록에 다시 넣고 `gen-configmaps.py`를 실행한 뒤, `validate_dashboards.py`가 알려 주는 이름을 `prometheus-metric-names.txt`에 이유와 함께 넣고, `monitoring.md` 표와 System Overview `어떤 화면을 열까` 표의 행도 되살린다.
 
 `postgresql-detail.json`은 AWS RDS/CloudWatch가 아니라 K3s 내부
 `postgres_exporter`와 `kube-state-metrics`를 사용한다. CPU·memory request/limit와 PVC 요청

@@ -646,7 +646,7 @@ groups:
           description: "argocd_app_info가 없어 Application health·sync 알림이 동작하지 않아요. argocd-application-controller-metrics Service와 ServiceMonitor target을 확인해주세요."
 
       # kube-prometheus-stack의 TargetDown은 target이 남아 있을 때(up == 0)만 뜬다. Traefik Pod label이나 port 이름이 바뀌어
-      # PodMonitor가 Pod를 고르지 못하면 target 자체가 사라지고 429 차단 패널만 조용히 No data가 된다.
+      # PodMonitor가 Pod를 고르지 못하면 target 자체가 사라진다.
       - alert: TraefikMetricsMissing
         expr: absent(up{job="traefik"})
         for: 30m
@@ -654,7 +654,7 @@ groups:
           severity: warning
         annotations:
           summary: "Traefik 지표 수집 대상이 30분째 없어요"
-          description: "Prometheus에 job=traefik target이 없어 Grafana 429 차단 패널의 Traefik edge 값이 비어 있어요. kube-system Traefik Pod의 label·metrics port와 monitoring/traefik PodMonitor를 확인해주세요."
+          description: "Prometheus에 job=traefik target이 없어 Grafana System Overview의 Traefik edge 패널이 비어 있어요. kube-system Traefik Pod의 label·metrics port와 monitoring/traefik PodMonitor를 확인해주세요."
 
       # OOMKilled는 일반 재시작과 달리 memory limit이나 사용량을 바로 조정해야 한다.
       # Preview PR 앱은 작은 상한에서 PR 코드 탓에 죽을 수 있어 warning으로만 알린다.

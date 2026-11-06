@@ -132,15 +132,30 @@ SERVICE_429 = 'traefik_service_requests_total{code="429", service="app-umc-produ
 APP_BLOCKED = 'api_rate_limit_requests_total{application="prod-umc-product", instance="a", result="blocked", rule="login"}'
 APP_ALLOWED = 'api_rate_limit_requests_total{application="prod-umc-product", instance="a", result="allowed", rule="login"}'
 APP_RULE = '{application="prod-umc-product", rule="login"}'
-RATE_LIMIT_PANELS = {("panel-34", "A"): "app_rate", ("panel-34", "B"): "edge_rate",
-                     ("panel-35", "A"): "app_total", ("panel-35", "B"): "edge_total"}
+APP_NO_BLOCK = '{application="prod-umc-product", rule="증가 없음"}'
+APP_TOTAL = '{application="prod-umc-product"}'
+DEV_ALLOWED = APP_ALLOWED.replace("prod-umc-product", "dev-umc-product")
+DEV_NO_BLOCK = APP_NO_BLOCK.replace("prod-umc-product", "dev-umc-product")
+HTTP_200 = 'http_server_requests_milliseconds_count{application="prod-umc-product", instance="a", method="GET", status="200", uri="/api/a"}'
+HTTP_429 = HTTP_200.replace('status="200"', 'status="429"')
+DEV_HTTP_200 = HTTP_200.replace("prod-umc-product", "dev-umc-product")
+DEV_HTTP_429 = HTTP_429.replace("prod-umc-product", "dev-umc-product")
+API_ROW = '{application="prod-umc-product", method="GET", uri="/api/a"}'
+DEV_API_ROW = API_ROW.replace("prod-umc-product", "dev-umc-product")
+API_PLACEHOLDER = '{application="prod-umc-product", method="-", uri="429 증가 없음"}'
+DEV_API_PLACEHOLDER = API_PLACEHOLDER.replace("prod-umc-product", "dev-umc-product")
+PANEL_VARIABLES = {"__rate_interval": "2m", "__range": "10m", "service": ".+", "instance": ".+"}
+RATE_LIMIT_PANELS = {
+    "server-default.json": {("panel-34", "A"): "app_rate", ("panel-35", "A"): "app_total", ("panel-7", "A"): "api_table"},
+    "system-overview.json": {("panel-16", "A"): "edge_rate", ("panel-17", "A"): "edge_total"},
+}
 # 30초 scrape를 흉내 낸다. series 값 '0+600x20'은 30초마다 600씩, 10분 동안 늘어나는 counter다.
 # 기대값의 [] 는 No data, {} 는 label 없는 합계 한 줄이다. 외삽 오차 때문에 소수 셋째 자리로 반올림해 비교한다.
 RATE_LIMIT_SCENARIOS: dict[str, tuple[str, dict[str, str], dict[str, list[tuple[str, float]]]]] = {
     "edge는_Traefik_429에서_앱_429를_뺀_값이고_앱은_blocked만_센다": ("10m", {
         ENTRYPOINT_429: "0+600x20", SERVICE_429: "0+240x20", APP_BLOCKED: "0+240x20", APP_ALLOWED: "0+3000x20",
     }, {"edge_rate": [("{}", 12)], "edge_total": [("{}", 7200)],
-        "app_rate": [(APP_RULE, 8)], "app_total": [("{}", 4800)]}),
+        "app_rate": [(APP_RULE, 8)], "app_total": [(APP_TOTAL, 4800)]}),
     "앱_429가_한_번도_없으면_Traefik_429_전부가_edge다": ("10m", {
         ENTRYPOINT_429: "0+600x20",
         SERVICE_429.replace('code="429"', 'code="200"'): "0+1000x20",
@@ -149,13 +164,43 @@ RATE_LIMIT_SCENARIOS: dict[str, tuple[str, dict[str, str], dict[str, list[tuple[
     "뺀_값이_음수면_0이다": ("10m", {
         ENTRYPOINT_429: "0+60x20", SERVICE_429: "0+240x20",
     }, {"edge_rate": [("{}", 0)], "edge_total": [("{}", 0)]}),
-    "수집되는_중_차단이_없으면_선택_범위_건수는_0이다": ("10m", {
+    "수집되는_중_차단이_없으면_edge와_앱_건수는_0이다": ("10m", {
         ENTRYPOINT_429.replace('code="429"', 'code="200"'): "0+1000x20", APP_ALLOWED: "0+3000x20",
-    }, {"edge_total": [("{}", 0)], "app_total": [("{}", 0)]}),
+    }, {"edge_rate": [("{}", 0)], "edge_total": [("{}", 0)], "app_total": [(APP_TOTAL, 0)]}),
     "수집하지_못하면_0이_아니라_No_data다": ("10m", {
         'up{job="prometheus"}': "1x20",
-    }, {"edge_rate": [], "edge_total": [], "app_rate": [], "app_total": []}),
-    # 패널 설명에 적은 한계다. Traefik 재시작 뒤 앱이 처음 429를 돌려주면 새 service series의 첫 수집값
+    }, {"edge_rate": [], "edge_total": [], "app_rate": [], "app_total": [], "api_table": []}),
+    "수집되는_중_차단이_없으면_규칙별_패널은_증가_없음_0선이다": ("10m", {
+        APP_ALLOWED: "0+3000x20",
+    }, {"app_rate": [(APP_NO_BLOCK, 0)]}),
+    "차단_규칙선은_그_앱의_0선만_대체하고_다른_앱은_0선을_유지한다": ("10m", {
+        APP_BLOCKED: "0+240x20", APP_ALLOWED: "0+3000x20", DEV_ALLOWED: "0+3000x20",
+    }, {"app_rate": [(APP_RULE, 8), (DEV_NO_BLOCK, 0)]}),
+    "429가_없으면_표는_429_증가_없음_행만_돌려준다": ("10m", {
+        HTTP_200: "0+1000x20",
+    }, {"api_table": [(API_PLACEHOLDER, 0)]}),
+    "범위_안에_늘지_않은_429_series는_실제_행이_아니다": ("10m", {
+        HTTP_200: "0+1000x20", HTTP_429: "100x20",
+    }, {"api_table": [(API_PLACEHOLDER, 0)]}),
+    "429가_있으면_표는_실제_행만_돌려주고_429_증가_없음_행은_없다": ("10m", {
+        HTTP_200: "0+1000x20", HTTP_429: "0+60x20",
+    }, {"api_table": [(API_ROW, 1200)]}),
+    "표와_건수는_환경을_합치지_않는다": ("10m", {
+        APP_BLOCKED: "0+60x20", DEV_ALLOWED: "0+60x20",
+        HTTP_200: "0+1000x20", HTTP_429: "0+60x20", DEV_HTTP_200: "0+1000x20", DEV_HTTP_429: "0+30x20",
+    }, {"app_total": [(APP_TOTAL, 1200), (APP_TOTAL.replace("prod-umc-product", "dev-umc-product"), 0)],
+        "api_table": [(API_ROW, 1200), (DEV_API_ROW, 600)]}),
+    "한_환경만_429가_있으면_다른_환경은_429_증가_없음_행이다": ("10m", {
+        HTTP_200: "0+1000x20", HTTP_429: "0+60x20", DEV_HTTP_200: "0+1000x20",
+    }, {"api_table": [(API_ROW, 1200), (DEV_API_PLACEHOLDER, 0)]}),
+    "한_환경의_429_API가_많아도_다른_환경의_실제_행을_가리지_않는다": ("10m", {
+        **{HTTP_429.replace("/api/a", f"/api/p{i}"): "0+100x20" for i in range(10)},
+        DEV_HTTP_429: "0+30x20",
+    }, {"api_table": [(API_ROW.replace("/api/a", f"/api/p{i}"), 2000.0) for i in range(10)] + [(DEV_API_ROW, 600.0)]}),
+    "범위_안에서_처음_생긴_counter의_첫_값은_세지_못한다": ("10m", {
+        HTTP_200: "0+1000x20", HTTP_429: "_x10 50x10",
+    }, {"api_table": [(API_PLACEHOLDER, 0)]}),
+    # docs/operations/domains-tls.md에 적은 한계다. Traefik 재시작 뒤 앱이 처음 429를 돌려주면 새 service series의 첫 수집값
     # (30초 동안의 앱 429 300건) 중 외삽이 메우지 못한 155건이 edge로 넘친다. 실제 edge 차단은 0건이다.
     "재시작_뒤_첫_앱_429_구간은_edge로_넘친다": ("6m", {
         ENTRYPOINT_429: "5x10 305+300x9", SERVICE_429: "_x11 300+300x9",
@@ -170,13 +215,15 @@ class RateLimitPanelsTest(unittest.TestCase):
         if promtool is None:
             self.skipTest("promtool not installed; 429 panel behaviour tests skipped")
         self.promtool = promtool
-        path = Path(__file__).resolve().parents[2] / "observability/dashboards/server-default.json"
-        dashboard = json.loads(path.read_text(encoding="utf-8"))
-        variables = {**dashboard_variables(dashboard),
-                     "__rate_interval": "2m", "__range": "10m", "service": ".+", "instance": ".+"}
-        self.exprs = {RATE_LIMIT_PANELS[(panel, ref)]: substitute_variables(expr, variables)
-                      for panel, ref, expr in raw_queries(dashboard) if (panel, ref) in RATE_LIMIT_PANELS}
-        self.assertEqual(set(self.exprs), set(RATE_LIMIT_PANELS.values()))
+        self.exprs = {}
+        for filename, panels in RATE_LIMIT_PANELS.items():
+            path = Path(__file__).resolve().parents[2] / "observability/dashboards" / filename
+            dashboard = json.loads(path.read_text(encoding="utf-8"))
+            variables = {**dashboard_variables(dashboard), **PANEL_VARIABLES}
+            found = {panels[(panel, ref)]: substitute_variables(expr, variables)
+                     for panel, ref, expr in raw_queries(dashboard) if (panel, ref) in panels}
+            self.assertEqual(set(found), set(panels.values()), filename)
+            self.exprs.update(found)
 
     def test_429_패널_값(self) -> None:
         for name, (eval_time, series, expected) in RATE_LIMIT_SCENARIOS.items():
