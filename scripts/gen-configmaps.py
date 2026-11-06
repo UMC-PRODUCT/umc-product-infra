@@ -32,7 +32,6 @@ DASHBOARD_ALLOWLIST = {
     "api-flow.json": UMC_PRODUCT_FOLDER,
     "api-lifecycle.json": UMC_PRODUCT_FOLDER,
     "cache.json": UMC_PRODUCT_FOLDER,
-    "graphql.json": UMC_PRODUCT_FOLDER,
     "kubernetes-guide.json": KUBERNETES_FOLDER,
     "node-exporter-host.json": UMC_PRODUCT_FOLDER,
     "postgresql-detail.json": UMC_PRODUCT_FOLDER,

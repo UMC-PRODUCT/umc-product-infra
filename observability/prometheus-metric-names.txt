@@ -6,12 +6,6 @@ api_rate_limit_requests_total  # 요청 제한 정책이 걸린 첫 요청 뒤�
 cache_evictions_total
 cache_gets_total
 cache_size
-graphql_datafetcher_milliseconds_bucket  # GraphQL data fetcher가 처음 실행된 뒤에 생성된다
-graphql_datafetcher_milliseconds_count  # GraphQL data fetcher가 처음 실행된 뒤에 생성된다
-graphql_dataloader_milliseconds_bucket  # GraphQL DataLoader가 처음 실행된 뒤에 생성된다
-graphql_dataloader_milliseconds_count  # GraphQL DataLoader가 처음 실행된 뒤에 생성된다
-graphql_request_milliseconds_bucket
-graphql_request_milliseconds_count
 hikaricp_connections_acquire_milliseconds_count
 hikaricp_connections_acquire_milliseconds_sum
 hikaricp_connections_active

@@ -42,13 +42,12 @@ dashboard 기준이다. 화면이나 데이터가 없으면 시간 범위와 변
 
 | 이런 상황이면 | 열 대시보드 | 먼저 볼 것 |
 |---|---|---|
-| 어디가 문제인지 모르겠다 | `UMC PRODUCT System Overview` | prod/dev 요청량·5xx 비율·응답 시간, 운영 DB·호스트 요약 |
+| 어디가 문제인지 모르겠다 | `UMC PRODUCT System Overview` | prod/dev 요청량·5xx 비율·응답 시간, 운영 DB·호스트 요약, Traefik 차단(모든 host 합계) |
 | API가 느리거나 에러가 늘었다 | `Application Detail` | HTTP 응답 시간, JVM 메모리·GC, HikariCP(DB 연결 풀) 포화 |
-| 공격이나 행사로 요청이 몰려 429가 난다 | `Application Detail` | `429 차단` 패널의 Traefik edge·앱 limiter별 차단 수. 막힌 요청은 `api_request_completed` 로그에 없다. 앱은 key마다 1분에 한 줄 `api_rate_limit_blocked` WARN만 남기고, Traefik accessLog는 Pod stdout에만 있다 |
+| 공격이나 행사로 요청이 몰려 429가 난다 | `UMC PRODUCT System Overview`, `Application Detail` | System Overview의 Traefik edge 패널에서 Traefik 차단 수, Application Detail에서 앱 limiter 차단 수와 API별 429. 막힌 요청은 `api_request_completed` 로그에 없다. 앱은 key마다 1분에 한 줄 `api_rate_limit_blocked` WARN만 남기고, Traefik accessLog는 Pod stdout에만 있다 |
 | 구 API를 어떤 앱 버전이 아직 호출하는지 확인하고 싶다 | `API 호환성 · 사용 현황` | 후보 경로·메서드별 호출, 버전 누락, 최근 관측 시각. [사용 가이드](api-lifecycle.md) |
 | 에러 메시지와 원인을 찾고 싶다 | `서버팀 로그 탐색` | 같은 시간대의 ERROR 로그와 trace ID |
 | 특정 요청이 어디서 오래 걸렸는지 보고 싶다 | `API 처리 흐름 (Tempo)` | 요청 trace의 구간별 처리 시간. 로그의 trace ID로도 연결 가능 |
-| GraphQL 요청만 느리다 | `UMC PRODUCT — GraphQL` | GraphQL 요청량·지연·오류 |
 | 캐시가 잘 동작하는지 궁금하다 | `UMC PRODUCT — Cache` | 인메모리 Caffeine 캐시 hit/miss·적중률·항목 수. Redis 상태가 아님 |
 | 운영 DB 연결이 부족하거나 DB가 느리다 | `PostgreSQL Detail — Production Only` | 접속 수/최대 접속, transaction·lock·DB 용량 |
 | 서버 전체 CPU·메모리·디스크가 부족하다 | `Node Exporter Host Metrics` | Linux 호스트 전체 CPU·메모리·디스크·네트워크 |
@@ -86,6 +85,9 @@ Grafana에서는 이 폴더 맨 위 `0. Kubernetes 폴더 읽는 법`이 화면�
 모니터링 `monitoring` 등으로 선택한다.
 Pod가 Pending이거나 재시작/OOM이 발생한 원인은 Argo CD의 해당 Pod → Events/Logs도 확인한다.
 기본 대시보드에는 이 상태를 전용으로 나열하는 패널이 없다.
+
+서버 상태는 UMC Product 폴더의 `Node Exporter Host Metrics`에서 먼저 보고, 아래 목록의 `Node Exporter / USE Method / Cluster`·
+`USE Method / Node`·`Nodes`는 그 뒤 포화·오류를 확인할 때 쓴다.
 
 <details>
 <summary>Kubernetes 폴더 전체 목록 — 차트 87.21.0 기준 23개</summary>

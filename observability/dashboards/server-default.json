@@ -1160,8 +1160,8 @@
                       "kind": "DataQuery",
                       "spec": {
                         "editorMode": "code",
-                        "expr": "sum by (application, rule) (rate(api_rate_limit_requests_total{application=~\"$service\", instance=~\"$instance\", result=\"blocked\"}[$__rate_interval]))",
-                        "legendFormat": "앱 limiter · {{application}} · {{rule}}",
+                        "expr": "sum by (application, rule) (rate(api_rate_limit_requests_total{application=~\"$service\", instance=~\"$instance\", result=\"blocked\"}[$__rate_interval])) or on (application) label_replace(sum by (application) (rate(api_rate_limit_requests_total{application=~\"$service\", instance=~\"$instance\"}[$__rate_interval])) * 0, \"rule\", \"증가 없음\", \"\", \"\")",
+                        "legendFormat": "{{application}} · {{rule}}",
                         "range": true,
                         "interval": "$http_requests_interval"
                       },
@@ -1169,38 +1169,16 @@
                     },
                     "refId": "A"
                   }
-                },
-                {
-                  "kind": "PanelQuery",
-                  "spec": {
-                    "hidden": false,
-                    "query": {
-                      "datasource": {
-                        "name": "prometheus"
-                      },
-                      "group": "prometheus",
-                      "kind": "DataQuery",
-                      "spec": {
-                        "editorMode": "code",
-                        "expr": "clamp_min(sum(rate(traefik_entrypoint_requests_total{code=\"429\"}[$__rate_interval])) - (sum(rate(traefik_service_requests_total{code=\"429\"}[$__rate_interval])) or vector(0)), 0)",
-                        "legendFormat": "Traefik edge · 모든 host",
-                        "range": true,
-                        "interval": "$http_requests_interval"
-                      },
-                      "version": "v0"
-                    },
-                    "refId": "B"
-                  }
                 }
               ],
               "queryOptions": {},
               "transformations": []
             }
           },
-          "description": "초당 429로 막힌 요청 수. 앱 limiter는 Service·Instance 변수를 따르며 앱 counter의 rule별로 나눈다. Traefik edge는 Traefik이 보낸 429에서 앱이 돌려준 429를 뺀 값으로, 변수와 관계없이 모든 host의 합계다. Traefik과 REST limiter가 막은 요청은 Loki의 api_request_completed 로그에 남지 않는다. Traefik이 재시작된 뒤 처음 생긴 429 counter는 첫 수집 구간(약 30초)의 차단을 세지 못한다. 그래서 재시작 뒤 앱이 처음 429를 돌려준 구간은 앱 429가 edge로 넘쳐 보이고, edge 차단이 처음 난 구간은 edge가 적게 보이거나 0으로 깎인다. edge가 튀면 같은 시각의 앱 limiter 선과 겹쳐 보고, Traefik 재시작 직후 약 30초는 조심해서 읽는다.",
+          "description": "앱 limiter가 초당 막은 요청 수. Service·Instance 변수를 따르며 rule별로 나눈다. 막힌 REST 요청은 Loki의 api_request_completed 로그에 남지 않는다. `증가 없음`은 수집 중 차단이 늘지 않았다는 0 선이고, 차단이 끝난 뒤에는 rule 이름의 0 선이 남을 수 있다. counter가 범위 안에서 처음 생기면 첫 수집값은 세지 못한다. No data는 counter가 아직 없다는 뜻이다(수집 실패 또는 제한 정책이 걸린 첫 요청 전). Traefik이 막은 요청은 System Overview에서 본다.",
           "id": 34,
           "links": [],
-          "title": "429 차단 — 출처별",
+          "title": "429 차단 — 규칙별",
           "vizConfig": {
             "group": "timeseries",
             "kind": "VizConfig",
@@ -1302,8 +1280,8 @@
                       "kind": "DataQuery",
                       "spec": {
                         "editorMode": "code",
-                        "expr": "sum(increase(api_rate_limit_requests_total{application=~\"$service\", instance=~\"$instance\", result=\"blocked\"}[$__range])) or sum(increase(api_rate_limit_requests_total{application=~\"$service\", instance=~\"$instance\"}[$__range])) * 0",
-                        "legendFormat": "앱 limiter",
+                        "expr": "sum by (application) (increase(api_rate_limit_requests_total{application=~\"$service\", instance=~\"$instance\", result=\"blocked\"}[$__range])) or sum by (application) (increase(api_rate_limit_requests_total{application=~\"$service\", instance=~\"$instance\"}[$__range])) * 0",
+                        "legendFormat": "{{application}}",
                         "format": "time_series",
                         "instant": true,
                         "range": false
@@ -1312,36 +1290,13 @@
                     },
                     "refId": "A"
                   }
-                },
-                {
-                  "kind": "PanelQuery",
-                  "spec": {
-                    "hidden": false,
-                    "query": {
-                      "datasource": {
-                        "name": "prometheus"
-                      },
-                      "group": "prometheus",
-                      "kind": "DataQuery",
-                      "spec": {
-                        "editorMode": "code",
-                        "expr": "clamp_min(sum(increase(traefik_entrypoint_requests_total{code=\"429\"}[$__range])) - (sum(increase(traefik_service_requests_total{code=\"429\"}[$__range])) or vector(0)), 0) or sum(increase(traefik_entrypoint_requests_total[$__range])) * 0",
-                        "legendFormat": "Traefik edge · 모든 host",
-                        "format": "time_series",
-                        "instant": true,
-                        "range": false
-                      },
-                      "version": "v0"
-                    },
-                    "refId": "B"
-                  }
                 }
               ],
               "queryOptions": {},
               "transformations": []
             }
           },
-          "description": "선택한 시간 범위에 429로 막힌 요청 수. 0은 counter가 수집되는 중 차단이 없었다는 뜻이고 No data는 counter를 수집하지 못했다는 뜻이다. Traefik이 재시작된 뒤 처음 생긴 429 counter는 첫 수집 구간(약 30초)의 차단을 세지 못한다. 그래서 재시작 뒤 앱이 처음 429를 돌려준 구간은 앱 429가 edge로 넘쳐 보이고, edge 차단이 처음 난 구간은 edge가 적게 보이거나 0으로 깎인다. edge가 튀면 같은 시각의 앱 limiter 선과 겹쳐 보고, Traefik 재시작 직후 약 30초는 조심해서 읽는다.",
+          "description": "선택한 시간 범위에 앱 limiter가 막은 요청 수를 환경별로 보여 준다. 0은 수집 중 차단이 늘지 않았다는 뜻이다. counter가 범위 안에서 처음 생기면 첫 수집값은 세지 못해 실제보다 적게 보인다. No data는 counter가 아직 없다는 뜻이다(수집 실패 또는 제한 정책이 걸린 첫 요청 전).",
           "id": 35,
           "links": [],
           "title": "429 차단 수 · 선택 범위",
@@ -1383,6 +1338,157 @@
                 "showPercentChange": false,
                 "textMode": "value_and_name",
                 "wideLayout": true
+              }
+            },
+            "version": "13.0.1"
+          }
+        }
+      },
+      "panel-7": {
+        "kind": "Panel",
+        "spec": {
+          "data": {
+            "kind": "QueryGroup",
+            "spec": {
+              "queries": [
+                {
+                  "kind": "PanelQuery",
+                  "spec": {
+                    "hidden": false,
+                    "query": {
+                      "datasource": {
+                        "name": "prometheus"
+                      },
+                      "group": "prometheus",
+                      "kind": "DataQuery",
+                      "spec": {
+                        "editorMode": "code",
+                        "expr": "topk by (application) (10, sum by (application, method, uri) (increase(http_server_requests_milliseconds_count{application=~\"$service\", instance=~\"$instance\", status=\"429\"}[$__range])) > 0) or on (application) label_replace(label_replace(sum by (application) (increase(http_server_requests_milliseconds_count{application=~\"$service\", instance=~\"$instance\"}[$__range])) * 0, \"uri\", \"429 증가 없음\", \"\", \"\"), \"method\", \"-\", \"\", \"\")",
+                        "format": "table",
+                        "instant": true,
+                        "range": false
+                      },
+                      "version": "v0"
+                    },
+                    "refId": "A"
+                  }
+                }
+              ],
+              "queryOptions": {},
+              "transformations": [
+                {
+                  "kind": "Transformation",
+                  "group": "organize",
+                  "spec": {
+                    "options": {
+                      "excludeByName": {
+                        "Time": true,
+                        "__name__": true
+                      },
+                      "indexByName": {
+                        "application": 0,
+                        "method": 1,
+                        "uri": 2,
+                        "Value": 3
+                      },
+                      "renameByName": {
+                        "Value": "429"
+                      }
+                    }
+                  }
+                }
+              ]
+            }
+          },
+          "description": "선택한 시간 범위에 429를 돌려준 API를 환경마다 상위 10개씩 보여 준다. 앱 HTTP 메트릭에서 세므로 limiter 차단뿐 아니라 앱이 직접 돌려준 429도 포함한다. `429 증가 없음` 행은 그 환경에서 수집 중 429가 늘지 않았다는 뜻이다. counter가 범위 안에서 처음 생기면 첫 수집값은 세지 못해 이 행으로 보일 수 있다. No data는 메트릭을 수집하지 못했다는 뜻이다.",
+          "id": 7,
+          "links": [],
+          "title": "429 응답 API · 선택 범위",
+          "vizConfig": {
+            "group": "table",
+            "kind": "VizConfig",
+            "spec": {
+              "fieldConfig": {
+                "defaults": {
+                  "custom": {
+                    "align": "auto",
+                    "cellOptions": {
+                      "type": "auto"
+                    },
+                    "inspect": false
+                  },
+                  "unit": "short"
+                },
+                "overrides": [
+                  {
+                    "matcher": {
+                      "id": "byName",
+                      "options": "429"
+                    },
+                    "properties": [
+                      {
+                        "id": "displayName",
+                        "value": "429"
+                      },
+                      {
+                        "id": "decimals",
+                        "value": 0
+                      },
+                      {
+                        "id": "custom.width",
+                        "value": 70
+                      }
+                    ]
+                  },
+                  {
+                    "matcher": {
+                      "id": "byName",
+                      "options": "uri"
+                    },
+                    "properties": [
+                      {
+                        "id": "displayName",
+                        "value": "uri"
+                      }
+                    ]
+                  },
+                  {
+                    "matcher": {
+                      "id": "byName",
+                      "options": "method"
+                    },
+                    "properties": [
+                      {
+                        "id": "custom.width",
+                        "value": 70
+                      }
+                    ]
+                  },
+                  {
+                    "matcher": {
+                      "id": "byName",
+                      "options": "application"
+                    },
+                    "properties": [
+                      {
+                        "id": "custom.width",
+                        "value": 150
+                      }
+                    ]
+                  }
+                ]
+              },
+              "options": {
+                "cellHeight": "sm",
+                "footer": {
+                  "countRows": false,
+                  "fields": "",
+                  "reducer": [
+                    "sum"
+                  ],
+                  "show": false
+                },
+                "showHeader": true
               }
             },
             "version": "13.0.1"
@@ -3305,7 +3411,7 @@
                           "name": "panel-34"
                         },
                         "height": 8,
-                        "width": 16,
+                        "width": 8,
                         "x": 0,
                         "y": 16
                       }
@@ -3318,8 +3424,21 @@
                           "name": "panel-35"
                         },
                         "height": 8,
-                        "width": 8,
-                        "x": 16,
+                        "width": 4,
+                        "x": 8,
+                        "y": 16
+                      }
+                    },
+                    {
+                      "kind": "GridLayoutItem",
+                      "spec": {
+                        "element": {
+                          "kind": "ElementReference",
+                          "name": "panel-7"
+                        },
+                        "height": 8,
+                        "width": 12,
+                        "x": 12,
                         "y": 16
                       }
                     }

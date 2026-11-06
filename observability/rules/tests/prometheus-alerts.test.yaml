@@ -354,4 +354,4 @@ tests:
               job: traefik
             exp_annotations:
               summary: "Traefik 지표 수집 대상이 30분째 없어요"
-              description: "Prometheus에 job=traefik target이 없어 Grafana 429 차단 패널의 Traefik edge 값이 비어 있어요. kube-system Traefik Pod의 label·metrics port와 monitoring/traefik PodMonitor를 확인해주세요."
+              description: "Prometheus에 job=traefik target이 없어 Grafana System Overview의 Traefik edge 패널이 비어 있어요. kube-system Traefik Pod의 label·metrics port와 monitoring/traefik PodMonitor를 확인해주세요."
