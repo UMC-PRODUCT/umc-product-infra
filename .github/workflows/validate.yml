@@ -52,26 +52,39 @@ jobs:
           tools_dir="$RUNNER_TEMP/umc-infra-tools"
           mkdir -p "$tools_dir"
 
+          # 일반 release URL이 실패하면 같은 파일을 API 경로로 받고 아래 checksum 검증은 유지한다.
+          download_release_asset() {
+            local url="$1" api_url="$2" destination="$3"
+            if ! curl -fsSL --retry 3 "$url" -o "$destination"; then
+              echo "Release download failed; retrying via API: $api_url" >&2
+              curl -fsSL --retry 3 -H 'Accept: application/octet-stream' \
+                "$api_url" -o "$destination"
+            fi
+          }
+
           kubeconform_archive="$RUNNER_TEMP/kubeconform-v0.7.0.tar.gz"
-          curl -fsSL --retry 3 \
+          download_release_asset \
             https://github.com/yannh/kubeconform/releases/download/v0.7.0/kubeconform-linux-amd64.tar.gz \
-            -o "$kubeconform_archive"
+            https://api.github.com/repos/yannh/kubeconform/releases/assets/253886788 \
+            "$kubeconform_archive"
           echo "c31518ddd122663b3f3aa874cfe8178cb0988de944f29c74a0b9260920d115d3  $kubeconform_archive" \
             | sha256sum -c -
           tar -xzf "$kubeconform_archive" -C "$tools_dir" kubeconform
 
           actionlint_archive="$RUNNER_TEMP/actionlint-v1.7.12.tar.gz"
-          curl -fsSL --retry 3 \
+          download_release_asset \
             https://github.com/rhysd/actionlint/releases/download/v1.7.12/actionlint_1.7.12_linux_amd64.tar.gz \
-            -o "$actionlint_archive"
+            https://api.github.com/repos/rhysd/actionlint/releases/assets/384924896 \
+            "$actionlint_archive"
           echo "8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8  $actionlint_archive" \
             | sha256sum -c -
           tar -xzf "$actionlint_archive" -C "$tools_dir" actionlint
 
           promtool_archive="$RUNNER_TEMP/prometheus-3.11.3.linux-amd64.tar.gz"
-          curl -fsSL --retry 3 \
+          download_release_asset \
             https://github.com/prometheus/prometheus/releases/download/v3.11.3/prometheus-3.11.3.linux-amd64.tar.gz \
-            -o "$promtool_archive"
+            https://api.github.com/repos/prometheus/prometheus/releases/assets/406685857 \
+            "$promtool_archive"
           echo "9479af67673316278958cda1f39b88a09f8921084e039c65acca060d0447bb38  $promtool_archive" \
             | sha256sum -c -
           tar -xzf "$promtool_archive" -C "$RUNNER_TEMP" \

@@ -5,13 +5,13 @@ from __future__ import annotations
 
 import ipaddress
 import re
-import subprocess
 import sys
 from collections import Counter
 from pathlib import Path
 
 import yaml
 
+from chart_downloads import template_chart
 from contracts.dns import PREVIEW_DNS_DOMAIN
 
 
@@ -105,12 +105,9 @@ def render(name: str, output_dir: Path) -> tuple[dict, list[dict]]:
         "-f",
         "-",
     ]
-    completed = subprocess.run(
+    completed = template_chart(
         command,
-        input=yaml.safe_dump(source["helm"]["valuesObject"]),
-        text=True,
-        capture_output=True,
-        check=False,
+        yaml.safe_dump(source["helm"]["valuesObject"]),
     )
     require(completed.returncode == 0, f"{name}: Helm render failed\n{completed.stderr}")
     (output_dir / f"platform-{name}.yaml").write_text(completed.stdout, encoding="utf-8")
