@@ -129,7 +129,6 @@ externalSecrets:
       REPORT_DISCORD_CHANNEL_ID: REPORT_DISCORD_CHANNEL_ID
       REPORT_DISCORD_MODERATOR_ROLE_ID: REPORT_DISCORD_MODERATOR_ROLE_ID
 
-  # Traefik이 Scalar/OpenAPI 문서 경로에 적용하는 htpasswd 사용자 목록이다.
   - name: docs-basic-auth
     namespace: app
     store: aws-secretsmanager

@@ -33,7 +33,7 @@ Argo CD의 `preview-head-sha`는 최신 PR 커밋, `preview-deployed-sha`는 배
 ## 2. 접속과 테스트
 
 - API 주소: `https://api-pr-<PR번호>.preview.university.neordinary.com`
-- API 문서: 위 주소의 `/docs/scalar.html`
+- API 문서: 위 주소의 `/docs`
 - 메일 수집함: `https://mail-pr-<PR번호>.preview.university.neordinary.com`
 - 테스트용 토큰: 위 주소의 `/test/token/access`에서 회원 ID로 액세스 토큰을 받는다. test API는 열려 있지만 seed API(`/test/seed/**`)는 꺼져 있다.
   QA 계정은 PR DB를 만들 때 복원한 dev 데이터에 이미 있고, 비밀번호는 팀 Notion의 dev QA 계정 안내와 같다.
