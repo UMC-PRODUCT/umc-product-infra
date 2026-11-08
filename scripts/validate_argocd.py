@@ -9,11 +9,14 @@ import re
 import shutil
 import subprocess
 import sys
+import urllib.error
 import urllib.request
 from pathlib import Path
 from typing import IO
 
 import yaml
+
+from chart_downloads import download_release_asset
 
 ROOT = Path(__file__).resolve().parent.parent
 DEFAULTS_PATH = ROOT / "ansible" / "roles" / "argocd" / "defaults" / "main.yml"
@@ -317,10 +320,13 @@ def main(output_dir: Path) -> None:
         str(defaults["argocd_helm_chart_url"]),
         headers={"User-Agent": "umc-infra-validator"},
     )
-    with urllib.request.urlopen(request, timeout=60) as response, archive.open(
-        "wb"
-    ) as stream:
-        shutil.copyfileobj(response, stream)
+    try:
+        with urllib.request.urlopen(request, timeout=60) as response, archive.open(
+            "wb"
+        ) as stream:
+            shutil.copyfileobj(response, stream)
+    except urllib.error.URLError:
+        download_release_asset(str(defaults["argocd_helm_chart_url"]), archive)
     require(sha256(archive) == expected_checksum, "chart archive checksum")
 
     metadata_output = run(["helm", "show", "chart", str(archive)]).stdout

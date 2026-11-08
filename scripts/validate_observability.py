@@ -5,12 +5,13 @@ from __future__ import annotations
 
 import json
 import re
-import subprocess
 import sys
 from pathlib import Path
 from typing import Any, TypeVar
 
 import yaml
+
+from chart_downloads import template_chart
 
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -293,12 +294,9 @@ def render_application(path: Path, output_dir: Path) -> tuple[str, list[dict]]:
         "-f",
         "-",
     ]
-    completed = subprocess.run(
+    completed = template_chart(
         command,
-        input=yaml.safe_dump(source.get("helm", {}).get("valuesObject", {})),
-        text=True,
-        capture_output=True,
-        check=False,
+        yaml.safe_dump(source.get("helm", {}).get("valuesObject", {})),
     )
     require(completed.returncode == 0, f"{name}: Helm render failed\n{completed.stderr}")
 
