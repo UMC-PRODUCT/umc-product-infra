@@ -60,22 +60,22 @@ class ChartDownloadTests(unittest.TestCase):
         ), self.assertRaises(urllib.error.HTTPError):
             download_release_asset(URL, Path(directory) / "chart.tgz")
 
-    def test_argocd_504_fallback_still_checks_pinned_checksum(self) -> None:
-        error = urllib.error.HTTPError(URL, 504, "Gateway Timeout", Message(), None)
-        self.addCleanup(error.close)
+    def test_argocd_network_failure_fallback_still_checks_pinned_checksum(self) -> None:
+        http_error = urllib.error.HTTPError(URL, 504, "Gateway Timeout", Message(), None)
+        self.addCleanup(http_error.close)
 
         def downloaded(url: str, destination: Path) -> None:
             self.assertEqual(url, validate_argocd.load_defaults()["argocd_helm_chart_url"])
             destination.write_bytes(PAYLOAD)
 
-        with tempfile.TemporaryDirectory() as directory, patch(
-            "validate_argocd.verify_helm_version",
-        ), patch("validate_argocd.urllib.request.urlopen", side_effect=error), patch(
-            "validate_argocd.download_release_asset", side_effect=downloaded,
-        ) as download, self.assertRaisesRegex(SystemExit, "chart archive checksum"):
-            try:
-                validate_argocd.main(Path(directory))
-            finally:
+        for error in (http_error, TimeoutError("The read operation timed out")):
+            with self.subTest(error=type(error).__name__), tempfile.TemporaryDirectory() as directory, patch(
+                "validate_argocd.verify_helm_version",
+            ), patch("validate_argocd.urllib.request.urlopen", side_effect=error), patch(
+                "validate_argocd.download_release_asset", side_effect=downloaded,
+            ) as download:
+                with self.assertRaisesRegex(SystemExit, "chart archive checksum"):
+                    validate_argocd.main(Path(directory))
                 download.assert_called_once()
 
     def command(self) -> list[str]:

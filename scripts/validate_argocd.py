@@ -325,7 +325,7 @@ def main(output_dir: Path) -> None:
             "wb"
         ) as stream:
             shutil.copyfileobj(response, stream)
-    except urllib.error.URLError:
+    except (urllib.error.URLError, TimeoutError):
         download_release_asset(str(defaults["argocd_helm_chart_url"]), archive)
     require(sha256(archive) == expected_checksum, "chart archive checksum")
 
