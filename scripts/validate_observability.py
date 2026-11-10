@@ -995,7 +995,7 @@ def main() -> int:
         for rule in policy["spec"].get("ingress", [])
     ]
     require(
-        prometheus_sources and all(source == [{"podSelector": {}}] for source in prometheus_sources),
+        bool(prometheus_sources) and all(source == [{"podSelector": {}}] for source in prometheus_sources),
         "Prometheus accepts remote write, so NetworkPolicies must admit only monitoring namespace Pods",
     )
     require(admits_prometheus_ingress(external_resources,
