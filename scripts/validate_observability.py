@@ -777,6 +777,8 @@ def validate_runtime_configs(rendered: dict[str, list[dict]]) -> dict[str, str]:
                                ("alertmanager", ALERTMANAGER_NAME, 9093)):
         require(sources.get(uid, {}).get("url") == f"http://{service}.monitoring.svc.cluster.local:{port}",
                 f"Grafana: stable {uid} datasource UID must reach the operator Service")
+    require("prometheusType" not in sources["prometheus"].get("jsonData", {}),
+            "Grafana: prometheusType lets Grafana recording rules remote-write into Prometheus")
 
     validate_prometheus(rendered["prometheus"])
     return {

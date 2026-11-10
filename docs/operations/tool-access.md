@@ -152,19 +152,22 @@ k6 결과를 `monitoring` namespace Prometheus의 remote write 수신 경로(`/a
 IDC의 SSH 세션에서 loopback에만 port-forward를 유지한다.
 
 ```bash
-sudo -n k3s kubectl port-forward --address 127.0.0.1 -n monitoring service/prometheus-kube-prometheus-prometheus 19090:9090
+sudo -n k3s kubectl port-forward --address 127.0.0.1 -n monitoring service/prometheus-kube-prometheus-prometheus 19095:9090
 ```
 
 관리자 PC의 별도 terminal에서 같은 IDC로 SSH tunnel을 유지한다. 변수에는 승인된 개인 관리자
 사용자와 서버 공인 주소를 사용한다.
 
 ```bash
-ssh -N -L 127.0.0.1:19090:127.0.0.1:19090 "$IDC_SSH_USER@$IDC_NODE_HOST"
+ssh -N -L 127.0.0.1:19095:127.0.0.1:19095 "$IDC_SSH_USER@$IDC_NODE_HOST"
 ```
 
-다른 관리자 PC terminal에서 k6를 `http://127.0.0.1:19090/api/v1/write`로 보낸다. k6 환경 변수와
+다른 관리자 PC terminal에서 k6를 `http://127.0.0.1:19095/api/v1/write`로 보낸다. k6 환경 변수와
 `env`·`testid` 태그는 서버 저장소
 [부하 테스트 README](https://github.com/UMC-PRODUCT/umc-product-server/blob/develop/loadtest/README.md#결과를-grafana로-보내기)를 따른다.
+
+k6는 결과 전송이 실패해도 부하를 계속 건다. 시작 1분 안에 ① 행에 값이 들어오는지 확인하고, 값이 없거나
+tunnel이 끊기면 k6를 멈춘다.
 
 실행이 끝나면 port-forward와 tunnel을 종료한다. `--address 0.0.0.0`으로 열지 않는다.
 열면 노드 주소에 닿는 누구나 Prometheus에 시계열을 쓰고 조회할 수 있다.
@@ -172,8 +175,10 @@ ssh -N -L 127.0.0.1:19090:127.0.0.1:19090 "$IDC_SSH_USER@$IDC_NODE_HOST"
 ## 관측 stack 보호 경계
 
 - 앱은 `otel-collector.monitoring.svc.cluster.local:4317/4318`에만 OTLP를 보낸다.
-- Prometheus remote write 수신(`/api/v1/write`)은 켜져 있다. Ingress가 없어 monitoring namespace
-  Pod와 sudo 관리자의 loopback port-forward만 쓸 수 있으며 k6 결과 전송에만 쓴다.
+- Prometheus remote write 수신(`/api/v1/write`)은 켜져 있으며 k6 결과 전송에만 쓴다. Ingress가 없고
+  NetworkPolicy가 monitoring namespace Pod만 허용하므로, 쓸 수 있는 주체는 그 Pod와 노드 위 프로세스
+  (sudo 관리자의 loopback port-forward)뿐이다. Grafana datasource에 `prometheusType`을 넣지 않는다.
+  넣으면 Grafana recording rule이 이 경로로 시계열을 쓸 수 있다.
 - Collector ingress는 `app`, `dev-app`, `preview` namespace의 앱 Pod만 허용한다.
 - Grafana는 `kube-system`의 Traefik Pod에서 오는 `3000/TCP`만 별도 허용한다.
 - Actuator 9090은 application Service나 Ingress에 노출하지 않는다.
