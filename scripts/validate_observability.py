@@ -562,7 +562,7 @@ def admits_prometheus_ingress(policies: list[dict], target: dict, prometheus_lab
 def validate_prometheus_ingress_sources(policies: list[dict], workloads: dict[str, dict[str, str]],
                                         prometheus_labels: dict[str, str]) -> None:
     for policy in policies:
-        if (policy.get("kind") != "NetworkPolicy" or policy["metadata"].get("namespace") != "monitoring"
+        if (policy.get("kind") != "NetworkPolicy" or policy["metadata"].get("namespace", "monitoring") != "monitoring"
                 or not selector_matches(policy["spec"].get("podSelector", {}), prometheus_labels)):
             continue
         name = policy["metadata"]["name"]

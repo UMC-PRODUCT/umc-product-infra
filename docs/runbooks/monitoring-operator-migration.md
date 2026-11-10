@@ -26,8 +26,8 @@ Loki·Tempo PVC는 재사용한다. 사전 점검에서 대상 cluster·namespac
 3. root Application을 sync해 검증된 Git revision으로 Argo CD를 수렴시킨다. monitoring AppProject의 제한된 cluster 종류
    허용과 wave 1 설정, wave 2 chart, wave 3 integration 순서를 지킨다. CRD가 `Established=True`,
    Operator와 새 Prometheus·Alertmanager가 Ready가 되기 전에 완료로 판단하지 않는다.
-4. 기존 Grafana datasource와 Collector가 새 `prometheus-kube-prometheus-prometheus:9090`을
-   참조하는지 확인한다. Loki ruler의 Alertmanager 주소는
+4. Collector가 새 `prometheus-kube-prometheus-prometheus:9090`을, Grafana datasource가 조회 전용
+   `prometheus-query-proxy:8080`을 참조하는지 확인한다. Loki ruler의 Alertmanager 주소는
    `prometheus-kube-prometheus-alertmanager:9093`이다. Targets에서 custom exporter, kubelet,
    cAdvisor, CoreDNS와 kube-state-metrics를 확인하고 rule evaluation 오류와 Collector export 오류가
    없는지 확인한다. Operator가 native `AlertmanagerConfig`의 SecretKeySelector를 읽어 설정을
