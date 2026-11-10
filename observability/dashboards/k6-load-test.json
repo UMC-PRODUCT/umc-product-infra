@@ -20,8 +20,8 @@
     {
       "id": 1,
       "type": "stat",
-      "title": "RPS (요청/초)",
-      "description": "k6 가 세는 HTTP 요청/초. 홈 1행동=4요청이므로 사용자 기준 TPS = RPS ÷ 4. k6 Prometheus remote-write를 켜야 보인다. 지금은 비어 있다.",
+      "title": "앱 초당 요청",
+      "description": "앱이 직접 센 초당 HTTP 요청 수(actuator 제외). 앱 limiter가 막은 429도 포함한다. No data는 앱 지표를 수집하지 못했다는 뜻이다.",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
@@ -60,20 +60,21 @@
       },
       "targets": [
         {
-          "refId": "A",
           "datasource": {
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum(rate(k6_http_reqs_total[$__rate_interval]))"
+          "expr": "sum(rate(http_server_requests_milliseconds_count{application=\"$service\", application=~\"dev-umc-product|preview-umc-product-pr[0-9]+\", uri!~\"/actuator.*\"}[$__rate_interval]))",
+          "refId": "A",
+          "legendFormat": ""
         }
       ]
     },
     {
       "id": 2,
       "type": "stat",
-      "title": "p95 응답시간",
-      "description": "k6 remote-write 는 초 단위. threshold 0.8s (stress 는 2s) k6 Prometheus remote-write를 켜야 보인다. 지금은 비어 있다.",
+      "title": "앱 p95 응답시간",
+      "description": "앱이 잰 p95 응답 시간의 마지막 값(actuator 제외). 800ms를 넘으면 빨갛게 표시한다. 마지막 구간에 요청이 없으면 \"요청 없음\"으로 보인다.",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
@@ -86,8 +87,7 @@
       },
       "fieldConfig": {
         "defaults": {
-          "unit": "s",
-          "decimals": 2,
+          "unit": "ms",
           "thresholds": {
             "mode": "absolute",
             "steps": [
@@ -97,17 +97,19 @@
               },
               {
                 "color": "red",
-                "value": 0.8
+                "value": 800
               }
             ]
-          }
+          },
+          "decimals": 0,
+          "noValue": "요청 없음"
         },
         "overrides": []
       },
       "options": {
         "reduceOptions": {
           "calcs": [
-            "lastNotNull"
+            "last"
           ]
         },
         "graphMode": "area",
@@ -117,20 +119,21 @@
       },
       "targets": [
         {
-          "refId": "A",
           "datasource": {
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "max(k6_http_req_duration_p95)"
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(http_server_requests_milliseconds_bucket{application=\"$service\", application=~\"dev-umc-product|preview-umc-product-pr[0-9]+\", uri!~\"/actuator.*\"}[$__rate_interval]))) >= 0",
+          "refId": "A",
+          "legendFormat": ""
         }
       ]
     },
     {
       "id": 3,
       "type": "stat",
-      "title": "에러율",
-      "description": "조회 구간 평균. threshold 1% (순간값이 아니라 평균 — 종료 직후 마지막 순간값 박제 착시 방지) k6 Prometheus remote-write를 켜야 보인다. 지금은 비어 있다.",
+      "title": "5xx 비율",
+      "description": "선택한 조회 범위 전체에서 요청 수 기준으로 센 5xx 비율. 1%를 넘으면 빨갛게 표시한다. 요청이 없으면 0이다.",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
@@ -144,7 +147,6 @@
       "fieldConfig": {
         "defaults": {
           "unit": "percentunit",
-          "decimals": 2,
           "thresholds": {
             "mode": "absolute",
             "steps": [
@@ -157,37 +159,41 @@
                 "value": 0.01
               }
             ]
-          }
+          },
+          "decimals": 2
         },
         "overrides": []
       },
       "options": {
         "reduceOptions": {
           "calcs": [
-            "mean"
+            "lastNotNull"
           ]
         },
-        "graphMode": "area",
+        "graphMode": "none",
         "colorMode": "value",
         "justifyMode": "auto",
         "textMode": "auto"
       },
       "targets": [
         {
-          "refId": "A",
           "datasource": {
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "max(k6_http_req_failed_rate)"
+          "expr": "(sum(increase(http_server_requests_milliseconds_count{application=\"$service\", application=~\"dev-umc-product|preview-umc-product-pr[0-9]+\", status=~\"5..\"}[$__range])) or vector(0)) / clamp_min(sum(increase(http_server_requests_milliseconds_count{application=\"$service\", application=~\"dev-umc-product|preview-umc-product-pr[0-9]+\"}[$__range])), 1e-9)",
+          "refId": "A",
+          "legendFormat": "",
+          "instant": true,
+          "range": false
         }
       ]
     },
     {
       "id": 4,
       "type": "stat",
-      "title": "VUs",
-      "description": "k6가 띄운 가상 사용자 수. k6 Prometheus remote-write를 켜야 보인다. 지금은 비어 있다.",
+      "title": "Hikari pending",
+      "description": "DB 커넥션을 기다리는 요청 수. 0보다 크면 이미 커넥션 풀이 병목이다. 풀 크기는 10이다.",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
@@ -205,11 +211,16 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "text",
+                "color": "green",
                 "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
               }
             ]
-          }
+          },
+          "decimals": 0
         },
         "overrides": []
       },
@@ -226,20 +237,21 @@
       },
       "targets": [
         {
-          "refId": "A",
           "datasource": {
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "k6_vus"
+          "expr": "max(hikaricp_connections_pending{application=\"$service\", application=~\"dev-umc-product|preview-umc-product-pr[0-9]+\"})",
+          "refId": "A",
+          "legendFormat": ""
         }
       ]
     },
     {
       "id": 5,
       "type": "stat",
-      "title": "DB 커넥션",
-      "description": "선택한 환경 DB의 접속 수(pg_stat_activity). 이 환경에 postgres-exporter가 생기기 전까지 비어 있다.",
+      "title": "Tomcat 바쁜 스레드",
+      "description": "요청을 처리 중인 Tomcat 스레드 수. 최대 200이다. 최대에 가까우면 요청이 줄을 선다.",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
@@ -257,11 +269,20 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "text",
+                "color": "green",
                 "value": null
+              },
+              {
+                "color": "orange",
+                "value": 160
+              },
+              {
+                "color": "red",
+                "value": 200
               }
             ]
-          }
+          },
+          "decimals": 0
         },
         "overrides": []
       },
@@ -278,651 +299,653 @@
       },
       "targets": [
         {
-          "refId": "A",
           "datasource": {
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum(pg_stat_activity_count{namespace=~\"${env}(-db)?\", namespace=~\"dev-db|preview\"})"
+          "expr": "max(tomcat_threads_busy{application=\"$service\", application=~\"dev-umc-product|preview-umc-product-pr[0-9]+\"})",
+          "refId": "A",
+          "legendFormat": ""
         }
       ]
     },
     {
       "id": 6,
       "type": "row",
-      "title": "① 부하 판정 (k6 remote-write 필요) — 아래 3개는 세로로 겹쳐 읽는 포화점(knee) 뷰",
-      "collapsed": false,
+      "title": "① 부하 판정 (k6) — k6 결과가 연결되면 채워진다",
+      "collapsed": true,
       "gridPos": {
         "x": 0,
         "y": 4,
         "w": 24,
         "h": 1
       },
-      "panels": []
-    },
-    {
-      "id": 7,
-      "type": "timeseries",
-      "title": "처리량 RPS (요청/초)",
-      "description": "k6 가 세는 HTTP 요청/초. 홈 1행동=4요청이라 사용자 기준 처리량(TPS)=RPS÷4. breakpoint 로 점증 중 여기가 평평해지는 순간부터가 포화 — 아래 응답시간과 같이 본다. k6 Prometheus remote-write를 켜야 보인다. 지금은 비어 있다.",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "gridPos": {
-        "x": 0,
-        "y": 5,
-        "w": 24,
-        "h": 5
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "reqps",
-          "custom": {
-            "drawStyle": "line",
-            "lineWidth": 2,
-            "fillOpacity": 10,
-            "showPoints": "never"
-          }
-        },
-        "overrides": [
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "RPS"
-            },
-            "properties": [
-              {
-                "id": "color",
-                "value": {
-                  "mode": "fixed",
-                  "fixedColor": "#5794F2"
-                }
-              }
-            ]
-          }
-        ]
-      },
-      "options": {
-        "legend": {
-          "showLegend": false,
-          "displayMode": "list",
-          "placement": "bottom",
-          "calcs": []
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
-      },
-      "targets": [
+      "panels": [
         {
-          "refId": "A",
+          "id": 7,
+          "type": "timeseries",
+          "title": "처리량 RPS (요청/초)",
+          "description": "k6 가 세는 HTTP 요청/초. 홈 1행동=4요청이라 사용자 기준 처리량(TPS)=RPS÷4. breakpoint 로 점증 중 여기가 평평해지는 순간부터가 포화 — 아래 응답시간과 같이 본다. k6 Prometheus remote-write를 켜야 보인다. 지금은 비어 있다.",
           "datasource": {
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum(rate(k6_http_reqs_total[$__rate_interval]))",
-          "legendFormat": "RPS"
-        }
-      ]
-    },
-    {
-      "id": 8,
-      "type": "timeseries",
-      "title": "응답시간 (전체 집계)",
-      "description": "단위: 초(k6 remote-write). p95(진한 선)가 판정 기준 — TPS 평탄화와 동시 급등 지점이 한계. k6 Prometheus remote-write를 켜야 보인다. 지금은 비어 있다.",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "gridPos": {
-        "x": 0,
-        "y": 10,
-        "w": 24,
-        "h": 5
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "s",
-          "custom": {
-            "drawStyle": "line",
-            "lineWidth": 2,
-            "fillOpacity": 10,
-            "showPoints": "never",
-            "thresholdsStyle": {
-              "mode": "line"
+          "gridPos": {
+            "x": 0,
+            "y": 5,
+            "w": 24,
+            "h": 5
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "reqps",
+              "custom": {
+                "drawStyle": "line",
+                "lineWidth": 2,
+                "fillOpacity": 10,
+                "showPoints": "never"
+              }
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "RPS"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "mode": "fixed",
+                      "fixedColor": "#5794F2"
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          "options": {
+            "legend": {
+              "showLegend": false,
+              "displayMode": "list",
+              "placement": "bottom",
+              "calcs": []
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
             }
           },
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "transparent",
-                "value": null
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
               },
-              {
-                "color": "#F2495C",
-                "value": 0.8
-              }
-            ]
-          }
-        },
-        "overrides": [
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "p95"
-            },
-            "properties": [
-              {
-                "id": "color",
-                "value": {
-                  "mode": "fixed",
-                  "fixedColor": "#D9578F"
-                }
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "avg"
-            },
-            "properties": [
-              {
-                "id": "color",
-                "value": {
-                  "mode": "fixed",
-                  "fixedColor": "#EFA8CD"
-                }
-              }
-            ]
-          }
-        ]
-      },
-      "options": {
-        "legend": {
-          "showLegend": true,
-          "displayMode": "list",
-          "placement": "bottom",
-          "calcs": []
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "expr": "max(k6_http_req_duration_p95)",
-          "legendFormat": "p95"
-        },
-        {
-          "refId": "B",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "expr": "avg(k6_http_req_duration_avg)",
-          "legendFormat": "avg"
-        }
-      ]
-    },
-    {
-      "id": 9,
-      "type": "timeseries",
-      "title": "동시 접속자 — 체류(VUs) vs 서버 처리 중(Tomcat busy)",
-      "description": "위 선(VUs)=접속해서 결과를 기다리는 인원, 아래 선(busy)=서버가 지금 잡고 일하는 요청 수. 두 선의 간격 = 어딘가 줄에서 기다리는 인원. VUs 급증 자체가 포화 신호(행동 시간이 길어지고 있다는 뜻). VUs 선은 k6 remote-write를 켜야 보인다.",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "gridPos": {
-        "x": 0,
-        "y": 15,
-        "w": 24,
-        "h": 5
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short",
-          "custom": {
-            "drawStyle": "line",
-            "lineWidth": 2,
-            "fillOpacity": 10,
-            "showPoints": "never"
-          }
-        },
-        "overrides": [
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "동시 접속자 (응답 대기 포함)"
-            },
-            "properties": [
-              {
-                "id": "color",
-                "value": {
-                  "mode": "fixed",
-                  "fixedColor": "#8E8E93"
-                }
-              },
-              {
-                "id": "custom.lineStyle",
-                "value": {
-                  "fill": "dash",
-                  "dash": [
-                    10,
-                    6
-                  ]
-                }
-              },
-              {
-                "id": "custom.fillOpacity",
-                "value": 0
-              }
-            ]
-          }
-        ]
-      },
-      "options": {
-        "legend": {
-          "showLegend": true,
-          "displayMode": "list",
-          "placement": "bottom",
-          "calcs": []
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "expr": "k6_vus",
-          "legendFormat": "동시 접속자 (응답 대기 포함)"
-        },
-        {
-          "refId": "B",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "expr": "tomcat_threads_busy{application=\"$service\", application=~\"dev-umc-product|preview-umc-product-pr[0-9]+\"}",
-          "legendFormat": "서버가 실제 처리 중"
-        }
-      ]
-    },
-    {
-      "id": 10,
-      "type": "timeseries",
-      "title": "시나리오별 RPS",
-      "description": "auth = 토큰 발급(측정 대상 아님, 분리 표시). k6 Prometheus remote-write를 켜야 보인다. 지금은 비어 있다.",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "gridPos": {
-        "x": 0,
-        "y": 20,
-        "w": 8,
-        "h": 7
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "reqps",
-          "custom": {
-            "drawStyle": "line",
-            "lineWidth": 2,
-            "fillOpacity": 10,
-            "showPoints": "never"
-          }
-        },
-        "overrides": []
-      },
-      "options": {
-        "legend": {
-          "showLegend": true,
-          "displayMode": "table",
-          "placement": "bottom",
-          "calcs": [
-            "mean",
-            "max"
+              "expr": "sum(rate(k6_http_reqs_total[$__rate_interval]))",
+              "legendFormat": "RPS"
+            }
           ]
         },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
-      },
-      "targets": [
         {
-          "refId": "A",
+          "id": 8,
+          "type": "timeseries",
+          "title": "응답시간 (전체 집계)",
+          "description": "단위: 초(k6 remote-write). p95(진한 선)가 판정 기준 — TPS 평탄화와 동시 급등 지점이 한계. k6 Prometheus remote-write를 켜야 보인다. 지금은 비어 있다.",
           "datasource": {
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (scenario) (rate(k6_http_reqs_total[$__rate_interval]))",
-          "legendFormat": "{{scenario}}"
-        }
-      ]
-    },
-    {
-      "id": 11,
-      "type": "timeseries",
-      "title": "시나리오별 p95",
-      "description": "k6 Prometheus remote-write를 켜야 보인다. 지금은 비어 있다.",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "gridPos": {
-        "x": 8,
-        "y": 20,
-        "w": 8,
-        "h": 7
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "s",
-          "custom": {
-            "drawStyle": "line",
-            "lineWidth": 2,
-            "fillOpacity": 10,
-            "showPoints": "never",
-            "thresholdsStyle": {
-              "mode": "line"
-            }
+          "gridPos": {
+            "x": 0,
+            "y": 10,
+            "w": 24,
+            "h": 5
           },
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
+          "fieldConfig": {
+            "defaults": {
+              "unit": "s",
+              "custom": {
+                "drawStyle": "line",
+                "lineWidth": 2,
+                "fillOpacity": 10,
+                "showPoints": "never",
+                "thresholdsStyle": {
+                  "mode": "line"
+                }
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "transparent",
+                    "value": null
+                  },
+                  {
+                    "color": "#F2495C",
+                    "value": 0.8
+                  }
+                ]
+              }
+            },
+            "overrides": [
               {
-                "color": "transparent",
-                "value": null
+                "matcher": {
+                  "id": "byName",
+                  "options": "p95"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "mode": "fixed",
+                      "fixedColor": "#D9578F"
+                    }
+                  }
+                ]
               },
               {
-                "color": "#F2495C",
-                "value": 0.8
+                "matcher": {
+                  "id": "byName",
+                  "options": "avg"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "mode": "fixed",
+                      "fixedColor": "#EFA8CD"
+                    }
+                  }
+                ]
               }
             ]
-          }
-        },
-        "overrides": []
-      },
-      "options": {
-        "legend": {
-          "showLegend": true,
-          "displayMode": "table",
-          "placement": "bottom",
-          "calcs": [
-            "mean",
-            "max"
+          },
+          "options": {
+            "legend": {
+              "showLegend": true,
+              "displayMode": "list",
+              "placement": "bottom",
+              "calcs": []
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "max(k6_http_req_duration_p95)",
+              "legendFormat": "p95"
+            },
+            {
+              "refId": "B",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "avg(k6_http_req_duration_avg)",
+              "legendFormat": "avg"
+            }
           ]
         },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
-      },
-      "targets": [
         {
-          "refId": "A",
+          "id": 9,
+          "type": "timeseries",
+          "title": "동시 접속자 — 체류(VUs) vs 서버 처리 중(Tomcat busy)",
+          "description": "위 선(VUs)=접속해서 결과를 기다리는 인원, 아래 선(busy)=서버가 지금 잡고 일하는 요청 수. 두 선의 간격 = 어딘가 줄에서 기다리는 인원. VUs 급증 자체가 포화 신호(행동 시간이 길어지고 있다는 뜻). VUs 선은 k6 remote-write를 켜야 보인다.",
           "datasource": {
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "max by (scenario) (k6_http_req_duration_p95)",
-          "legendFormat": "{{scenario}}"
-        }
-      ]
-    },
-    {
-      "id": 12,
-      "type": "timeseries",
-      "title": "에러율 (시나리오·전체)",
-      "description": "k6 Prometheus remote-write를 켜야 보인다. 지금은 비어 있다.",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "gridPos": {
-        "x": 16,
-        "y": 20,
-        "w": 8,
-        "h": 7
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "percentunit",
-          "custom": {
-            "drawStyle": "line",
-            "lineWidth": 2,
-            "fillOpacity": 10,
-            "showPoints": "never",
-            "thresholdsStyle": {
-              "mode": "line"
+          "gridPos": {
+            "x": 0,
+            "y": 15,
+            "w": 24,
+            "h": 5
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "custom": {
+                "drawStyle": "line",
+                "lineWidth": 2,
+                "fillOpacity": 10,
+                "showPoints": "never"
+              }
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "동시 접속자 (응답 대기 포함)"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "mode": "fixed",
+                      "fixedColor": "#8E8E93"
+                    }
+                  },
+                  {
+                    "id": "custom.lineStyle",
+                    "value": {
+                      "fill": "dash",
+                      "dash": [
+                        10,
+                        6
+                      ]
+                    }
+                  },
+                  {
+                    "id": "custom.fillOpacity",
+                    "value": 0
+                  }
+                ]
+              }
+            ]
+          },
+          "options": {
+            "legend": {
+              "showLegend": true,
+              "displayMode": "list",
+              "placement": "bottom",
+              "calcs": []
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
             }
           },
-          "max": 1,
-          "min": 0,
-          "decimals": 1,
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "transparent",
-                "value": null
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
               },
-              {
-                "color": "#F2495C",
-                "value": 0.01
-              }
-            ]
-          }
-        },
-        "overrides": [
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "전체 http 실패"
+              "expr": "k6_vus",
+              "legendFormat": "동시 접속자 (응답 대기 포함)"
             },
-            "properties": [
-              {
-                "id": "color",
-                "value": {
-                  "mode": "fixed",
-                  "fixedColor": "#F2495C"
-                }
+            {
+              "refId": "B",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "tomcat_threads_busy{application=\"$service\", application=~\"dev-umc-product|preview-umc-product-pr[0-9]+\"}",
+              "legendFormat": "서버가 실제 처리 중"
+            }
+          ]
+        },
+        {
+          "id": 10,
+          "type": "timeseries",
+          "title": "시나리오별 RPS",
+          "description": "auth = 토큰 발급(측정 대상 아님, 분리 표시). k6 Prometheus remote-write를 켜야 보인다. 지금은 비어 있다.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "gridPos": {
+            "x": 0,
+            "y": 20,
+            "w": 8,
+            "h": 7
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "reqps",
+              "custom": {
+                "drawStyle": "line",
+                "lineWidth": 2,
+                "fillOpacity": 10,
+                "showPoints": "never"
               }
-            ]
-          }
-        ]
-      },
-      "options": {
-        "legend": {
-          "showLegend": true,
-          "displayMode": "list",
-          "placement": "bottom",
-          "calcs": []
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "expr": "max by (scenario) (k6_umc_scenario_errors_rate)",
-          "legendFormat": "{{scenario}}"
-        },
-        {
-          "refId": "B",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "expr": "max(k6_http_req_failed_rate)",
-          "legendFormat": "전체 http 실패"
-        }
-      ]
-    },
-    {
-      "id": 13,
-      "type": "timeseries",
-      "title": "투입 vs 버림 (행동/s)",
-      "description": "dropped>0 = 요청한 부하가 실제로 안 들어가고 있음 — VU 풀 고갈. 이때 서버 지표는 '잔존 처리율'일 뿐 요청 부하가 아니다. 에러율 0%여도 여기가 뜨면 붕괴 중. k6 Prometheus remote-write를 켜야 보인다. 지금은 비어 있다.",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "gridPos": {
-        "x": 0,
-        "y": 27,
-        "w": 12,
-        "h": 7
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short",
-          "custom": {
-            "drawStyle": "line",
-            "lineWidth": 2,
-            "fillOpacity": 10,
-            "showPoints": "never"
-          }
-        },
-        "overrides": [
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "dropped (VU 고갈로 시작 못 함)"
             },
-            "properties": [
-              {
-                "id": "color",
-                "value": {
-                  "mode": "fixed",
-                  "fixedColor": "#F2495C"
-                }
-              }
-            ]
-          }
-        ]
-      },
-      "options": {
-        "legend": {
-          "showLegend": true,
-          "displayMode": "list",
-          "placement": "bottom",
-          "calcs": []
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
+            "overrides": []
           },
-          "expr": "sum(rate(k6_iterations_total[$__rate_interval]))",
-          "legendFormat": "완료된 행동"
-        },
-        {
-          "refId": "B",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "expr": "sum(rate(k6_dropped_iterations_total[$__rate_interval]))",
-          "legendFormat": "dropped (VU 고갈로 시작 못 함)"
-        }
-      ]
-    },
-    {
-      "id": 14,
-      "type": "timeseries",
-      "title": "행동 소요시간 p95 (iteration)",
-      "description": "1행동(홈 로드 전체)이 걸린 시간. VU 수요 = rate × 이 값 — 이게 튀면 곧 VU 고갈(위 dropped)로 이어진다. k6 Prometheus remote-write를 켜야 보인다. 지금은 비어 있다.",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "gridPos": {
-        "x": 12,
-        "y": 27,
-        "w": 12,
-        "h": 7
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "s",
-          "custom": {
-            "drawStyle": "line",
-            "lineWidth": 2,
-            "fillOpacity": 10,
-            "showPoints": "never"
-          }
-        },
-        "overrides": [
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "p95"
+          "options": {
+            "legend": {
+              "showLegend": true,
+              "displayMode": "table",
+              "placement": "bottom",
+              "calcs": [
+                "mean",
+                "max"
+              ]
             },
-            "properties": [
-              {
-                "id": "color",
-                "value": {
-                  "mode": "fixed",
-                  "fixedColor": "#D9578F"
-                }
-              }
-            ]
-          }
-        ]
-      },
-      "options": {
-        "legend": {
-          "showLegend": true,
-          "displayMode": "list",
-          "placement": "bottom",
-          "calcs": []
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "sum by (scenario) (rate(k6_http_reqs_total[$__rate_interval]))",
+              "legendFormat": "{{scenario}}"
+            }
+          ]
         },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
-      },
-      "targets": [
         {
-          "refId": "A",
+          "id": 11,
+          "type": "timeseries",
+          "title": "시나리오별 p95",
+          "description": "k6 Prometheus remote-write를 켜야 보인다. 지금은 비어 있다.",
           "datasource": {
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "max(k6_iteration_duration_p95)",
-          "legendFormat": "p95"
+          "gridPos": {
+            "x": 8,
+            "y": 20,
+            "w": 8,
+            "h": 7
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "s",
+              "custom": {
+                "drawStyle": "line",
+                "lineWidth": 2,
+                "fillOpacity": 10,
+                "showPoints": "never",
+                "thresholdsStyle": {
+                  "mode": "line"
+                }
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "transparent",
+                    "value": null
+                  },
+                  {
+                    "color": "#F2495C",
+                    "value": 0.8
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "showLegend": true,
+              "displayMode": "table",
+              "placement": "bottom",
+              "calcs": [
+                "mean",
+                "max"
+              ]
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "max by (scenario) (k6_http_req_duration_p95)",
+              "legendFormat": "{{scenario}}"
+            }
+          ]
+        },
+        {
+          "id": 12,
+          "type": "timeseries",
+          "title": "에러율 (시나리오·전체)",
+          "description": "k6 Prometheus remote-write를 켜야 보인다. 지금은 비어 있다.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "gridPos": {
+            "x": 16,
+            "y": 20,
+            "w": 8,
+            "h": 7
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "percentunit",
+              "custom": {
+                "drawStyle": "line",
+                "lineWidth": 2,
+                "fillOpacity": 10,
+                "showPoints": "never",
+                "thresholdsStyle": {
+                  "mode": "line"
+                }
+              },
+              "max": 1,
+              "min": 0,
+              "decimals": 1,
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "transparent",
+                    "value": null
+                  },
+                  {
+                    "color": "#F2495C",
+                    "value": 0.01
+                  }
+                ]
+              }
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "전체 http 실패"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "mode": "fixed",
+                      "fixedColor": "#F2495C"
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          "options": {
+            "legend": {
+              "showLegend": true,
+              "displayMode": "list",
+              "placement": "bottom",
+              "calcs": []
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "max by (scenario) (k6_umc_scenario_errors_rate)",
+              "legendFormat": "{{scenario}}"
+            },
+            {
+              "refId": "B",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "max(k6_http_req_failed_rate)",
+              "legendFormat": "전체 http 실패"
+            }
+          ]
+        },
+        {
+          "id": 13,
+          "type": "timeseries",
+          "title": "투입 vs 버림 (행동/s)",
+          "description": "dropped>0 = 요청한 부하가 실제로 안 들어가고 있음 — VU 풀 고갈. 이때 서버 지표는 '잔존 처리율'일 뿐 요청 부하가 아니다. 에러율 0%여도 여기가 뜨면 붕괴 중. k6 Prometheus remote-write를 켜야 보인다. 지금은 비어 있다.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "gridPos": {
+            "x": 0,
+            "y": 27,
+            "w": 12,
+            "h": 7
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "custom": {
+                "drawStyle": "line",
+                "lineWidth": 2,
+                "fillOpacity": 10,
+                "showPoints": "never"
+              }
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "dropped (VU 고갈로 시작 못 함)"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "mode": "fixed",
+                      "fixedColor": "#F2495C"
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          "options": {
+            "legend": {
+              "showLegend": true,
+              "displayMode": "list",
+              "placement": "bottom",
+              "calcs": []
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "sum(rate(k6_iterations_total[$__rate_interval]))",
+              "legendFormat": "완료된 행동"
+            },
+            {
+              "refId": "B",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "sum(rate(k6_dropped_iterations_total[$__rate_interval]))",
+              "legendFormat": "dropped (VU 고갈로 시작 못 함)"
+            }
+          ]
+        },
+        {
+          "id": 14,
+          "type": "timeseries",
+          "title": "행동 소요시간 p95 (iteration)",
+          "description": "1행동(홈 로드 전체)이 걸린 시간. VU 수요 = rate × 이 값 — 이게 튀면 곧 VU 고갈(위 dropped)로 이어진다. k6 Prometheus remote-write를 켜야 보인다. 지금은 비어 있다.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "gridPos": {
+            "x": 12,
+            "y": 27,
+            "w": 12,
+            "h": 7
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "s",
+              "custom": {
+                "drawStyle": "line",
+                "lineWidth": 2,
+                "fillOpacity": 10,
+                "showPoints": "never"
+              }
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "p95"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "mode": "fixed",
+                      "fixedColor": "#D9578F"
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          "options": {
+            "legend": {
+              "showLegend": true,
+              "displayMode": "list",
+              "placement": "bottom",
+              "calcs": []
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "max(k6_iteration_duration_p95)",
+              "legendFormat": "p95"
+            }
+          ]
         }
       ]
     },
@@ -1611,381 +1634,382 @@
     {
       "id": 22,
       "type": "row",
-      "title": "③ DB 내부 (postgres-exporter · 환경에 exporter가 있을 때만)",
-      "collapsed": false,
+      "title": "③ DB 내부 (postgres-exporter) — exporter가 연결되면 채워진다",
+      "collapsed": true,
       "gridPos": {
         "x": 0,
         "y": 63,
         "w": 24,
         "h": 1
       },
-      "panels": []
-    },
-    {
-      "id": 23,
-      "type": "timeseries",
-      "title": "커넥션 (상태별) vs max",
-      "description": "active 급증 + ② pending 증가 = 커넥션 병목. idle in transaction 누적도 위험 신호. 이 환경에 postgres-exporter가 생기기 전까지 비어 있다.",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "gridPos": {
-        "x": 0,
-        "y": 64,
-        "w": 8,
-        "h": 7
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short",
-          "custom": {
-            "drawStyle": "line",
-            "lineWidth": 2,
-            "fillOpacity": 10,
-            "showPoints": "never"
-          }
-        },
-        "overrides": []
-      },
-      "options": {
-        "legend": {
-          "showLegend": true,
-          "displayMode": "list",
-          "placement": "bottom",
-          "calcs": []
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
-      },
-      "targets": [
+      "panels": [
         {
-          "refId": "A",
+          "id": 23,
+          "type": "timeseries",
+          "title": "커넥션 (상태별) vs max",
+          "description": "active 급증 + ② pending 증가 = 커넥션 병목. idle in transaction 누적도 위험 신호. 이 환경에 postgres-exporter가 생기기 전까지 비어 있다.",
           "datasource": {
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (state) (pg_stat_activity_count{namespace=~\"${env}(-db)?\", namespace=~\"dev-db|preview\"})",
-          "legendFormat": "{{state}}"
-        },
-        {
-          "refId": "B",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
+          "gridPos": {
+            "x": 0,
+            "y": 64,
+            "w": 8,
+            "h": 7
           },
-          "expr": "pg_settings_max_connections{namespace=~\"${env}(-db)?\", namespace=~\"dev-db|preview\"}",
-          "legendFormat": "max_connections"
-        }
-      ]
-    },
-    {
-      "id": 24,
-      "type": "timeseries",
-      "title": "TPS (commit/rollback)",
-      "description": "초당 commit·rollback 수. 이 환경에 postgres-exporter가 생기기 전까지 비어 있다.",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "gridPos": {
-        "x": 8,
-        "y": 64,
-        "w": 8,
-        "h": 7
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short",
-          "custom": {
-            "drawStyle": "line",
-            "lineWidth": 2,
-            "fillOpacity": 10,
-            "showPoints": "never"
-          }
-        },
-        "overrides": [
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "rollback/s"
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "custom": {
+                "drawStyle": "line",
+                "lineWidth": 2,
+                "fillOpacity": 10,
+                "showPoints": "never"
+              }
             },
-            "properties": [
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "showLegend": true,
+              "displayMode": "list",
+              "placement": "bottom",
+              "calcs": []
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "sum by (state) (pg_stat_activity_count{namespace=~\"${env}(-db)?\", namespace=~\"dev-db|preview\"})",
+              "legendFormat": "{{state}}"
+            },
+            {
+              "refId": "B",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "pg_settings_max_connections{namespace=~\"${env}(-db)?\", namespace=~\"dev-db|preview\"}",
+              "legendFormat": "max_connections"
+            }
+          ]
+        },
+        {
+          "id": 24,
+          "type": "timeseries",
+          "title": "TPS (commit/rollback)",
+          "description": "초당 commit·rollback 수. 이 환경에 postgres-exporter가 생기기 전까지 비어 있다.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "gridPos": {
+            "x": 8,
+            "y": 64,
+            "w": 8,
+            "h": 7
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "custom": {
+                "drawStyle": "line",
+                "lineWidth": 2,
+                "fillOpacity": 10,
+                "showPoints": "never"
+              }
+            },
+            "overrides": [
               {
-                "id": "color",
-                "value": {
-                  "mode": "fixed",
-                  "fixedColor": "#F2495C"
-                }
+                "matcher": {
+                  "id": "byName",
+                  "options": "rollback/s"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "mode": "fixed",
+                      "fixedColor": "#F2495C"
+                    }
+                  }
+                ]
               }
             ]
-          }
-        ]
-      },
-      "options": {
-        "legend": {
-          "showLegend": true,
-          "displayMode": "list",
-          "placement": "bottom",
-          "calcs": []
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
           },
-          "expr": "sum(rate(pg_stat_database_xact_commit{namespace=~\"${env}(-db)?\", namespace=~\"dev-db|preview\", datname!~\"template.*|\"}[$__rate_interval]))",
-          "legendFormat": "commit/s"
-        },
-        {
-          "refId": "B",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "expr": "sum(rate(pg_stat_database_xact_rollback{namespace=~\"${env}(-db)?\", namespace=~\"dev-db|preview\", datname!~\"template.*|\"}[$__rate_interval]))",
-          "legendFormat": "rollback/s"
-        }
-      ]
-    },
-    {
-      "id": 25,
-      "type": "timeseries",
-      "title": "캐시 적중률",
-      "description": "0.99 아래로 지속 하락 = 워킹셋이 shared_buffers 초과. 이 환경에 postgres-exporter가 생기기 전까지 비어 있다.",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "gridPos": {
-        "x": 16,
-        "y": 64,
-        "w": 8,
-        "h": 7
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "percentunit",
-          "custom": {
-            "drawStyle": "line",
-            "lineWidth": 2,
-            "fillOpacity": 10,
-            "showPoints": "never"
-          },
-          "max": 1,
-          "min": 0,
-          "decimals": 1
-        },
-        "overrides": []
-      },
-      "options": {
-        "legend": {
-          "showLegend": true,
-          "displayMode": "list",
-          "placement": "bottom",
-          "calcs": []
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "expr": "sum(rate(pg_stat_database_blks_hit{namespace=~\"${env}(-db)?\", namespace=~\"dev-db|preview\"}[$__rate_interval])) / (sum(rate(pg_stat_database_blks_hit{namespace=~\"${env}(-db)?\", namespace=~\"dev-db|preview\"}[$__rate_interval])) + sum(rate(pg_stat_database_blks_read{namespace=~\"${env}(-db)?\", namespace=~\"dev-db|preview\"}[$__rate_interval])))",
-          "legendFormat": "buffer cache hit"
-        }
-      ]
-    },
-    {
-      "id": 26,
-      "type": "timeseries",
-      "title": "락 (mode 별)",
-      "description": "Exclusive 계열 급증 = 경합. ① p95 급등과 같은 시각이면 유력 원인. 이 환경에 postgres-exporter가 생기기 전까지 비어 있다.",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "gridPos": {
-        "x": 0,
-        "y": 71,
-        "w": 8,
-        "h": 7
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short",
-          "custom": {
-            "drawStyle": "line",
-            "lineWidth": 2,
-            "fillOpacity": 10,
-            "showPoints": "never"
-          }
-        },
-        "overrides": []
-      },
-      "options": {
-        "legend": {
-          "showLegend": true,
-          "displayMode": "list",
-          "placement": "bottom",
-          "calcs": []
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "expr": "sum by (mode) (pg_locks_count{namespace=~\"${env}(-db)?\", namespace=~\"dev-db|preview\"})",
-          "legendFormat": "{{mode}}"
-        }
-      ]
-    },
-    {
-      "id": 27,
-      "type": "timeseries",
-      "title": "임시파일 쓰기 (S)",
-      "description": "정렬/해시가 work_mem 초과로 디스크행 — 쿼리 튜닝 신호. 이 환경에 postgres-exporter가 생기기 전까지 비어 있다.",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "gridPos": {
-        "x": 8,
-        "y": 71,
-        "w": 8,
-        "h": 7
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "Bps",
-          "custom": {
-            "drawStyle": "line",
-            "lineWidth": 2,
-            "fillOpacity": 10,
-            "showPoints": "never"
-          }
-        },
-        "overrides": []
-      },
-      "options": {
-        "legend": {
-          "showLegend": true,
-          "displayMode": "list",
-          "placement": "bottom",
-          "calcs": []
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "expr": "sum(rate(pg_stat_database_temp_bytes{namespace=~\"${env}(-db)?\", namespace=~\"dev-db|preview\"}[$__rate_interval]))",
-          "legendFormat": "temp bytes/s"
-        }
-      ]
-    },
-    {
-      "id": 28,
-      "type": "timeseries",
-      "title": "데드락 · 충돌 (E)",
-      "description": "초당 데드락·복제 충돌 수. 이 환경에 postgres-exporter가 생기기 전까지 비어 있다.",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "gridPos": {
-        "x": 16,
-        "y": 71,
-        "w": 8,
-        "h": 7
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short",
-          "custom": {
-            "drawStyle": "line",
-            "lineWidth": 2,
-            "fillOpacity": 10,
-            "showPoints": "never"
-          }
-        },
-        "overrides": [
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "deadlocks/s"
+          "options": {
+            "legend": {
+              "showLegend": true,
+              "displayMode": "list",
+              "placement": "bottom",
+              "calcs": []
             },
-            "properties": [
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "sum(rate(pg_stat_database_xact_commit{namespace=~\"${env}(-db)?\", namespace=~\"dev-db|preview\", datname!~\"template.*|\"}[$__rate_interval]))",
+              "legendFormat": "commit/s"
+            },
+            {
+              "refId": "B",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "sum(rate(pg_stat_database_xact_rollback{namespace=~\"${env}(-db)?\", namespace=~\"dev-db|preview\", datname!~\"template.*|\"}[$__rate_interval]))",
+              "legendFormat": "rollback/s"
+            }
+          ]
+        },
+        {
+          "id": 25,
+          "type": "timeseries",
+          "title": "캐시 적중률",
+          "description": "0.99 아래로 지속 하락 = 워킹셋이 shared_buffers 초과. 이 환경에 postgres-exporter가 생기기 전까지 비어 있다.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "gridPos": {
+            "x": 16,
+            "y": 64,
+            "w": 8,
+            "h": 7
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "percentunit",
+              "custom": {
+                "drawStyle": "line",
+                "lineWidth": 2,
+                "fillOpacity": 10,
+                "showPoints": "never"
+              },
+              "max": 1,
+              "min": 0,
+              "decimals": 1
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "showLegend": true,
+              "displayMode": "list",
+              "placement": "bottom",
+              "calcs": []
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "sum(rate(pg_stat_database_blks_hit{namespace=~\"${env}(-db)?\", namespace=~\"dev-db|preview\"}[$__rate_interval])) / (sum(rate(pg_stat_database_blks_hit{namespace=~\"${env}(-db)?\", namespace=~\"dev-db|preview\"}[$__rate_interval])) + sum(rate(pg_stat_database_blks_read{namespace=~\"${env}(-db)?\", namespace=~\"dev-db|preview\"}[$__rate_interval])))",
+              "legendFormat": "buffer cache hit"
+            }
+          ]
+        },
+        {
+          "id": 26,
+          "type": "timeseries",
+          "title": "락 (mode 별)",
+          "description": "Exclusive 계열 급증 = 경합. ① p95 급등과 같은 시각이면 유력 원인. 이 환경에 postgres-exporter가 생기기 전까지 비어 있다.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "gridPos": {
+            "x": 0,
+            "y": 71,
+            "w": 8,
+            "h": 7
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "custom": {
+                "drawStyle": "line",
+                "lineWidth": 2,
+                "fillOpacity": 10,
+                "showPoints": "never"
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "showLegend": true,
+              "displayMode": "list",
+              "placement": "bottom",
+              "calcs": []
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "sum by (mode) (pg_locks_count{namespace=~\"${env}(-db)?\", namespace=~\"dev-db|preview\"})",
+              "legendFormat": "{{mode}}"
+            }
+          ]
+        },
+        {
+          "id": 27,
+          "type": "timeseries",
+          "title": "임시파일 쓰기 (S)",
+          "description": "정렬/해시가 work_mem 초과로 디스크행 — 쿼리 튜닝 신호. 이 환경에 postgres-exporter가 생기기 전까지 비어 있다.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "gridPos": {
+            "x": 8,
+            "y": 71,
+            "w": 8,
+            "h": 7
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "Bps",
+              "custom": {
+                "drawStyle": "line",
+                "lineWidth": 2,
+                "fillOpacity": 10,
+                "showPoints": "never"
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "showLegend": true,
+              "displayMode": "list",
+              "placement": "bottom",
+              "calcs": []
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "sum(rate(pg_stat_database_temp_bytes{namespace=~\"${env}(-db)?\", namespace=~\"dev-db|preview\"}[$__rate_interval]))",
+              "legendFormat": "temp bytes/s"
+            }
+          ]
+        },
+        {
+          "id": 28,
+          "type": "timeseries",
+          "title": "데드락 · 충돌 (E)",
+          "description": "초당 데드락·복제 충돌 수. 이 환경에 postgres-exporter가 생기기 전까지 비어 있다.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "gridPos": {
+            "x": 16,
+            "y": 71,
+            "w": 8,
+            "h": 7
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "custom": {
+                "drawStyle": "line",
+                "lineWidth": 2,
+                "fillOpacity": 10,
+                "showPoints": "never"
+              }
+            },
+            "overrides": [
               {
-                "id": "color",
-                "value": {
-                  "mode": "fixed",
-                  "fixedColor": "#F2495C"
-                }
+                "matcher": {
+                  "id": "byName",
+                  "options": "deadlocks/s"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "mode": "fixed",
+                      "fixedColor": "#F2495C"
+                    }
+                  }
+                ]
               }
             ]
-          }
-        ]
-      },
-      "options": {
-        "legend": {
-          "showLegend": true,
-          "displayMode": "list",
-          "placement": "bottom",
-          "calcs": []
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
           },
-          "expr": "sum(rate(pg_stat_database_deadlocks{namespace=~\"${env}(-db)?\", namespace=~\"dev-db|preview\"}[$__rate_interval]))",
-          "legendFormat": "deadlocks/s"
-        },
-        {
-          "refId": "B",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
+          "options": {
+            "legend": {
+              "showLegend": true,
+              "displayMode": "list",
+              "placement": "bottom",
+              "calcs": []
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
           },
-          "expr": "sum(rate(pg_stat_database_conflicts{namespace=~\"${env}(-db)?\", namespace=~\"dev-db|preview\"}[$__rate_interval]))",
-          "legendFormat": "conflicts/s"
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "sum(rate(pg_stat_database_deadlocks{namespace=~\"${env}(-db)?\", namespace=~\"dev-db|preview\"}[$__rate_interval]))",
+              "legendFormat": "deadlocks/s"
+            },
+            {
+              "refId": "B",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "sum(rate(pg_stat_database_conflicts{namespace=~\"${env}(-db)?\", namespace=~\"dev-db|preview\"}[$__rate_interval]))",
+              "legendFormat": "conflicts/s"
+            }
+          ]
         }
       ]
     },
