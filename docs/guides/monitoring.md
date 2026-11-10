@@ -51,6 +51,7 @@ dashboard 기준이다. 화면이나 데이터가 없으면 시간 범위와 변
 | 캐시가 잘 동작하는지 궁금하다 | `UMC PRODUCT — Cache` | 인메모리 Caffeine 캐시 hit/miss·적중률·항목 수. Redis 상태가 아님 |
 | 운영 DB 연결이 부족하거나 DB가 느리다 | `PostgreSQL Detail — Production Only` | 접속 수/최대 접속, transaction·lock·DB 용량 |
 | 서버 전체 CPU·메모리·디스크가 부족하다 | `Node Exporter Host Metrics` | Linux 호스트 전체 CPU·메모리·디스크·네트워크 |
+| dev·preview에 부하 테스트를 건다 | `부하 테스트 (k6)` | `env`를 고른 뒤 HikariCP pending, Tomcat 바쁜 스레드, 앱·DB 컨테이너 CPU(limit 대비)와 throttling, 호스트 PSI, Traefik 메모리 중 먼저 차는 것 |
 
 앱 상세의 `Service`는 환경에 맞게 선택한다.
 
