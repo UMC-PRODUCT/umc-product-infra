@@ -148,7 +148,7 @@ def validate_postgres() -> None:
         },
         "prod: exporter internal-only Service",
     )
-    # preview-budget의 Service 4개는 공용 DB 2개와 PR 2개 몫이다. PodMonitor가 Pod를 직접 수집한다.
+    # preview-budget의 Service 4개는 공용 DB 2개와 PR 2개 몫이다.
     require(
         [item["kind"] for item in exporter_resources["preview"]] == ["Deployment"],
         "preview: exporter must be a lone Deployment without a Service",
@@ -172,8 +172,6 @@ def role_job_script(environment: str, path: Path, password_env: str, secret: dic
     return container["args"][0]
 
 
-# exporter마다 접속할 DB와 이름만 다르고 role 권한·image·자원·NetworkPolicy 계약은 같다.
-# Prometheus job은 Pod name label에서 나오므로 prod 경보가 고르는 job="postgres-exporter"와 겹치지 않게 이름을 나눈다.
 @dataclass(frozen=True)
 class Exporter:
     environment: str

@@ -618,6 +618,21 @@ def validate_traefik_pod_monitor_job(pod_monitor: dict) -> None:
             "because TraefikMetricsMissing matches up{job=\"traefik\"}")
 
 
+# prod PostgreSQL 경보·대시보드는 namespace 없이 job="postgres-exporter"만 고른다. Preview exporter가
+# 그 job이 되면 Preview DB 장애가 운영 DB 장애 경보로 울린다.
+def validate_preview_exporter_pod_monitor_job(pod_monitor: dict, deployment: dict) -> None:
+    spec = pod_monitor.get("spec", {})
+    job_label = spec.get("jobLabel")
+    relabelings = [rule for endpoint in spec.get("podMetricsEndpoints", [])
+                   for rule in endpoint.get("relabelings", []) + endpoint.get("metricRelabelings", [])]
+    require(job_label is not None
+            and spec.get("selector", {}).get("matchLabels", {}).get(job_label) == "postgres-preview-exporter"
+            and workload_labels(deployment).get(job_label) == "postgres-preview-exporter"
+            and not any(rule.get("targetLabel") == "job" for rule in relabelings),
+            "postgres-preview-exporter PodMonitor: job must come from the Pod label postgres-preview-exporter, "
+            "never postgres-exporter, which prod PostgreSQL alerts select")
+
+
 def in_monitor_namespaces(resource: dict, namespace_selector: dict, monitor_namespace: str) -> bool:
     if namespace_selector.get("any"):
         return True
@@ -988,6 +1003,9 @@ def main() -> int:
                                           named_resource(external_resources, "Deployment", exporter),
                                           prometheus_labels, {"metrics", 9187}),
                 f"{exporter} NetworkPolicy must admit operator-managed Prometheus Pods on the metrics port")
+    validate_preview_exporter_pod_monitor_job(
+        named_resource(integrations, "PodMonitor", "postgres-preview-exporter"),
+        named_resource(external_resources, "Deployment", "postgres-preview-exporter"))
     require(admits_prometheus_ingress(argocd_resources,
                                       named_resource(argocd_resources, "StatefulSet", "argocd-application-controller"),
                                       prometheus_labels, {"metrics", 8082}),

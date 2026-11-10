@@ -361,6 +361,22 @@ Secret을 읽지 않으므로 문서 비밀번호 회전만으로 앱을 재시�
 
 단일 replica이므로 재시작 중 짧은 중단이 생길 수 있다.
 
+## Preview DB exporter 활성화
+
+`preview/postgres-exporter` ExternalSecret은 `/umc-product/preview/postgres-exporter`를 읽는다. source가 없으면
+`postgres-exporter-role` Job이 Secret을 찾지 못해 300초 뒤 실패하고 `preview-postgres` sync가 멈춘다. 공유 DB와
+PR 앱은 영향을 받지 않지만 exporter가 뜨지 않으므로 아래 1~3단계를 이 변경을 머지하기 전에 끝낸다.
+
+1. `.env.preview`에 `POSTGRES_EXPORTER_PASSWORD`를 새 난수로 추가한다. prod exporter와 다른 모든 DB password와도
+   다른 값이어야 하며 bootstrap이 재사용을 거부한다.
+2. `cloud/aws/external-secrets-iam.yaml`을 반영해 PreviewRole(`umc-secrets-preview`)에 이 source 읽기 권한을 추가한다.
+3. `bootstrap_aws_secrets.py` dry-run으로 기존 source가 worksheet와 일치하고 이 source만 missing인지 확인한 뒤
+   `--apply`로 생성한다.
+4. 머지한다. 머지 시점에 Preview PR 앱 Deployment가 이미 2개면 quota 증설과 exporter 생성의 동기화 순서에 따라
+   exporter 생성이 거부될 수 있으니 `preview-postgres`를 다시 sync한다.
+5. `preview/postgres-exporter` ExternalSecret `Ready=True`, `postgres-exporter-role` Job Complete를 확인하고
+   Prometheus에서 `pg_up{namespace="preview"} == 1`을 확인한다.
+
 ## PostgreSQL exporter password 회전
 
 prod와 Preview는 이름이 같은 절차를 각자의 namespace에서 따로 진행한다.

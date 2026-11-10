@@ -24,8 +24,7 @@ spec:
           regex: traefik_(entrypoint|service)_requests_total
           action: keep
 ---
-# 공유 Preview DB exporter는 Preview Service quota를 쓰지 않도록 Service 없이 Pod를 직접 수집한다.
-# job은 postgres-preview-exporter가 된다. prod 경보·대시보드가 고르는 job="postgres-exporter"와 섞이지 않는다.
+# jobLabel로 job=postgres-preview-exporter가 되어 prod 경보·대시보드의 job="postgres-exporter"와 섞이지 않는다.
 apiVersion: monitoring.coreos.com/v1
 kind: PodMonitor
 metadata:

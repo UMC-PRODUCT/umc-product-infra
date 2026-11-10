@@ -206,7 +206,7 @@ spec:
       ports:
         - { protocol: TCP, port: 5432 }
 ---
-# exporter는 공유 DB로만 query를 보내며 DNS 허용은 첫 정책이 담당한다.
+# DNS 허용은 첫 정책이 담당한다.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -231,7 +231,7 @@ spec:
       ports:
         - { protocol: TCP, port: 5432 }
 ---
-# monitoring의 Prometheus Pod만 exporter metrics 9187을 수집할 수 있게 두 selector를 함께 적용한다.
+# namespaceSelector와 podSelector를 한 from 항목에 둬 AND로 묶는다.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
