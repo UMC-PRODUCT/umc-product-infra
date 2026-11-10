@@ -1,5 +1,7 @@
 # 부하 테스트 진단 가이드 — 메트릭 읽는 법
 
+① 행(k6)에 데이터를 보내는 방법은 [부하 테스트 결과 보내기](../docs/operations/tool-access.md#부하-테스트-결과-보내기)를 본다.
+
 대시보드("부하 테스트 (k6)", [`dashboards/k6-load-test.json`](dashboards/k6-load-test.json)) 앞에서 "지금 뭐가 병목인가"를 판정하는 절차.
 패널을 바꾸면 이 문서도 같은 PR에서 고친다. k6 스크립트는 서버 저장소 [`loadtest/`](https://github.com/UMC-PRODUCT/umc-product-server/tree/develop/loadtest), 실행 기록은 [`docs/loadtest/`](https://github.com/UMC-PRODUCT/umc-product-server/tree/develop/docs/loadtest)에 있다.
 핵심 프레임: **① 행(k6)이 증상, ②~⑤ 행이 용의자.** 진단은 단일 지표가 아니라 조합 패턴 매칭이다.
