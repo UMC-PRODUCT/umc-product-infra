@@ -916,10 +916,9 @@ def main() -> int:
                 "argocd-application-controller"},
             "monitoring-integrations: required platform scrape targets must be preserved")
     require({resource["metadata"]["name"] for resource in integrations
-             if resource.get("kind") == "PodMonitor"} == {"traefik"},
-            "monitoring-integrations: Traefik edge 429 dashboard needs the traefik PodMonitor")
-    validate_traefik_pod_monitor_job(next(resource for resource in integrations
-                                          if resource.get("kind") == "PodMonitor"))
+             if resource.get("kind") == "PodMonitor"} == {"traefik", "postgres-preview-exporter"},
+            "monitoring-integrations: Traefik edge 429 and Preview DB dashboards need their PodMonitors")
+    validate_traefik_pod_monitor_job(named_resource(integrations, "PodMonitor", "traefik"))
     all_resources = [resource for resources in rendered.values() for resource in resources] + integrations
     write_monitoring_schemas(prometheus_resources, output_dir)
     (output_dir / "monitoring-resources.yaml").write_text(yaml.safe_dump_all(
@@ -984,10 +983,11 @@ def main() -> int:
             f"NetworkPolicy/{policy['metadata']['name']} selects no rendered workload",
         )
     prometheus_labels = workload_labels(prometheus)
-    require(admits_prometheus_ingress(external_resources,
-                                      named_resource(external_resources, "Deployment", "postgres-exporter"),
-                                      prometheus_labels, {"metrics", 9187}),
-            "PostgreSQL exporter NetworkPolicy must admit operator-managed Prometheus Pods on the metrics port")
+    for exporter in ("postgres-exporter", "postgres-preview-exporter"):
+        require(admits_prometheus_ingress(external_resources,
+                                          named_resource(external_resources, "Deployment", exporter),
+                                          prometheus_labels, {"metrics", 9187}),
+                f"{exporter} NetworkPolicy must admit operator-managed Prometheus Pods on the metrics port")
     require(admits_prometheus_ingress(argocd_resources,
                                       named_resource(argocd_resources, "StatefulSet", "argocd-application-controller"),
                                       prometheus_labels, {"metrics", 8082}),

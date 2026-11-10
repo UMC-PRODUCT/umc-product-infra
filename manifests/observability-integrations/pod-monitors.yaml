@@ -23,3 +23,27 @@ spec:
         - sourceLabels: [__name__]
           regex: traefik_(entrypoint|service)_requests_total
           action: keep
+---
+# 공유 Preview DB exporter는 Preview Service quota를 쓰지 않도록 Service 없이 Pod를 직접 수집한다.
+# job은 postgres-preview-exporter가 된다. prod 경보·대시보드가 고르는 job="postgres-exporter"와 섞이지 않는다.
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: postgres-preview-exporter
+  namespace: monitoring
+  labels:
+    release: prometheus
+spec:
+  jobLabel: app.kubernetes.io/name
+  namespaceSelector:
+    matchNames: [preview]
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: postgres-preview-exporter
+      app.kubernetes.io/component: metrics
+      environment: preview
+  podTargetLabels: [environment]
+  podMetricsEndpoints:
+    - port: metrics
+      interval: 30s
+      scrapeTimeout: 10s

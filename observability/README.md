@@ -28,7 +28,7 @@ observability/
 
 scripts/gen-configmaps.py             # 원본 → ConfigMap / PrometheusRule
 manifests/observability/              # dashboard·Loki ConfigMap, NetworkPolicy
-manifests/observability-integrations/ # ServiceMonitor, Traefik PodMonitor, 생성된 PrometheusRule
+manifests/observability-integrations/ # ServiceMonitor, PodMonitor(Traefik·Preview DB exporter), 생성된 PrometheusRule
 ```
 
 관측 stack의 배포 구조는
@@ -94,8 +94,8 @@ Overview는 prod/dev만 비교하고, Traefik edge 행만 모든 host 합계다.
 
 `k6-load-test.json`은 `env`(dev·preview) 하나로 앱 Service, 앱·DB namespace를 함께 고른다. 쿼리마다
 dev·preview namespace와 앱 이름을 고정 조건으로 함께 걸어, 주소에 다른 변수 값을 넣어도 운영 값을 그리지 않는다. 호스트 USE 행과 Traefik 메모리만 운영과
-같은 서버 전체 값이다. ① k6 행은 k6 Prometheus remote-write를, ③ DB 내부 행은 그 환경의 postgres-exporter를
-켜기 전까지 비어 있다. 패널 읽는 법은 [부하 테스트 진단 가이드](load-test-diagnosis.md)에 있다. 패널 제목이나 행 번호를 바꾸면 이 가이드도 같은 PR에서 고친다.
+같은 서버 전체 값이다. ① k6 행은 k6 Prometheus remote-write를 켜기 전까지 비어 있다. ③ DB 내부 행은
+preview에서만 채워지고, dev는 postgres-exporter가 없어 비어 있다. 패널 읽는 법은 [부하 테스트 진단 가이드](load-test-diagnosis.md)에 있다. 패널 제목이나 행 번호를 바꾸면 이 가이드도 같은 PR에서 고친다.
 
 다음 원본은 저장소에 보관하지만 초기 배포에서는 제외한다.
 
@@ -109,7 +109,9 @@ dev·preview namespace와 앱 이름을 고정 조건으로 함께 걸어, 주�
 `postgresql-detail.json`은 AWS RDS/CloudWatch가 아니라 K3s 내부
 `postgres_exporter`와 `kube-state-metrics`를 사용한다. CPU·memory request/limit와 PVC 요청
 용량은 실제 사용량이 아닌 Kubernetes 선언값이며, 실제 호스트 사용량은 `node-exporter-host.json`에서
-따로 확인한다. PostgreSQL과 Linux host exporter는 production 전용이다.
+따로 확인한다. 이 dashboard와 Linux host exporter는 production 전용이다. 공유 Preview DB에도
+`postgres-preview-exporter`가 있지만 job 이름이 달라 이 dashboard와 prod DB 알림에는 들어오지 않고,
+부하 테스트 dashboard의 ③ DB 내부 행에만 쓰인다. dev DB에는 exporter가 없다.
 
 ## Alert rule 변환
 
