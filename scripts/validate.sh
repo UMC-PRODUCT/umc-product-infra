@@ -533,6 +533,7 @@ if optional_check "observability runtime config validation" docker info; then
     -v "$validation_dir:/validation:ro" \
     --entrypoint nginx "$proxy_image" \
     -t -e stderr -c /validation/prometheus-query-proxy-nginx.conf
+  python3 scripts/check_query_proxy.py "$proxy_image" "$validation_dir/prometheus-query-proxy-nginx.conf"
 fi
 
 finish_validation
