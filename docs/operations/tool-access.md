@@ -182,7 +182,8 @@ Preview에 걸 때는 `env=preview`로 바꾼다.
 - stale marker 설정은 실행이 끝난 시점에 선을 끊는다. 빼면 마지막 값이 최대 5분 남는다.
 - 대시보드는 `env`와 `testid` label로 환경과 실행을 거른다.
 - dev와 Preview의 `/test/**`는 Basic 인증 뒤에 있다. 지금 하네스는 토큰 발급과 Chat 시딩에만
-  `TEST_API_BASIC_AUTH`를 붙이므로, `health-check` 시나리오와 `prepare-data.sh` 시딩은 dev에서 401이 난다.
+  `TEST_API_BASIC_AUTH`를 붙이므로, `health-check` 시나리오와 `prepare-data.sh` 시딩은 dev와 Preview에서 401이 난다.
+  Preview는 seed API도 꺼져 있어 시딩이 필요 없는 시나리오만 돌릴 수 있다.
 
 k6는 결과 전송이 실패해도 부하를 계속 건다. 시작 1분 안에 ① 행에 값이 들어오는지 확인하고, 값이 없거나
 tunnel이 끊기면 k6를 멈춘다. 실행이 끝나면 port-forward와 tunnel을 종료한다. `--address 0.0.0.0`으로 열지 않는다.
@@ -196,8 +197,9 @@ tunnel이 끊기면 k6를 멈춘다. 실행이 끝나면 port-forward와 tunnel�
 - Grafana의 Prometheus datasource는 `prometheus-query-proxy`를 거친다. 이 proxy는 조회·상태 API만 넘기고
   쓰기·관리 API는 403으로 막는다. Prometheus Pod는 Collector의 OTLP, 이 proxy, Prometheus 자신의
   self-scrape만 받는다. 관리자 port-forward는 NetworkPolicy를 거치지 않으므로 Prometheus Service로 직접 점검한다.
-- Prometheus remote write 수신(`/api/v1/write`)은 k6 결과 전송에만 쓴다. Grafana와 다른 monitoring Pod는
-  닿지 못하고, 관리자의 loopback port-forward로만 보낸다. Grafana datasource에는 `prometheusType`을 넣지 않는다.
+- Prometheus remote write 수신(`/api/v1/write`)은 k6 결과 전송에만 쓰고 관리자의 loopback port-forward로만 보낸다.
+  9090에 닿는 Pod는 OTLP를 보내는 Collector와 조회 proxy뿐이며, proxy는 쓰기 경로를 403으로 막는다.
+  Grafana datasource에는 `prometheusType`을 넣지 않는다.
 - Actuator 9090은 application Service나 Ingress에 노출하지 않는다.
 - kube-state-metrics는 cluster 상태를 읽지만 Secret과 ConfigMap 내용은 수집하지 않는다.
 - Prometheus는 14일 / 12GB 중 먼저 도달하는 조건, Tempo는 7일, Loki는 운영 90일·dev 30일·Preview 7일 retention을 사용한다.

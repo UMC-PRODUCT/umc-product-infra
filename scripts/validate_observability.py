@@ -602,6 +602,15 @@ def validate_prometheus_query_proxy(resources: list[dict]) -> str:
     template = named_resource(resources, "Deployment", PROMETHEUS_QUERY_PROXY)["spec"]["template"]
     require(template["metadata"].get("annotations", {}).get("checksum/nginx-conf") == digest,
             f"prometheus-query-proxy: set the pod annotation checksum/nginx-conf to {digest}")
+    # remote write 수신이 켜져 있으므로 허용 location이 쓰기·관리 경로를 잡지 않는지 확인한다.
+    allowed = [re.compile(pattern.replace(r"\z", r"\Z"))
+               for pattern in re.findall(r"location ~ (\S+) \{", config)]
+    require(any(pattern.match("/api/v1/query") for pattern in allowed),
+            "prometheus-query-proxy: query API must pass through")
+    for path in ("/api/v1/write", "/api/v1/otlp/v1/metrics", "/api/v1/admin/tsdb/snapshot",
+                 "/-/quit", "/-/reload", "/federate", "/api/v1/status/config"):
+        require(not any(pattern.match(path) for pattern in allowed),
+                f"prometheus-query-proxy: {path} must stay outside the allowlist")
     service = named_resource(resources, "Service", PROMETHEUS_QUERY_PROXY)
     require(any(port.get("port") == PROMETHEUS_QUERY_PROXY_PORT for port in service["spec"].get("ports", [])),
             f"Service/{PROMETHEUS_QUERY_PROXY}: port must match the Grafana datasource URL")
