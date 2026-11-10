@@ -2,8 +2,8 @@
 """조회 proxy를 실제 nginx image로 띄워 쓰기·관리 경로가 upstream에 닿지 않는지 확인한다.
 
 정적 검사는 nginx 설정을 끝까지 해석하지 못한다. 그래서 같은 image 안에 받은 요청줄을 그대로 돌려주는
-가짜 upstream을 둔다. 막아야 할 경로는 upstream에 닿지 않아야 하고, 허용 경로는 정규화된 경로 그대로
-upstream에 닿아야 한다.
+가짜 upstream을 둔다. 막아야 할 경로는 proxy가 직접 403으로 답해야 하고, 허용 경로는 정규화된 경로
+그대로 upstream에 닿아야 한다. 다른 upstream으로 새어 502가 나는 설정도 실패로 본다.
 
     python3 scripts/check_query_proxy.py IMAGE NGINX_CONF
 """
@@ -72,13 +72,18 @@ def probe_config(config: str) -> str:
     return config[:closing] + STUB_SERVER
 
 
-def request(container: str, method: str, path: str) -> str:
+def request(container: str, method: str, path: str) -> tuple[str, str]:
     args = ["docker", "exec", container, "wget", "-q", "-O", "-", "-T", "5"]
     if method == "POST":
         args += ["--post-data", "query=up"]
     result = subprocess.run([*args, f"http://127.0.0.1:8080{path}"],
                             capture_output=True, text=True, check=False)
-    return result.stdout
+    return result.stdout, result.stderr
+
+
+def forbidden(response: tuple[str, str]) -> bool:
+    stdout, stderr = response
+    return not stdout and "HTTP/1.1 403 Forbidden" in stderr
 
 
 def main() -> int:
@@ -88,23 +93,29 @@ def main() -> int:
     probe = source.with_name("prometheus-query-proxy-probe.conf")
     probe.write_text(probe_config(source.read_text(encoding="utf-8")), encoding="utf-8")
     container = subprocess.run(
-        ["docker", "run", "-d", "--network", "none", "--read-only", "--tmpfs", "/tmp",
+        ["docker", "run", "-d", "--rm", "--network", "none", "--read-only", "--tmpfs", "/tmp",
          "-v", f"{probe.parent}:/validation:ro", "--entrypoint", "nginx", image,
          "-e", "stderr", "-c", f"/validation/{probe.name}"],
         capture_output=True, text=True, check=True,
     ).stdout.strip()
+    failures: list[str] = []
     try:
         for _ in range(50):
-            if request(container, "GET", "/healthz") == "ok\n":
+            if request(container, "GET", "/healthz")[0] == "ok\n":
                 break
             time.sleep(0.2)
         else:
-            raise SystemExit("query proxy check: proxy did not start")
-        failures = [f"{method} {path} must reach upstream as {expected}"
-                    for method, path, expected in PASSED
-                    if request(container, method, path) != f"UPSTREAM {method} {expected}\n"]
-        failures += [f"{method} {path} reached upstream"
-                     for method, path in BLOCKED if "UPSTREAM" in request(container, method, path)]
+            failures = ["proxy did not start"]
+        if not failures:
+            failures = [f"{method} {path} must reach upstream as {expected}"
+                        for method, path, expected in PASSED
+                        if request(container, method, path)[0] != f"UPSTREAM {method} {expected}\n"]
+            failures += [f"{method} {path} must be answered 403 by the proxy"
+                         for method, path in BLOCKED if not forbidden(request(container, method, path))]
+        if failures:
+            logs = subprocess.run(["docker", "logs", "--tail", "20", container],
+                                  capture_output=True, text=True, check=False)
+            failures.append("nginx log:\n" + (logs.stdout + logs.stderr).strip())
     finally:
         subprocess.run(["docker", "rm", "-f", container], capture_output=True, check=False)
     if failures:
