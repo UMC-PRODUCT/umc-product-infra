@@ -137,9 +137,43 @@ ssh -N -L 127.0.0.1:18080:127.0.0.1:18080 "$IDC_SSH_USER@$IDC_NODE_HOST"
 우회하지 않는다. Helm 배포 성공만으로 인증 검증이 끝나지는 않으므로 공개 로그인과 viewer의
 변경 권한 거부를 다시 확인한다. 복구 중 desired state를 변경했다면 Git에도 반영해 Argo CD로 수렴시킨다.
 
+## 부하 테스트 결과 보내기
+
+k6 결과를 `monitoring` namespace Prometheus의 remote write 수신 경로(`/api/v1/write`)로 보내 Grafana
+`부하 테스트 (k6)` 대시보드의 ① 행을 채운다. 공개 경로가 없으므로 개인 `admin` 계정 관리자가
+자기 PC에서 k6를 실행한다.
+
+부하 대상은 dev와 Preview 앱뿐이다. 운영 앱에는 부하를 걸지 않는다
+([ADR-013](https://github.com/UMC-PRODUCT/umc-product-server/blob/develop/docs/adr/013-k6-load-and-performance-testing-strategy.md)).
+
+시작 전에 관리자 PC의 시계를 NTP로 맞춘다. k6는 PC 시각으로 sample을 찍으므로 시계가 어긋나면
+① 행이 앱 지표와 다른 시각에 그려지거나 Prometheus가 sample을 거부할 수 있다.
+
+IDC의 SSH 세션에서 loopback에만 port-forward를 유지한다.
+
+```bash
+sudo -n k3s kubectl port-forward --address 127.0.0.1 -n monitoring service/prometheus-kube-prometheus-prometheus 19090:9090
+```
+
+관리자 PC의 별도 terminal에서 같은 IDC로 SSH tunnel을 유지한다. 변수에는 승인된 개인 관리자
+사용자와 서버 공인 주소를 사용한다.
+
+```bash
+ssh -N -L 127.0.0.1:19090:127.0.0.1:19090 "$IDC_SSH_USER@$IDC_NODE_HOST"
+```
+
+다른 관리자 PC terminal에서 k6를 `http://127.0.0.1:19090/api/v1/write`로 보낸다. k6 환경 변수와
+`env`·`testid` 태그는 서버 저장소
+[부하 테스트 README](https://github.com/UMC-PRODUCT/umc-product-server/blob/develop/loadtest/README.md#결과를-grafana로-보내기)를 따른다.
+
+실행이 끝나면 port-forward와 tunnel을 종료한다. `--address 0.0.0.0`으로 열지 않는다.
+열면 노드 주소에 닿는 누구나 Prometheus에 시계열을 쓰고 조회할 수 있다.
+
 ## 관측 stack 보호 경계
 
 - 앱은 `otel-collector.monitoring.svc.cluster.local:4317/4318`에만 OTLP를 보낸다.
+- Prometheus remote write 수신(`/api/v1/write`)은 켜져 있다. Ingress가 없어 monitoring namespace
+  Pod와 sudo 관리자의 loopback port-forward만 쓸 수 있으며 k6 결과 전송에만 쓴다.
 - Collector ingress는 `app`, `dev-app`, `preview` namespace의 앱 Pod만 허용한다.
 - Grafana는 `kube-system`의 Traefik Pod에서 오는 `3000/TCP`만 별도 허용한다.
 - Actuator 9090은 application Service나 Ingress에 노출하지 않는다.

@@ -121,6 +121,10 @@ backup을 대신하지 않는다.
 datasource 같은 수신 경로도 필요한 monitoring 내부 통신만 연다. egress default-deny는 아직
 적용하지 않았으므로 outbound 제한은 별도 보강 항목이다.
 
+Prometheus는 k6 결과를 받으려고 remote write 수신(`/api/v1/write`)을 켠다. Prometheus에는 Ingress가
+없으므로 쓸 수 있는 주체는 monitoring namespace Pod와 sudo 관리자의 loopback port-forward뿐이다.
+전송 절차는 [부하 테스트 결과 보내기](../../../../docs/operations/tool-access.md#부하-테스트-결과-보내기)를 따른다.
+
 Grafana는 승인된 host의 public HTTPS와 자체 로그인을 사용한다.
 익명 접근과 회원가입은 끄고 팀원마다 기본 `Viewer` 계정을 발급한다. desired state의 production
 Certificate와 public Ingress는 같은 Grafana Application에 있으며, Argo CD가 Certificate 준비를

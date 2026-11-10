@@ -486,6 +486,8 @@ def validate_prometheus(resources: list[dict]) -> None:
     spec = prometheus["spec"]
     require(spec.get("enableOTLPReceiver") is True,
             "prometheus: OTLP receiver must accept Collector metrics")
+    require(spec.get("enableRemoteWriteReceiver") is True,
+            "prometheus: remote write receiver must accept k6 results")
     require(spec.get("retention") == "14d", "prometheus: retention must remain 14 days")
     for selector in ("serviceMonitor", "podMonitor", "rule", "probe", "scrapeConfig"):
         require(spec.get(f"{selector}Selector") == {"matchLabels": {"release": "prometheus"}},
