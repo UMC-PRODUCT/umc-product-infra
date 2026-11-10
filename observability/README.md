@@ -94,8 +94,8 @@ Overview는 prod/dev만 비교하고, Traefik edge 행만 모든 host 합계다.
 
 `k6-load-test.json`은 `env`(dev·preview) 하나로 앱 Service, 앱·DB namespace를 함께 고른다. 쿼리마다
 dev·preview namespace와 앱 이름을 고정 조건으로 함께 걸어, 주소에 다른 변수 값을 넣어도 운영 값을 그리지 않는다. 호스트 USE 행과 Traefik 메모리만 운영과
-같은 서버 전체 값이다. ① k6 행은 k6 Prometheus remote-write를 켜기 전까지 비어 있다. ③ DB 내부 행은
-preview에서만 채워지고, dev는 postgres-exporter가 없어 비어 있다. 패널 읽는 법은 [부하 테스트 진단 가이드](load-test-diagnosis.md)에 있다. 패널 제목이나 행 번호를 바꾸면 이 가이드도 같은 PR에서 고친다.
+같은 서버 전체 값이다. ① k6 행은 k6 Prometheus remote-write로 보낸 실행 중에만 채워지고, k6가 붙인
+`env`·`testid` label로 환경과 실행을 거른다. ③ DB 내부 행은 preview에서만 채워지고, dev는 postgres-exporter가 없어 비어 있다. 패널 읽는 법은 [부하 테스트 진단 가이드](load-test-diagnosis.md)에 있다. 패널 제목이나 행 번호를 바꾸면 이 가이드도 같은 PR에서 고친다.
 
 다음 원본은 저장소에 보관하지만 초기 배포에서는 제외한다.
 

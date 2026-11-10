@@ -26,15 +26,12 @@ jvm_memory_committed_bytes
 jvm_memory_max_bytes
 jvm_memory_used_bytes
 jvm_threads_states
-k6_dropped_iterations_total  # k6 Prometheus remote-write로만 생긴다. 운영 Prometheus의 remote-write 수신기가 꺼져 있다
-k6_http_req_duration_avg  # k6 Prometheus remote-write로만 생긴다. 운영 Prometheus의 remote-write 수신기가 꺼져 있다
-k6_http_req_duration_p95  # k6 Prometheus remote-write로만 생긴다. 운영 Prometheus의 remote-write 수신기가 꺼져 있다
-k6_http_req_failed_rate  # k6 Prometheus remote-write로만 생긴다. 운영 Prometheus의 remote-write 수신기가 꺼져 있다
-k6_http_reqs_total  # k6 Prometheus remote-write로만 생긴다. 운영 Prometheus의 remote-write 수신기가 꺼져 있다
-k6_iteration_duration_p95  # k6 Prometheus remote-write로만 생긴다. 운영 Prometheus의 remote-write 수신기가 꺼져 있다
-k6_iterations_total  # k6 Prometheus remote-write로만 생긴다. 운영 Prometheus의 remote-write 수신기가 꺼져 있다
-k6_umc_scenario_errors_rate  # k6 Prometheus remote-write로만 생긴다. 운영 Prometheus의 remote-write 수신기가 꺼져 있다
-k6_vus  # k6 Prometheus remote-write로만 생긴다. 운영 Prometheus의 remote-write 수신기가 꺼져 있다
+k6_dropped_iterations_total  # k6 Prometheus remote-write로 k6 실행 중, 버림이 생길 때만 생긴다
+k6_http_req_duration_seconds  # k6 Prometheus remote-write로 k6 실행 중에만 생긴다
+k6_http_reqs_total  # k6 Prometheus remote-write로 k6 실행 중에만 생긴다
+k6_iteration_duration_seconds  # k6 Prometheus remote-write로 k6 실행 중에만 생긴다
+k6_iterations_total  # k6 Prometheus remote-write로 k6 실행 중에만 생긴다
+k6_vus  # k6 Prometheus remote-write로 k6 실행 중에만 생긴다
 kube_persistentvolumeclaim_resource_requests_storage_bytes
 kube_pod_container_resource_limits
 kube_pod_container_resource_requests
