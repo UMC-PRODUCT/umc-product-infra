@@ -325,7 +325,7 @@
           "id": 7,
           "type": "timeseries",
           "title": "처리량 RPS (요청/초)",
-          "description": "k6 가 세는 HTTP 요청/초. 홈 1행동=4요청이라 사용자 기준 처리량(TPS)=RPS÷4. breakpoint 로 점증 중 여기가 평평해지는 순간부터가 포화 — 아래 응답시간과 같이 본다. k6 실행 중에만 채워진다. 보내는 방법은 서버 저장소 [loadtest/README.md의 \"결과를 Grafana로 보내기\"](https://github.com/UMC-PRODUCT/umc-product-server/blob/develop/loadtest/README.md)를 본다.",
+          "description": "k6 가 세는 HTTP 요청/초. 홈 1행동=3요청이라 사용자 기준 처리량(TPS)=RPS÷3. breakpoint 로 점증 중 여기가 평평해지는 순간부터가 포화 — 아래 응답시간과 같이 본다. k6 실행 중에만 채워진다. 보내는 방법은 서버 저장소 [loadtest/README.md의 \"결과를 Grafana로 보내기\"](https://github.com/UMC-PRODUCT/umc-product-server/blob/develop/loadtest/README.md#결과를-grafana로-보내기)를 본다.",
           "datasource": {
             "type": "prometheus",
             "uid": "prometheus"
@@ -386,13 +386,14 @@
               "expr": "sum(rate(k6_http_reqs_total{env=\"$env\", env=~\"dev|preview\", testid=~\"$testid\"}[$__rate_interval]))",
               "legendFormat": "RPS"
             }
-          ]
+          ],
+          "interval": "5s"
         },
         {
           "id": 8,
           "type": "timeseries",
           "title": "응답시간 (전체 집계)",
-          "description": "단위: 초. p95(진한 선)가 판정 기준 — TPS 평탄화와 동시 급등 지점이 한계. p95·avg는 실행 시작부터의 누적이 아니라 최근 rate 창 안의 요청만 본 구간 값이다. k6 실행 중에만 채워진다. 보내는 방법은 서버 저장소 [loadtest/README.md의 \"결과를 Grafana로 보내기\"](https://github.com/UMC-PRODUCT/umc-product-server/blob/develop/loadtest/README.md)를 본다.",
+          "description": "단위: 초. p95(진한 선)가 판정 기준 — TPS 평탄화와 동시 급등 지점이 한계. p95·avg는 실행 시작부터의 누적이 아니라 최근 rate 창(기본 30분 범위에서 약 20초) 안의 요청만 본 구간 값이다. k6 실행 중에만 채워진다. 보내는 방법은 서버 저장소 [loadtest/README.md의 \"결과를 Grafana로 보내기\"](https://github.com/UMC-PRODUCT/umc-product-server/blob/develop/loadtest/README.md#결과를-grafana로-보내기)를 본다.",
           "datasource": {
             "type": "prometheus",
             "uid": "prometheus"
@@ -493,13 +494,14 @@
               "expr": "histogram_avg(sum(rate(k6_http_req_duration_seconds{env=\"$env\", env=~\"dev|preview\", testid=~\"$testid\"}[$__rate_interval])))",
               "legendFormat": "avg"
             }
-          ]
+          ],
+          "interval": "5s"
         },
         {
           "id": 9,
           "type": "timeseries",
           "title": "동시 접속자 — 체류(VUs) vs 서버 처리 중(Tomcat busy)",
-          "description": "위 선(VUs)=접속해서 결과를 기다리는 인원, 아래 선(busy)=서버가 지금 잡고 일하는 요청 수. 두 선의 간격 = 어딘가 줄에서 기다리는 인원. VUs 급증 자체가 포화 신호(행동 시간이 길어지고 있다는 뜻). VUs 선은 k6 실행 중에만 채워진다. 보내는 방법은 서버 저장소 [loadtest/README.md의 \"결과를 Grafana로 보내기\"](https://github.com/UMC-PRODUCT/umc-product-server/blob/develop/loadtest/README.md)를 본다.",
+          "description": "위 선(VUs)=접속해서 결과를 기다리는 인원, 아래 선(busy)=서버가 지금 잡고 일하는 요청 수. 두 선의 간격 = 어딘가 줄에서 기다리는 인원. VUs 급증 자체가 포화 신호(행동 시간이 길어지고 있다는 뜻). VUs 선은 k6 실행 중에만 채워진다. 보내는 방법은 서버 저장소 [loadtest/README.md의 \"결과를 Grafana로 보내기\"](https://github.com/UMC-PRODUCT/umc-product-server/blob/develop/loadtest/README.md#결과를-grafana로-보내기)를 본다.",
           "datasource": {
             "type": "prometheus",
             "uid": "prometheus"
@@ -589,7 +591,7 @@
           "id": 10,
           "type": "timeseries",
           "title": "시나리오별 RPS",
-          "description": "auth = 토큰 발급(측정 대상 아님, 분리 표시). k6 실행 중에만 채워진다. 보내는 방법은 서버 저장소 [loadtest/README.md의 \"결과를 Grafana로 보내기\"](https://github.com/UMC-PRODUCT/umc-product-server/blob/develop/loadtest/README.md)를 본다.",
+          "description": "auth = 토큰 발급(측정 대상 아님, 분리 표시). k6 실행 중에만 채워진다. 보내는 방법은 서버 저장소 [loadtest/README.md의 \"결과를 Grafana로 보내기\"](https://github.com/UMC-PRODUCT/umc-product-server/blob/develop/loadtest/README.md#결과를-grafana로-보내기)를 본다.",
           "datasource": {
             "type": "prometheus",
             "uid": "prometheus"
@@ -637,13 +639,14 @@
               "expr": "sum by (scenario) (rate(k6_http_reqs_total{env=\"$env\", env=~\"dev|preview\", testid=~\"$testid\"}[$__rate_interval]))",
               "legendFormat": "{{scenario}}"
             }
-          ]
+          ],
+          "interval": "5s"
         },
         {
           "id": 11,
           "type": "timeseries",
           "title": "시나리오별 p95",
-          "description": "시나리오별 p95는 실행 시작부터의 누적이 아니라 최근 rate 창 안의 요청만 본 구간 값이다. k6 실행 중에만 채워진다. 보내는 방법은 서버 저장소 [loadtest/README.md의 \"결과를 Grafana로 보내기\"](https://github.com/UMC-PRODUCT/umc-product-server/blob/develop/loadtest/README.md)를 본다.",
+          "description": "시나리오별 p95는 실행 시작부터의 누적이 아니라 최근 rate 창(기본 30분 범위에서 약 20초) 안의 요청만 본 구간 값이다. k6 실행 중에만 채워진다. 보내는 방법은 서버 저장소 [loadtest/README.md의 \"결과를 Grafana로 보내기\"](https://github.com/UMC-PRODUCT/umc-product-server/blob/develop/loadtest/README.md#결과를-grafana로-보내기)를 본다.",
           "datasource": {
             "type": "prometheus",
             "uid": "prometheus"
@@ -707,13 +710,14 @@
               "expr": "histogram_quantile(0.95, sum by (scenario) (rate(k6_http_req_duration_seconds{env=\"$env\", env=~\"dev|preview\", testid=~\"$testid\"}[$__rate_interval])))",
               "legendFormat": "{{scenario}}"
             }
-          ]
+          ],
+          "interval": "5s"
         },
         {
           "id": 12,
           "type": "timeseries",
           "title": "에러율 (시나리오·전체)",
-          "description": "실패 기준은 k6 expected_response이고, 2xx·3xx 외 상태는 실패로 센다. 실패가 없으면 0으로 보인다. k6 실행 중에만 채워진다. 보내는 방법은 서버 저장소 [loadtest/README.md의 \"결과를 Grafana로 보내기\"](https://github.com/UMC-PRODUCT/umc-product-server/blob/develop/loadtest/README.md)를 본다.",
+          "description": "실패 기준은 k6 expected_response이고, 2xx·3xx 외 상태는 실패로 센다. 실패가 없으면 0으로 보인다. 실패 시계열이 처음 생긴 5초 구간은 rate에 잡히지 않으므로, 한 번에 몰렸다 멈춘 짧은 실패는 0%로 보일 수 있다. 짧은 실패는 k6 종료 요약의 http_req_failed로 확인한다. k6 실행 중에만 채워진다. 보내는 방법은 서버 저장소 [loadtest/README.md의 \"결과를 Grafana로 보내기\"](https://github.com/UMC-PRODUCT/umc-product-server/blob/develop/loadtest/README.md#결과를-grafana로-보내기)를 본다.",
           "datasource": {
             "type": "prometheus",
             "uid": "prometheus"
@@ -802,13 +806,14 @@
               "expr": "(sum(rate(k6_http_reqs_total{env=\"$env\", env=~\"dev|preview\", testid=~\"$testid\", expected_response=\"false\"}[$__rate_interval])) or 0 * sum(rate(k6_http_reqs_total{env=\"$env\", env=~\"dev|preview\", testid=~\"$testid\"}[$__rate_interval]))) / sum(rate(k6_http_reqs_total{env=\"$env\", env=~\"dev|preview\", testid=~\"$testid\"}[$__rate_interval]))",
               "legendFormat": "전체 http 실패"
             }
-          ]
+          ],
+          "interval": "5s"
         },
         {
           "id": 13,
           "type": "timeseries",
           "title": "투입 vs 버림 (행동/s)",
-          "description": "dropped>0 = 요청한 부하가 실제로 안 들어가고 있음 — VU 풀 고갈. 이때 서버 지표는 '잔존 처리율'일 뿐 요청 부하가 아니다. 에러율 0%여도 여기가 뜨면 붕괴 중. k6 실행 중에만 채워진다. 보내는 방법은 서버 저장소 [loadtest/README.md의 \"결과를 Grafana로 보내기\"](https://github.com/UMC-PRODUCT/umc-product-server/blob/develop/loadtest/README.md)를 본다.",
+          "description": "dropped>0 = 요청한 부하가 실제로 안 들어가고 있음 — VU 풀 고갈. 이때 서버 지표는 '잔존 처리율'일 뿐 요청 부하가 아니다. 에러율 0%여도 여기가 뜨면 붕괴 중. k6 실행 중에만 채워진다. 보내는 방법은 서버 저장소 [loadtest/README.md의 \"결과를 Grafana로 보내기\"](https://github.com/UMC-PRODUCT/umc-product-server/blob/develop/loadtest/README.md#결과를-grafana로-보내기)를 본다.",
           "datasource": {
             "type": "prometheus",
             "uid": "prometheus"
@@ -878,13 +883,14 @@
               "expr": "sum(rate(k6_dropped_iterations_total{env=\"$env\", env=~\"dev|preview\", testid=~\"$testid\"}[$__rate_interval]))",
               "legendFormat": "dropped (VU 고갈로 시작 못 함)"
             }
-          ]
+          ],
+          "interval": "5s"
         },
         {
           "id": 14,
           "type": "timeseries",
           "title": "행동 소요시간 p95 (iteration)",
-          "description": "1행동(홈 로드 전체)이 걸린 시간. VU 수요 = rate × 이 값 — 이게 튀면 곧 VU 고갈(위 dropped)로 이어진다. p95는 실행 시작부터의 누적이 아니라 최근 rate 창 안의 요청만 본 구간 값이다. k6 실행 중에만 채워진다. 보내는 방법은 서버 저장소 [loadtest/README.md의 \"결과를 Grafana로 보내기\"](https://github.com/UMC-PRODUCT/umc-product-server/blob/develop/loadtest/README.md)를 본다.",
+          "description": "1행동(홈 로드 전체)이 걸린 시간. VU 수요 = rate × 이 값 — 이게 튀면 곧 VU 고갈(위 dropped)로 이어진다. p95는 실행 시작부터의 누적이 아니라 최근 rate 창(기본 30분 범위에서 약 20초) 안의 요청만 본 구간 값이다. k6 실행 중에만 채워진다. 보내는 방법은 서버 저장소 [loadtest/README.md의 \"결과를 Grafana로 보내기\"](https://github.com/UMC-PRODUCT/umc-product-server/blob/develop/loadtest/README.md#결과를-grafana로-보내기)를 본다.",
           "datasource": {
             "type": "prometheus",
             "uid": "prometheus"
@@ -945,7 +951,8 @@
               "expr": "histogram_quantile(0.95, sum(rate(k6_iteration_duration_seconds{env=\"$env\", env=~\"dev|preview\", testid=~\"$testid\"}[$__rate_interval])))",
               "legendFormat": "p95"
             }
-          ]
+          ],
+          "interval": "5s"
         }
       ]
     },
