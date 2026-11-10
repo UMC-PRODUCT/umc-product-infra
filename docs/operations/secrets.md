@@ -48,8 +48,9 @@ property 목록은 문서에 복사하지 않고 위 코드에서 확인한다.
 - `DOCS_BASIC_AUTH_USERS`는 `umc-docs:<bcrypt hash>` 형식의 htpasswd 한 줄이다. 원문
   비밀번호는 로컬 worksheet에서만 확인하고 AWS·Kubernetes에는 이 해시만 저장한다.
   prod/dev/preview마다 다른 비밀번호를 사용하며, bootstrap은 환경 간 동일 htpasswd 복사를 거부한다.
-- `POSTGRES_EXPORTER_PASSWORD`는 prod 모니터링 role 전용 값이다. DB 관리자,
-  앱, readonly password와 모두 다른 난수를 쓴다.
+- `POSTGRES_EXPORTER_PASSWORD`는 `.env.prod`와 `.env.preview`에 각각 두는 모니터링 role 전용 값이다.
+  prod는 `umc_product_exporter`, Preview는 공유 DB의 `umc_product_preview_exporter`가 쓴다. 두 환경에
+  서로 다른 난수를 쓰고, DB 관리자·앱·readonly password와도 모두 다르게 둔다.
 - `POSTGRES_BACKUP_PASSWORD`는 prod `pg_dump` 전용 role(`umc_product_backup`) 값이다. 다른 DB
   password와 모두 다른 난수를 쓴다. `pg-backup`은 S3로 나가는 Pod이므로 관리자 password 대신 조회만 허용하는
   이 role로 dump한다.
@@ -362,13 +363,21 @@ Secret을 읽지 않으므로 문서 비밀번호 회전만으로 앱을 재시�
 
 ## PostgreSQL exporter password 회전
 
-1. `/umc-product/prod/postgres-exporter`의 `POSTGRES_EXPORTER_PASSWORD`를 새 값으로 갱신한다.
-2. `db/postgres-exporter` ExternalSecret을 force-sync하고 `Ready=True`를 확인한다.
-3. `postgres-exporter-role` Job을 재실행해 DB role password를 먼저 바꾼다.
-4. `postgres-exporter` Deployment를 재시작한다.
-5. Prometheus에서 `up{job="postgres-exporter"} == 1`을 확인한 뒤 이전 version을 폐기한다.
+prod와 Preview는 이름이 같은 절차를 각자의 namespace에서 따로 진행한다.
+
+| 환경 | AWS source | namespace | Deployment | Prometheus job |
+|---|---|---|---|---|
+| prod | `/umc-product/prod/postgres-exporter` | `db` | `postgres-exporter` | `postgres-exporter` |
+| Preview | `/umc-product/preview/postgres-exporter` | `preview` | `postgres-preview-exporter` | `postgres-preview-exporter` |
+
+1. 환경의 AWS source에서 `POSTGRES_EXPORTER_PASSWORD`를 새 값으로 갱신한다.
+2. 그 namespace의 `postgres-exporter` ExternalSecret을 force-sync하고 `Ready=True`를 확인한다.
+3. 그 namespace의 `postgres-exporter-role` Job을 재실행해 DB role password를 먼저 바꾼다.
+4. 표의 exporter Deployment를 재시작한다.
+5. Prometheus에서 `up{job="<표의 job>"} == 1`을 확인한 뒤 이전 version을 폐기한다.
 
 이 절차는 별도 exporter Deployment만 재시작하며 PostgreSQL StatefulSet을 재시작하지 않는다.
+Preview에서도 공유 DB와 PR 앱은 그대로 둔다.
 
 ## PostgreSQL backup role password 회전
 

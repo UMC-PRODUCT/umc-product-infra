@@ -39,7 +39,7 @@ observability/ 원본
 | [`bootstrap_route53_access_keys.py`](bootstrap_route53_access_keys.py) | cert-manager·ExternalDNS Route53 키 최초 발급 | AWS IAM, `.env.prod` | 최초 1회 |
 | [`bootstrap_aws_access_keys.py`](bootstrap_aws_access_keys.py) | prod S3·SES·backup 키 최초 발급 | AWS IAM, `.env.prod` | 최초 1회 |
 | [`bootstrap_nonprod_aws_access_keys.py`](bootstrap_nonprod_aws_access_keys.py) | dev/preview S3와 nonprod SES 키 최초 발급 | AWS IAM, `.env.dev`, `.env.preview` | 최초 1회 |
-| [`bootstrap_aws_secrets.py`](bootstrap_aws_secrets.py) | worksheet 검증과 37개 Secrets Manager source 생성 | 조회 또는 AWS Secrets Manager | Secret 최초 구성 |
+| [`bootstrap_aws_secrets.py`](bootstrap_aws_secrets.py) | worksheet 검증과 38개 Secrets Manager source 생성 | 조회 또는 AWS Secrets Manager | Secret 최초 구성 |
 | [`bootstrap-external-secrets-aws.sh`](bootstrap-external-secrets-aws.sh) | ESO가 AWS에 접근할 `aws-bootstrap` Secret 직접 주입 | Kubernetes | 수동 복구·직접 주입 시 |
 | [`gen-configmaps.py`](gen-configmaps.py) | 관측 원본을 ConfigMap·PrometheusRule로 변환 | `manifests/observability/`, `manifests/observability-integrations/` | dashboard·alert 변경 시 |
 | [`validate.sh`](validate.sh) | 저장소 전체 검증 | 외부 인프라 변경 없음 | 모든 변경 후 |
@@ -167,7 +167,7 @@ test API values(`testApi`) 검사는 별도 모듈 없이 `validate_contracts.py
 | 파일 | 주요 검증 |
 |---|---|
 | [`test_ansible_bootstrap_contracts.py`](tests/test_ansible_bootstrap_contracts.py) | K3s installer pin, server-side apply, 개인 OpenSSH·UFW와 비공개 Kubernetes API |
-| [`test_bootstrap_aws_secrets.py`](tests/test_bootstrap_aws_secrets.py) | worksheet parser, 37개 source mapping, 환경 분리, stdin 전달과 오류 메시지 비노출 |
+| [`test_bootstrap_aws_secrets.py`](tests/test_bootstrap_aws_secrets.py) | worksheet parser, 38개 source mapping, 환경 분리, stdin 전달과 오류 메시지 비노출 |
 | [`test_bootstrap_route53_access_keys.py`](tests/test_bootstrap_route53_access_keys.py) | 안전한 `.env.prod`, Route53 stack 계약, access key 발급과 실패 rollback |
 | [`test_bootstrap_env_assignments.py`](tests/test_bootstrap_env_assignments.py) | access key bootstrap 3종이 `\1`·`\g<0>`·끝 역슬래시 같은 값도 `.env`에 그대로 기록 |
 | [`test_api_lifecycle_dashboard.py`](tests/test_api_lifecycle_dashboard.py) | API 제거 검토 대시보드의 미관측 표시, 버전 분포와 개인정보 비노출 |
@@ -264,9 +264,9 @@ python3 scripts/bootstrap_nonprod_aws_access_keys.py \
 ## AWS Secrets Manager source 생성
 
 [`bootstrap_aws_secrets.py`](bootstrap_aws_secrets.py)는 세 worksheet를 읽어 Helm의
-ExternalSecret 계약과 일치하는 37개 JSON source를 구성한다. 이 중 prod/dev/preview의
-`docs-basic-auth` source는 Scalar/OpenAPI 문서용 bcrypt htpasswd 값을, prod의
-`postgres-exporter`와 `postgres-backup` source는 각각 모니터링·백업 전용 DB role password를 공급한다.
+ExternalSecret 계약과 일치하는 38개 JSON source를 구성한다. 이 중 prod/dev/preview의
+`docs-basic-auth` source는 Scalar/OpenAPI 문서용 bcrypt htpasswd 값을, prod·preview의
+`postgres-exporter`와 prod의 `postgres-backup` source는 각각 모니터링·백업 전용 DB role password를 공급한다.
 
 기본 실행은 AWS를 변경하지 않는 **dry-run**이다.
 

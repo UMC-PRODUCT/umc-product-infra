@@ -77,6 +77,7 @@ POSTGRES_PROPERTIES = (
     ("POSTGRES_PASSWORD", "POSTGRES_PASSWORD"),
 )
 DOCS_BASIC_AUTH_PROPERTIES = (("users", "DOCS_BASIC_AUTH_USERS"),)
+POSTGRES_EXPORTER_PROPERTIES = (("POSTGRES_EXPORTER_PASSWORD", "POSTGRES_EXPORTER_PASSWORD"),)
 # dev 덤프 전용 role 비밀번호. dev-db(role 생성)와 preview(복원 Job 접속)가 같은 값을 써야 하므로
 # .env.dev와 .env.preview에 같은 값을 적고, 업로드 전에 두 값이 같은지 검사한다.
 DEV_DB_PREVIEW_DUMP_PROPERTIES = (
@@ -153,7 +154,7 @@ SECRET_SPECS = (
     SecretSpec(
         "/umc-product/prod/postgres-exporter",
         ".env.prod",
-        (("POSTGRES_EXPORTER_PASSWORD", "POSTGRES_EXPORTER_PASSWORD"),),
+        POSTGRES_EXPORTER_PROPERTIES,
         "prod",
     ),
     SecretSpec(
@@ -207,6 +208,12 @@ SECRET_SPECS = (
         "/umc-product/preview/docs-basic-auth",
         ".env.preview",
         DOCS_BASIC_AUTH_PROPERTIES,
+        "preview",
+    ),
+    SecretSpec(
+        "/umc-product/preview/postgres-exporter",
+        ".env.preview",
+        POSTGRES_EXPORTER_PROPERTIES,
         "preview",
     ),
     SecretSpec(
@@ -404,6 +411,7 @@ def validate_worksheet_values(values: dict[str, dict[str, str]], account_id: str
     ]
     database_values.append(values[".env.prod"]["RO_PASSWORD"])
     database_values.append(values[".env.prod"]["POSTGRES_EXPORTER_PASSWORD"])
+    database_values.append(values[".env.preview"]["POSTGRES_EXPORTER_PASSWORD"])
     database_values.append(values[".env.prod"]["POSTGRES_BACKUP_PASSWORD"])
     dump_passwords = {
         values[env_file]["DEV_DB_PREVIEW_DUMP_PASSWORD"] for env_file in (".env.dev", ".env.preview")

@@ -149,7 +149,7 @@ class PayloadTests(unittest.TestCase):
 
         payloads = uploader.build_payloads(values)
 
-        self.assertEqual(len(payloads), 37)
+        self.assertEqual(len(payloads), 38)
         self.assertIn("APPLE_WEB_CLIENT_ID", payloads["/umc-product/prod/app-oauth"])
         self.assertEqual(
             payloads["/umc-product/prod/app-oauth"]["APPLE_WEB_CLIENT_ID"], ""
@@ -170,14 +170,15 @@ class PayloadTests(unittest.TestCase):
             payloads["/umc-product/prod/backup-s3"]["AWS_ACCESS_KEY_ID"],
             values[".env.prod"]["BACKUP_AWS_ACCESS_KEY_ID"],
         )
-        self.assertEqual(
-            payloads["/umc-product/prod/postgres-exporter"],
-            {
-                "POSTGRES_EXPORTER_PASSWORD": values[".env.prod"][
-                    "POSTGRES_EXPORTER_PASSWORD"
-                ]
-            },
-        )
+        for environment in ("prod", "preview"):
+            self.assertEqual(
+                payloads[f"/umc-product/{environment}/postgres-exporter"],
+                {
+                    "POSTGRES_EXPORTER_PASSWORD": values[f".env.{environment}"][
+                        "POSTGRES_EXPORTER_PASSWORD"
+                    ]
+                },
+            )
         self.assertEqual(
             payloads["/umc-product/prod/postgres-backup"],
             {
@@ -311,6 +312,19 @@ class PayloadTests(unittest.TestCase):
 
         with self.assertRaises(uploader.BootstrapError):
             uploader.validate_worksheet_values(values, "351284652562")
+
+    def test_rejects_preview_exporter_password_reused_from_prod_or_preview_admin(self) -> None:
+        for env_file, other_key in (
+            (".env.prod", "POSTGRES_EXPORTER_PASSWORD"),
+            (".env.preview", "POSTGRES_PASSWORD"),
+        ):
+            with self.subTest(env_file=env_file, other_key=other_key):
+                values = valid_worksheets()
+                values[".env.preview"]["POSTGRES_EXPORTER_PASSWORD"] = values[env_file][other_key]
+                with self.assertRaisesRegex(
+                    uploader.BootstrapError, "database passwords must differ"
+                ):
+                    uploader.validate_worksheet_values(values, "351284652562")
 
     def test_rejects_postgres_backup_password_reused_from_another_role(self) -> None:
         for other_key in ("POSTGRES_PASSWORD", "RO_PASSWORD", "POSTGRES_EXPORTER_PASSWORD"):
