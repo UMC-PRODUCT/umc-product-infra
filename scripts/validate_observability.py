@@ -986,6 +986,16 @@ def main() -> int:
             f"NetworkPolicy/{policy['metadata']['name']} selects no rendered workload",
         )
     prometheus_labels = workload_labels(prometheus)
+    prometheus_sources = [
+        rule.get("from")
+        for policy in policies
+        if selector_matches(policy["spec"].get("podSelector", {}), prometheus_labels)
+        for rule in policy["spec"].get("ingress", [])
+    ]
+    require(
+        prometheus_sources and all(source == [{"podSelector": {}}] for source in prometheus_sources),
+        "Prometheus accepts remote write, so NetworkPolicies must admit only monitoring namespace Pods",
+    )
     require(admits_prometheus_ingress(external_resources,
                                       named_resource(external_resources, "Deployment", "postgres-exporter"),
                                       prometheus_labels, {"metrics", 9187}),
