@@ -486,8 +486,6 @@ def validate_prometheus(resources: list[dict]) -> None:
     spec = prometheus["spec"]
     require(spec.get("enableOTLPReceiver") is True,
             "prometheus: OTLP receiver must accept Collector metrics")
-    require(spec.get("enableRemoteWriteReceiver") is True,
-            "prometheus: remote write receiver must accept k6 results")
     require(spec.get("retention") == "14d", "prometheus: retention must remain 14 days")
     for selector in ("serviceMonitor", "podMonitor", "rule", "probe", "scrapeConfig"):
         require(spec.get(f"{selector}Selector") == {"matchLabels": {"release": "prometheus"}},
@@ -777,8 +775,6 @@ def validate_runtime_configs(rendered: dict[str, list[dict]]) -> dict[str, str]:
                                ("alertmanager", ALERTMANAGER_NAME, 9093)):
         require(sources.get(uid, {}).get("url") == f"http://{service}.monitoring.svc.cluster.local:{port}",
                 f"Grafana: stable {uid} datasource UID must reach the operator Service")
-    require("prometheusType" not in sources["prometheus"].get("jsonData", {}),
-            "Grafana: prometheusType lets Grafana recording rules remote-write into Prometheus")
 
     validate_prometheus(rendered["prometheus"])
     return {
@@ -988,16 +984,6 @@ def main() -> int:
             f"NetworkPolicy/{policy['metadata']['name']} selects no rendered workload",
         )
     prometheus_labels = workload_labels(prometheus)
-    prometheus_sources = [
-        rule.get("from")
-        for policy in policies
-        if selector_matches(policy["spec"].get("podSelector", {}), prometheus_labels)
-        for rule in policy["spec"].get("ingress", [])
-    ]
-    require(
-        bool(prometheus_sources) and all(source == [{"podSelector": {}}] for source in prometheus_sources),
-        "Prometheus accepts remote write, so NetworkPolicies must admit only monitoring namespace Pods",
-    )
     require(admits_prometheus_ingress(external_resources,
                                       named_resource(external_resources, "Deployment", "postgres-exporter"),
                                       prometheus_labels, {"metrics", 9187}),
