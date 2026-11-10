@@ -113,6 +113,8 @@ spec:
             # 같은 namespace의 Grafana를 거친 요청이 HTTP 종료·reload 경로에 닿지 않게 한다.
             # config-reloader는 HTTP 대신 SIGHUP으로 설정과 rule을 다시 읽게 한다.
             reloadStrategy: ProcessSignal
+            # k6 결과용이고 관리자 port-forward로만 보낸다. Grafana는 쓰기 경로를 막는 조회 proxy로만 닿는다.
+            enableRemoteWriteReceiver: true
             serviceDiscoveryRole: EndpointSlice
             scrapeInterval: 30s
             evaluationInterval: 30s

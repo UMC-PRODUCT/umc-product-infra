@@ -495,6 +495,8 @@ def validate_prometheus(resources: list[dict]) -> None:
     spec = prometheus["spec"]
     require(spec.get("enableOTLPReceiver") is True,
             "prometheus: OTLP receiver must accept Collector metrics")
+    require(spec.get("enableRemoteWriteReceiver") is True,
+            "prometheus: remote write receiver must accept k6 results")
     require(spec.get("reloadStrategy") == "ProcessSignal",
             "prometheus: HTTP lifecycle endpoints must stay off; reload by process signal")
     require(spec.get("retention") == "14d", "prometheus: retention must remain 14 days")
@@ -591,6 +593,40 @@ def validate_grafana_datasources(datasources: list[dict]) -> None:
             "Grafana: datasources must not declare prometheusType (it opens Grafana writes to Prometheus)")
 
 
+QUERY_PROXY_LOCATION = re.compile(r'location\s+(=|~\*|~|\^~)?\s*("[^"]*"|[^\s{]+)\s*\{')
+QUERY_PROXY_BLOCKED_PATHS = ("/api/v1/write", "/api/v1/otlp/v1/metrics", "/api/v1/admin/tsdb/snapshot",
+                             "/-/quit", "/-/reload", "/federate", "/api/v1/status/config")
+
+
+def nginx_locations(config: str) -> list[tuple[str, str, str]]:
+    locations: list[tuple[str, str, str]] = []
+    for match in QUERY_PROXY_LOCATION.finditer(config):
+        depth, end = 1, match.end()
+        while depth:
+            depth += {"{": 1, "}": -1}.get(config[end], 0)
+            end += 1
+        locations.append((match.group(1) or "", match.group(2).strip('"'), config[match.end():end - 1]))
+    return locations
+
+
+# remote write 수신이 켜져 있으므로 upstream으로 넘기는 location은 앵커를 단 정규식뿐이어야 하고,
+# 그 정규식은 쓰기·관리 경로를 잡지 않아야 한다. 나머지 location은 upstream 없이 직접 응답한다.
+def validate_query_proxy_allowlist(config: str) -> None:
+    allowed: list[re.Pattern[str]] = []
+    for modifier, argument, body in nginx_locations(config):
+        if "proxy_pass" not in body:
+            require("return " in body, f"prometheus-query-proxy: location {argument} must answer without upstream")
+            continue
+        require(modifier == "~" and argument.startswith("^") and argument.endswith(r"\z"),
+                f"prometheus-query-proxy: location {modifier} {argument} must be an anchored regex to proxy")
+        allowed.append(re.compile(argument.replace(r"\z", r"\Z")))
+    require(any(pattern.search("/api/v1/query") for pattern in allowed),
+            "prometheus-query-proxy: query API must pass through")
+    for path in QUERY_PROXY_BLOCKED_PATHS:
+        require(not any(pattern.search(path) for pattern in allowed),
+                f"prometheus-query-proxy: {path} must stay outside the allowlist")
+
+
 # 조회 proxy가 operator Service로 요청을 넘기고, nginx가 다시 읽지 않는 설정이 바뀌면 Pod가 교체되는지 본다.
 def validate_prometheus_query_proxy(resources: list[dict]) -> str:
     config = configmap_value(resources, PROMETHEUS_QUERY_PROXY, "nginx.conf")
@@ -600,6 +636,7 @@ def validate_prometheus_query_proxy(resources: list[dict]) -> str:
     template = named_resource(resources, "Deployment", PROMETHEUS_QUERY_PROXY)["spec"]["template"]
     require(template["metadata"].get("annotations", {}).get("checksum/nginx-conf") == digest,
             f"prometheus-query-proxy: set the pod annotation checksum/nginx-conf to {digest}")
+    validate_query_proxy_allowlist(config)
     service = named_resource(resources, "Service", PROMETHEUS_QUERY_PROXY)
     require(any(port.get("port") == PROMETHEUS_QUERY_PROXY_PORT for port in service["spec"].get("ports", [])),
             f"Service/{PROMETHEUS_QUERY_PROXY}: port must match the Grafana datasource URL")

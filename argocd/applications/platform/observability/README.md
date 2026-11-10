@@ -85,7 +85,7 @@ SecretKeySelector로 읽어 runtime 설정을 생성한다. `useExistingSecret: 
 | `monitoring-config` | NetworkPolicy, Prometheus 조회 proxy, UMC dashboard와 Loki rule ConfigMap | 해당 없음 |
 | `monitoring-integrations` | UMC ServiceMonitor·PodMonitor·PrometheusRule | 해당 없음 |
 | `otel-collector` | 중앙 OTLP gateway | 저장하지 않음 |
-| `prometheus` | Operator·CRD, metrics, Alertmanager, node-exporter, kube-state-metrics | 14일 / 4GB 중 먼저 도달하는 조건 |
+| `prometheus` | Operator·CRD, metrics, Alertmanager, node-exporter, kube-state-metrics | 14일 / 12GB 중 먼저 도달하는 조건 |
 | `loki` | logs와 Loki ruler | 운영 90일 (`2160h`), dev 30일, Preview 7일 |
 | `tempo` | traces | 7일 (`168h`) |
 | `grafana` | datasource와 dashboard 조회 | Git에서 dashboard 복원 |
@@ -100,7 +100,7 @@ SecretKeySelector로 읽어 runtime 설정을 생성한다. `useExistingSecret: 
 | Tempo | 50Gi | traces |
 | Grafana | 1Gi | local user와 Grafana 내부 DB |
 
-`local-path`는 PVC 요청량을 실제 disk quota로 강제하지 않으므로 Prometheus는 별도 4GB retention
+`local-path`는 PVC 요청량을 실제 disk quota로 강제하지 않으므로 Prometheus는 별도 12GB retention
 상한을 둔다. Loki는 디스크 크기가 아니라 수집 속도를 묶는다. 모든 환경을 합쳐 4MB/s(burst 16MB)를
 넘는 push는 429로 통째로 거부되고 `LokiDiscardedSamples` 알림이 뜬다. Collector가 모든 환경의 로그를
 한 push로 보내므로 Preview 폭주만으로 운영 로그도 거부될 수 있다. Preview를 격리하려면 Collector에서
@@ -120,7 +120,8 @@ backup을 대신하지 않는다.
 `preview` namespace에서 Collector로 오는 트래픽만 허용한다. Prometheus scrape와 Grafana
 datasource 같은 수신 경로도 필요한 monitoring 내부 통신만 연다. Grafana는 Prometheus에 직접 닿지 못하고
 `manifests/observability/prometheus-query-proxy.yaml`의 조회 proxy를 거친다. Prometheus Pod는 Collector,
-이 proxy, Prometheus 자신만 받는다. egress default-deny는 아직
+이 proxy, Prometheus 자신만 받는다. k6 결과용 remote write 수신은 관리자 port-forward로만 쓴다
+([부하 테스트 결과 보내기](../../../../docs/operations/tool-access.md#부하-테스트-결과-보내기)). egress default-deny는 아직
 적용하지 않았으므로 outbound 제한은 별도 보강 항목이다.
 
 Grafana는 승인된 host의 public HTTPS와 자체 로그인을 사용한다.

@@ -24,6 +24,7 @@ from validate_observability import (
     validate_alertmanager_config,
     validate_grafana_dashboard_startup,
     validate_grafana_datasources,
+    validate_query_proxy_allowlist,
     validate_k3s_traefik_metrics,
     validate_traefik_pod_monitor_job,
     validate_preview_exporter_pod_monitor_job,
@@ -435,6 +436,41 @@ class GrafanaDatasourcesTest(unittest.TestCase):
         self.datasources[0]["jsonData"]["prometheusType"] = "Prometheus"
         with self.assertRaisesRegex(SystemExit, "prometheusType"):
             validate_grafana_datasources(self.datasources)
+
+
+# remote write 수신이 켜진 동안 조회 proxy가 쓰기 경로를 upstream으로 넘기게 되는 설정을 막는다.
+class QueryProxyAllowlistTest(unittest.TestCase):
+    def setUp(self) -> None:
+        proxy = yaml.safe_load_all((ROOT / "manifests/observability/prometheus-query-proxy.yaml").read_text())
+        self.config = next(item for item in proxy if item and item["kind"] == "ConfigMap")["data"]["nginx.conf"]
+
+    def with_location(self, location: str) -> str:
+        config = self.config.replace("    location / {", f"    {location}\n    location / {{", 1)
+        self.assertNotEqual(config, self.config)
+        return config
+
+    def test_repository_config_passes(self) -> None:
+        validate_query_proxy_allowlist(self.config)
+
+    def test_proxying_locations_that_open_write_are_rejected(self) -> None:
+        for location in (
+            "location ~ ^/api/v1/write\\z { proxy_pass http://$prometheus$uri; }",
+            "location ~ /write\\z { proxy_pass http://$prometheus$uri; }",
+            "location ~* ^/api/v1/write\\z { proxy_pass http://$prometheus$uri; }",
+            'location ~ "^/api/v1/(write|admin/.*)\\z" { proxy_pass http://$prometheus$uri; }',
+            "location /api/ { proxy_pass http://$prometheus$uri; }",
+            "location = /api/v1/write { proxy_pass http://$prometheus$uri; }",
+            "location ^~ /api/v1/ { proxy_pass http://$prometheus$uri; }",
+            "location ~  ^/api/v1/write\\z { proxy_pass http://$prometheus$uri; }",
+        ):
+            with self.subTest(location=location), self.assertRaises(SystemExit):
+                validate_query_proxy_allowlist(self.with_location(location))
+
+    def test_catch_all_must_not_proxy(self) -> None:
+        config = self.config.replace("    location / {\n      return 403;", "    location / {\n      proxy_pass http://$prometheus$uri;", 1)
+        self.assertNotEqual(config, self.config)
+        with self.assertRaisesRegex(SystemExit, "anchored regex"):
+            validate_query_proxy_allowlist(config)
 
 
 # 끝나지 않는 WATCH를 일반 initContainer에 두면 Grafana가 시작하지 못하는 회귀를 재현한다.

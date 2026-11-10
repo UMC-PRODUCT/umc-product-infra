@@ -137,6 +137,58 @@ ssh -N -L 127.0.0.1:18080:127.0.0.1:18080 "$IDC_SSH_USER@$IDC_NODE_HOST"
 우회하지 않는다. Helm 배포 성공만으로 인증 검증이 끝나지는 않으므로 공개 로그인과 viewer의
 변경 권한 거부를 다시 확인한다. 복구 중 desired state를 변경했다면 Git에도 반영해 Argo CD로 수렴시킨다.
 
+## 부하 테스트 결과 보내기
+
+k6 결과를 `monitoring` namespace Prometheus의 remote write 수신 경로(`/api/v1/write`)로 보내 Grafana
+`부하 테스트 (k6)` 대시보드의 ① 행을 채운다. 이 경로에는 공개 주소가 없고 Grafana도 닿지 못하므로,
+개인 `admin` 계정 관리자가 아래 tunnel을 연 PC에서 k6를 실행한다.
+
+부하 대상은 dev와 Preview 앱뿐이다. 운영 앱에는 부하를 걸지 않는다
+([ADR-013](https://github.com/UMC-PRODUCT/umc-product-server/blob/develop/docs/adr/013-k6-load-and-performance-testing-strategy.md)).
+k6 하네스는 운영 주소를 거르지 않으므로 `BASE_URL`을 직접 확인한다. dev와 Preview도 운영과 같은 노드와
+Traefik을 쓰므로 처음에는 낮은 부하로 시작한다.
+
+시작 전에 관리자 PC의 시계를 NTP로 맞춘다. k6는 PC 시각으로 sample을 찍으므로 시계가 어긋나면
+① 행이 앱 지표와 다른 시각에 그려지거나 Prometheus가 sample을 거부할 수 있다.
+
+IDC의 SSH 세션에서 loopback에만 port-forward를 유지한다.
+
+```bash
+sudo -n k3s kubectl port-forward --address 127.0.0.1 -n monitoring service/prometheus-kube-prometheus-prometheus 19095:9090
+```
+
+관리자 PC의 별도 terminal에서 같은 IDC로 SSH tunnel을 유지한다. 변수에는 승인된 개인 관리자
+사용자와 서버 공인 주소를 사용한다.
+
+```bash
+ssh -N -L 127.0.0.1:19095:127.0.0.1:19095 "$IDC_SSH_USER@$IDC_NODE_HOST"
+```
+
+k6를 실행할 terminal에서 전송 설정을 지정한다.
+
+```bash
+export K6_PROMETHEUS_RW_SERVER_URL=http://127.0.0.1:19095/api/v1/write
+export K6_PROMETHEUS_RW_TREND_AS_NATIVE_HISTOGRAM=true
+export K6_PROMETHEUS_RW_STALE_MARKERS=true
+export K6_TESTID="$(date +%Y%m%d-%H%M%S)-dev"
+```
+
+그다음 서버 저장소 [`loadtest/`](https://github.com/UMC-PRODUCT/umc-product-server/tree/develop/loadtest)
+안내대로 k6를 실행하면서 `--out experimental-prometheus-rw --tag env=dev --tag "testid=$K6_TESTID"`를 붙인다.
+Preview에 걸 때는 `env=preview`로 바꾼다.
+
+- native histogram 설정은 대시보드가 구간별 p95를 계산하는 데 필요하다. 빼면 k6 기본 통계(`p(99)`)만
+  실행 시작부터의 누적값으로 나가 p95 패널이 빈다.
+- stale marker 설정은 실행이 끝난 시점에 선을 끊는다. 빼면 마지막 값이 최대 5분 남는다.
+- 대시보드는 `env`와 `testid` label로 환경과 실행을 거른다.
+- dev와 Preview의 `/test/**`는 Basic 인증 뒤에 있다. 지금 하네스는 토큰 발급과 Chat 시딩에만
+  `TEST_API_BASIC_AUTH`를 붙이므로, `health-check` 시나리오와 `prepare-data.sh` 시딩은 dev와 Preview에서 401이 난다.
+  Preview는 seed API도 꺼져 있어 시딩이 필요 없는 시나리오만 돌릴 수 있다.
+
+k6는 결과 전송이 실패해도 부하를 계속 건다. 시작 1분 안에 ① 행에 값이 들어오는지 확인하고, 값이 없거나
+tunnel이 끊기면 k6를 멈춘다. 실행이 끝나면 port-forward와 tunnel을 종료한다. `--address 0.0.0.0`으로 열지 않는다.
+열면 노드 주소에 닿는 누구나 Prometheus에 시계열을 쓰고 조회할 수 있다.
+
 ## 관측 stack 보호 경계
 
 - 앱은 `otel-collector.monitoring.svc.cluster.local:4317/4318`에만 OTLP를 보낸다.
@@ -145,9 +197,12 @@ ssh -N -L 127.0.0.1:18080:127.0.0.1:18080 "$IDC_SSH_USER@$IDC_NODE_HOST"
 - Grafana의 Prometheus datasource는 `prometheus-query-proxy`를 거친다. 이 proxy는 조회·상태 API만 넘기고
   쓰기·관리 API는 403으로 막는다. Prometheus Pod는 Collector의 OTLP, 이 proxy, Prometheus 자신의
   self-scrape만 받는다. 관리자 port-forward는 NetworkPolicy를 거치지 않으므로 Prometheus Service로 직접 점검한다.
+- Prometheus remote write 수신(`/api/v1/write`)은 k6 결과 전송에만 쓰고 관리자의 loopback port-forward로만 보낸다.
+  9090에 닿는 Pod는 OTLP를 보내는 Collector, 조회 proxy, Prometheus 자신(self-scrape)뿐이며, proxy는 쓰기 경로를 403으로 막는다.
+  Grafana datasource에는 `prometheusType`을 넣지 않는다.
 - Actuator 9090은 application Service나 Ingress에 노출하지 않는다.
 - kube-state-metrics는 cluster 상태를 읽지만 Secret과 ConfigMap 내용은 수집하지 않는다.
-- Prometheus는 14일 / 4GB 중 먼저 도달하는 조건, Tempo는 7일, Loki는 운영 90일·dev 30일·Preview 7일 retention을 사용한다.
+- Prometheus는 14일 / 12GB 중 먼저 도달하는 조건, Tempo는 7일, Loki는 운영 90일·dev 30일·Preview 7일 retention을 사용한다.
 - 단일 노드 local-path storage이므로 node loss 시 telemetry가 유실될 수 있다.
 - 같은 노드의 Alertmanager는 node/power/network 전체 장애를 알릴 수 없다. 운영 전 IDC 밖에
   uptime monitor를 둔다.
