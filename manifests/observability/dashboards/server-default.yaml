@@ -1322,6 +1322,7 @@ data:
                       "color": {
                         "mode": "thresholds"
                       },
+                      "decimals": 0,
                       "thresholds": {
                         "mode": "absolute",
                         "steps": [
