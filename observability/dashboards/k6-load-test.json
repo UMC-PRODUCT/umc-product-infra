@@ -1,15 +1,16 @@
 {
-  "uid": "k6-load-test",
+  "uid": "umc-product-k6-load-test",
   "title": "부하 테스트 (k6)",
-  "description": "부하 테스트 종합 — 헤더(현재 상태) ①판정 ②SUT앱 ③DB내부 ④호스트 USE ⑤RDS 호스트 USE. 공유 크로스헤어로 같은 시각의 인과를 위→아래로 추적한다. 실행: loadtest/scripts/run-k6.sh",
+  "description": "dev·preview 부하 테스트 중 어느 자원이 먼저 차는지 볼 때 연다. 상단 env로 환경을 고르면 앱·DB 패널이 모두 따라간다. 헤더(현재 상태) ①k6 판정 ②앱 내부 ③DB 내부 ④호스트 USE ⑤DB 컨테이너. 공유 크로스헤어로 같은 시각을 위에서 아래로 읽는다. 실행은 umc-product-server의 loadtest/README.md를 본다.",
   "tags": [
+    "umc-product",
     "load-test",
     "k6",
     "use-method"
   ],
   "timezone": "Asia/Seoul",
   "schemaVersion": 39,
-  "refresh": "5s",
+  "refresh": "30s",
   "graphTooltip": 1,
   "time": {
     "from": "now-30m",
@@ -20,7 +21,7 @@
       "id": 1,
       "type": "stat",
       "title": "RPS (요청/초)",
-      "description": "k6 가 세는 HTTP 요청/초. 홈 1행동=4요청이므로 사용자 기준 TPS = RPS ÷ 4.",
+      "description": "k6 가 세는 HTTP 요청/초. 홈 1행동=4요청이므로 사용자 기준 TPS = RPS ÷ 4. k6 Prometheus remote-write를 켜야 보인다. 지금은 비어 있다.",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
@@ -72,7 +73,7 @@
       "id": 2,
       "type": "stat",
       "title": "p95 응답시간",
-      "description": "k6 remote-write 는 초 단위. threshold 0.8s (stress 는 2s)",
+      "description": "k6 remote-write 는 초 단위. threshold 0.8s (stress 는 2s) k6 Prometheus remote-write를 켜야 보인다. 지금은 비어 있다.",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
@@ -129,7 +130,7 @@
       "id": 3,
       "type": "stat",
       "title": "에러율",
-      "description": "조회 구간 평균. threshold 1% (순간값이 아니라 평균 — 종료 직후 마지막 순간값 박제 착시 방지)",
+      "description": "조회 구간 평균. threshold 1% (순간값이 아니라 평균 — 종료 직후 마지막 순간값 박제 착시 방지) k6 Prometheus remote-write를 켜야 보인다. 지금은 비어 있다.",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
@@ -186,7 +187,7 @@
       "id": 4,
       "type": "stat",
       "title": "VUs",
-      "description": "",
+      "description": "k6가 띄운 가상 사용자 수. k6 Prometheus remote-write를 켜야 보인다. 지금은 비어 있다.",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
@@ -238,7 +239,7 @@
       "id": 5,
       "type": "stat",
       "title": "DB 커넥션",
-      "description": "",
+      "description": "선택한 환경 DB의 접속 수(pg_stat_activity). 이 환경에 postgres-exporter가 생기기 전까지 비어 있다.",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
@@ -282,14 +283,14 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum(pg_stat_activity_count)"
+          "expr": "sum(pg_stat_activity_count{namespace=~\"${env}(-db)?\", namespace=~\"dev-db|preview\"})"
         }
       ]
     },
     {
       "id": 6,
       "type": "row",
-      "title": "① 부하 판정 (k6) — 아래 3개는 세로로 겹쳐 읽는 포화점(knee) 뷰",
+      "title": "① 부하 판정 (k6 remote-write 필요) — 아래 3개는 세로로 겹쳐 읽는 포화점(knee) 뷰",
       "collapsed": false,
       "gridPos": {
         "x": 0,
@@ -303,7 +304,7 @@
       "id": 7,
       "type": "timeseries",
       "title": "처리량 RPS (요청/초)",
-      "description": "k6 가 세는 HTTP 요청/초. 홈 1행동=4요청이라 사용자 기준 처리량(TPS)=RPS÷4. breakpoint 로 점증 중 여기가 평평해지는 순간부터가 포화 — 아래 응답시간과 같이 본다.",
+      "description": "k6 가 세는 HTTP 요청/초. 홈 1행동=4요청이라 사용자 기준 처리량(TPS)=RPS÷4. breakpoint 로 점증 중 여기가 평평해지는 순간부터가 포화 — 아래 응답시간과 같이 본다. k6 Prometheus remote-write를 켜야 보인다. 지금은 비어 있다.",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
@@ -370,7 +371,7 @@
       "id": 8,
       "type": "timeseries",
       "title": "응답시간 (전체 집계)",
-      "description": "단위: 초(k6 remote-write). p95(진한 선)가 판정 기준 — TPS 평탄화와 동시 급등 지점이 한계.",
+      "description": "단위: 초(k6 remote-write). p95(진한 선)가 판정 기준 — TPS 평탄화와 동시 급등 지점이 한계. k6 Prometheus remote-write를 켜야 보인다. 지금은 비어 있다.",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
@@ -477,7 +478,7 @@
       "id": 9,
       "type": "timeseries",
       "title": "동시 접속자 — 체류(VUs) vs 서버 처리 중(Tomcat busy)",
-      "description": "위 선(VUs)=접속해서 결과를 기다리는 인원, 아래 선(busy)=서버가 지금 잡고 일하는 요청 수. 두 선의 간격 = 어딘가 줄에서 기다리는 인원. VUs 급증 자체가 포화 신호(행동 시간이 길어지고 있다는 뜻).",
+      "description": "위 선(VUs)=접속해서 결과를 기다리는 인원, 아래 선(busy)=서버가 지금 잡고 일하는 요청 수. 두 선의 간격 = 어딘가 줄에서 기다리는 인원. VUs 급증 자체가 포화 신호(행동 시간이 길어지고 있다는 뜻). VUs 선은 k6 remote-write를 켜야 보인다.",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
@@ -558,7 +559,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "tomcat_threads_busy",
+          "expr": "tomcat_threads_busy{application=\"$service\", application=~\"dev-umc-product|preview-umc-product-pr[0-9]+\"}",
           "legendFormat": "서버가 실제 처리 중"
         }
       ]
@@ -567,7 +568,7 @@
       "id": 10,
       "type": "timeseries",
       "title": "시나리오별 RPS",
-      "description": "auth = 토큰 발급(측정 대상 아님, 분리 표시).",
+      "description": "auth = 토큰 발급(측정 대상 아님, 분리 표시). k6 Prometheus remote-write를 켜야 보인다. 지금은 비어 있다.",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
@@ -621,7 +622,7 @@
       "id": 11,
       "type": "timeseries",
       "title": "시나리오별 p95",
-      "description": "",
+      "description": "k6 Prometheus remote-write를 켜야 보인다. 지금은 비어 있다.",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
@@ -691,7 +692,7 @@
       "id": 12,
       "type": "timeseries",
       "title": "에러율 (시나리오·전체)",
-      "description": "",
+      "description": "k6 Prometheus remote-write를 켜야 보인다. 지금은 비어 있다.",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
@@ -786,7 +787,7 @@
       "id": 13,
       "type": "timeseries",
       "title": "투입 vs 버림 (행동/s)",
-      "description": "dropped>0 = 요청한 부하가 실제로 안 들어가고 있음 — VU 풀 고갈. 이때 서버 지표는 '잔존 처리율'일 뿐 요청 부하가 아니다. 에러율 0%여도 여기가 뜨면 붕괴 중.",
+      "description": "dropped>0 = 요청한 부하가 실제로 안 들어가고 있음 — VU 풀 고갈. 이때 서버 지표는 '잔존 처리율'일 뿐 요청 부하가 아니다. 에러율 0%여도 여기가 뜨면 붕괴 중. k6 Prometheus remote-write를 켜야 보인다. 지금은 비어 있다.",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
@@ -862,7 +863,7 @@
       "id": 14,
       "type": "timeseries",
       "title": "행동 소요시간 p95 (iteration)",
-      "description": "1행동(홈 로드 전체)이 걸린 시간. VU 수요 = rate × 이 값 — 이게 튀면 곧 VU 고갈(위 dropped)로 이어진다.",
+      "description": "1행동(홈 로드 전체)이 걸린 시간. VU 수요 = rate × 이 값 — 이게 튀면 곧 VU 고갈(위 dropped)로 이어진다. k6 Prometheus remote-write를 켜야 보인다. 지금은 비어 있다.",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
@@ -928,7 +929,7 @@
     {
       "id": 15,
       "type": "row",
-      "title": "② SUT 앱 내부 (Hikari · Tomcat · JVM)",
+      "title": "② 앱 내부 ($service · Hikari · Tomcat · JVM · 컨테이너 CPU)",
       "collapsed": false,
       "gridPos": {
         "x": 0,
@@ -1000,7 +1001,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "hikaricp_connections_active",
+          "expr": "hikaricp_connections_active{application=\"$service\", application=~\"dev-umc-product|preview-umc-product-pr[0-9]+\"}",
           "legendFormat": "active"
         },
         {
@@ -1009,7 +1010,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "hikaricp_connections_idle",
+          "expr": "hikaricp_connections_idle{application=\"$service\", application=~\"dev-umc-product|preview-umc-product-pr[0-9]+\"}",
           "legendFormat": "idle"
         },
         {
@@ -1018,7 +1019,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "hikaricp_connections_pending",
+          "expr": "hikaricp_connections_pending{application=\"$service\", application=~\"dev-umc-product|preview-umc-product-pr[0-9]+\"}",
           "legendFormat": "pending"
         },
         {
@@ -1027,7 +1028,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "hikaricp_connections_max",
+          "expr": "hikaricp_connections_max{application=\"$service\", application=~\"dev-umc-product|preview-umc-product-pr[0-9]+\"}",
           "legendFormat": "max"
         }
       ]
@@ -1078,7 +1079,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "histogram_quantile(0.95, sum by (le) (rate(hikaricp_connections_acquire_milliseconds_bucket[$__rate_interval])))",
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(hikaricp_connections_acquire_milliseconds_bucket{application=\"$service\", application=~\"dev-umc-product|preview-umc-product-pr[0-9]+\"}[$__rate_interval])))",
           "legendFormat": "p95"
         },
         {
@@ -1087,7 +1088,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum(rate(hikaricp_connections_acquire_milliseconds_sum[$__rate_interval])) / sum(rate(hikaricp_connections_acquire_milliseconds_count[$__rate_interval]))",
+          "expr": "sum(rate(hikaricp_connections_acquire_milliseconds_sum{application=\"$service\", application=~\"dev-umc-product|preview-umc-product-pr[0-9]+\"}[$__rate_interval])) / sum(rate(hikaricp_connections_acquire_milliseconds_count{application=\"$service\", application=~\"dev-umc-product|preview-umc-product-pr[0-9]+\"}[$__rate_interval]))",
           "legendFormat": "avg"
         }
       ]
@@ -1138,7 +1139,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "tomcat_threads_busy",
+          "expr": "tomcat_threads_busy{application=\"$service\", application=~\"dev-umc-product|preview-umc-product-pr[0-9]+\"}",
           "legendFormat": "busy"
         },
         {
@@ -1147,7 +1148,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "tomcat_threads_current",
+          "expr": "tomcat_threads_current{application=\"$service\", application=~\"dev-umc-product|preview-umc-product-pr[0-9]+\"}",
           "legendFormat": "current"
         },
         {
@@ -1156,7 +1157,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "tomcat_threads_config_max",
+          "expr": "tomcat_threads_config_max{application=\"$service\", application=~\"dev-umc-product|preview-umc-product-pr[0-9]+\"}",
           "legendFormat": "max"
         }
       ]
@@ -1164,8 +1165,8 @@
     {
       "id": 19,
       "type": "timeseries",
-      "title": "앱 CPU 사용률 (process vs host)",
-      "description": "앱 프로세스가 태우는 CPU. DB 를 뚫은 뒤 여기가 병목이 된다. GC(오른쪽)가 낮은데 이게 높으면 순수 연산(직렬화·로깅) 비용 — 응답/쿼리 다이어트 신호.",
+      "title": "앱 CPU 사용률 (JVM이 보는 process vs host)",
+      "description": "JVM이 보는 CPU 2개 기준 비율이라 limit 1.5코어 대비 값이 아니다. limit 대비는 아래 컨테이너 CPU 패널로 본다. GC(오른쪽)가 낮은데 이게 높으면 순수 연산(직렬화·로깅) 비용이다.",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
@@ -1210,7 +1211,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "process_cpu_usage",
+          "expr": "process_cpu_usage{application=\"$service\", application=~\"dev-umc-product|preview-umc-product-pr[0-9]+\"}",
           "legendFormat": "앱 프로세스"
         },
         {
@@ -1219,7 +1220,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "system_cpu_usage",
+          "expr": "system_cpu_usage{application=\"$service\", application=~\"dev-umc-product|preview-umc-product-pr[0-9]+\"}",
           "legendFormat": "호스트 전체"
         }
       ]
@@ -1270,7 +1271,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum(jvm_memory_used_bytes{area=\"heap\"})",
+          "expr": "sum(jvm_memory_used_bytes{application=\"$service\", application=~\"dev-umc-product|preview-umc-product-pr[0-9]+\", area=\"heap\"})",
           "legendFormat": "used"
         },
         {
@@ -1279,7 +1280,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum(jvm_memory_max_bytes{area=\"heap\"})",
+          "expr": "sum(jvm_memory_max_bytes{application=\"$service\", application=~\"dev-umc-product|preview-umc-product-pr[0-9]+\", area=\"heap\"})",
           "legendFormat": "max"
         }
       ]
@@ -1333,7 +1334,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "jvm_gc_overhead",
+          "expr": "jvm_gc_overhead{application=\"$service\", application=~\"dev-umc-product|preview-umc-product-pr[0-9]+\"}",
           "legendFormat": "GC 시간 비율"
         }
       ]
@@ -1384,7 +1385,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (state) (jvm_threads_states_threads)",
+          "expr": "sum by (state) (jvm_threads_states{application=\"$service\", application=~\"dev-umc-product|preview-umc-product-pr[0-9]+\"})",
           "legendFormat": "{{state}}"
         }
       ]
@@ -1435,7 +1436,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "process_files_open_files",
+          "expr": "process_files_open{application=\"$service\", application=~\"dev-umc-product|preview-umc-product-pr[0-9]+\"}",
           "legendFormat": "open"
         },
         {
@@ -1444,7 +1445,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "process_files_max_files",
+          "expr": "process_files_max{application=\"$service\", application=~\"dev-umc-product|preview-umc-product-pr[0-9]+\"}",
           "legendFormat": "max"
         }
       ]
@@ -1495,19 +1496,126 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "histogram_quantile(0.99, sum by (uri, le) (rate(http_server_requests_milliseconds_bucket[$__rate_interval])))",
+          "expr": "histogram_quantile(0.99, sum by (uri, le) (rate(http_server_requests_milliseconds_bucket{application=\"$service\", application=~\"dev-umc-product|preview-umc-product-pr[0-9]+\"}[$__rate_interval])))",
           "legendFormat": "{{uri}}"
+        }
+      ]
+    },
+    {
+      "id": 56,
+      "type": "timeseries",
+      "title": "앱 컨테이너 CPU (limit 대비)",
+      "description": "cAdvisor 기준 앱 컨테이너 CPU를 CPU limit(1.5코어)으로 나눈 값. 100%에 붙으면 CPU가 먼저 찼다. Preview PR이 여럿이면 Pod 이름의 pr-<번호>로 구분한다.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 56,
+        "w": 12,
+        "h": 7
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "showPoints": "never"
+          },
+          "min": 0,
+          "decimals": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "showLegend": true,
+          "displayMode": "list",
+          "placement": "bottom",
+          "calcs": []
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum by (pod) (rate(container_cpu_usage_seconds_total{namespace=~\"${env}(-app)?\", namespace=~\"dev-app|preview\", pod=~\"umc-product-server-.*\", container=\"umc-product-server\"}[$__rate_interval]) and on (namespace, pod) kube_pod_info{namespace=~\"${env}(-app)?\", namespace=~\"dev-app|preview\", created_by_kind=\"ReplicaSet\"}) / sum by (pod) (kube_pod_container_resource_limits{namespace=~\"${env}(-app)?\", namespace=~\"dev-app|preview\", pod=~\"umc-product-server-.*\", container=\"umc-product-server\", resource=\"cpu\"} and on (namespace, pod) kube_pod_info{namespace=~\"${env}(-app)?\", namespace=~\"dev-app|preview\", created_by_kind=\"ReplicaSet\"})",
+          "legendFormat": "{{pod}}"
+        }
+      ]
+    },
+    {
+      "id": 57,
+      "type": "timeseries",
+      "title": "앱 CPU throttling",
+      "description": "CPU 제한에 걸린 실행 주기의 비율. limit 대비 사용률이 100%보다 낮아도 여기가 오르면 짧은 순간마다 CPU가 막히고 있다.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 56,
+        "w": 12,
+        "h": 7
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "showPoints": "never"
+          },
+          "max": 1,
+          "min": 0,
+          "decimals": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "showLegend": true,
+          "displayMode": "list",
+          "placement": "bottom",
+          "calcs": []
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum by (pod) (rate(container_cpu_cfs_throttled_periods_total{namespace=~\"${env}(-app)?\", namespace=~\"dev-app|preview\", pod=~\"umc-product-server-.*\", container=\"umc-product-server\"}[$__rate_interval]) and on (namespace, pod) kube_pod_info{namespace=~\"${env}(-app)?\", namespace=~\"dev-app|preview\", created_by_kind=\"ReplicaSet\"}) / sum by (pod) (rate(container_cpu_cfs_periods_total{namespace=~\"${env}(-app)?\", namespace=~\"dev-app|preview\", pod=~\"umc-product-server-.*\", container=\"umc-product-server\"}[$__rate_interval]) and on (namespace, pod) kube_pod_info{namespace=~\"${env}(-app)?\", namespace=~\"dev-app|preview\", created_by_kind=\"ReplicaSet\"})",
+          "legendFormat": "{{pod}}"
         }
       ]
     },
     {
       "id": 22,
       "type": "row",
-      "title": "③ DB 내부 (postgres-exporter)",
+      "title": "③ DB 내부 (postgres-exporter · 환경에 exporter가 있을 때만)",
       "collapsed": false,
       "gridPos": {
         "x": 0,
-        "y": 56,
+        "y": 63,
         "w": 24,
         "h": 1
       },
@@ -1517,14 +1625,14 @@
       "id": 23,
       "type": "timeseries",
       "title": "커넥션 (상태별) vs max",
-      "description": "active 급증 + ② pending 증가 = 커넥션 병목. idle in transaction 누적도 위험 신호.",
+      "description": "active 급증 + ② pending 증가 = 커넥션 병목. idle in transaction 누적도 위험 신호. 이 환경에 postgres-exporter가 생기기 전까지 비어 있다.",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
       },
       "gridPos": {
         "x": 0,
-        "y": 57,
+        "y": 64,
         "w": 8,
         "h": 7
       },
@@ -1559,7 +1667,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (state) (pg_stat_activity_count)",
+          "expr": "sum by (state) (pg_stat_activity_count{namespace=~\"${env}(-db)?\", namespace=~\"dev-db|preview\"})",
           "legendFormat": "{{state}}"
         },
         {
@@ -1568,7 +1676,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "pg_settings_max_connections",
+          "expr": "pg_settings_max_connections{namespace=~\"${env}(-db)?\", namespace=~\"dev-db|preview\"}",
           "legendFormat": "max_connections"
         }
       ]
@@ -1577,14 +1685,14 @@
       "id": 24,
       "type": "timeseries",
       "title": "TPS (commit/rollback)",
-      "description": "",
+      "description": "초당 commit·rollback 수. 이 환경에 postgres-exporter가 생기기 전까지 비어 있다.",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
       },
       "gridPos": {
         "x": 8,
-        "y": 57,
+        "y": 64,
         "w": 8,
         "h": 7
       },
@@ -1635,7 +1743,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum(rate(pg_stat_database_xact_commit{datname!~\"template.*|\"}[$__rate_interval]))",
+          "expr": "sum(rate(pg_stat_database_xact_commit{namespace=~\"${env}(-db)?\", namespace=~\"dev-db|preview\", datname!~\"template.*|\"}[$__rate_interval]))",
           "legendFormat": "commit/s"
         },
         {
@@ -1644,7 +1752,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum(rate(pg_stat_database_xact_rollback{datname!~\"template.*|\"}[$__rate_interval]))",
+          "expr": "sum(rate(pg_stat_database_xact_rollback{namespace=~\"${env}(-db)?\", namespace=~\"dev-db|preview\", datname!~\"template.*|\"}[$__rate_interval]))",
           "legendFormat": "rollback/s"
         }
       ]
@@ -1653,14 +1761,14 @@
       "id": 25,
       "type": "timeseries",
       "title": "캐시 적중률",
-      "description": "0.99 아래로 지속 하락 = 워킹셋이 shared_buffers 초과.",
+      "description": "0.99 아래로 지속 하락 = 워킹셋이 shared_buffers 초과. 이 환경에 postgres-exporter가 생기기 전까지 비어 있다.",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
       },
       "gridPos": {
         "x": 16,
-        "y": 57,
+        "y": 64,
         "w": 8,
         "h": 7
       },
@@ -1698,7 +1806,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum(rate(pg_stat_database_blks_hit[$__rate_interval])) / (sum(rate(pg_stat_database_blks_hit[$__rate_interval])) + sum(rate(pg_stat_database_blks_read[$__rate_interval])))",
+          "expr": "sum(rate(pg_stat_database_blks_hit{namespace=~\"${env}(-db)?\", namespace=~\"dev-db|preview\"}[$__rate_interval])) / (sum(rate(pg_stat_database_blks_hit{namespace=~\"${env}(-db)?\", namespace=~\"dev-db|preview\"}[$__rate_interval])) + sum(rate(pg_stat_database_blks_read{namespace=~\"${env}(-db)?\", namespace=~\"dev-db|preview\"}[$__rate_interval])))",
           "legendFormat": "buffer cache hit"
         }
       ]
@@ -1707,14 +1815,14 @@
       "id": 26,
       "type": "timeseries",
       "title": "락 (mode 별)",
-      "description": "Exclusive 계열 급증 = 경합. ① p95 급등과 같은 시각이면 유력 원인.",
+      "description": "Exclusive 계열 급증 = 경합. ① p95 급등과 같은 시각이면 유력 원인. 이 환경에 postgres-exporter가 생기기 전까지 비어 있다.",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
       },
       "gridPos": {
         "x": 0,
-        "y": 64,
+        "y": 71,
         "w": 8,
         "h": 7
       },
@@ -1749,7 +1857,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (mode) (pg_locks_count)",
+          "expr": "sum by (mode) (pg_locks_count{namespace=~\"${env}(-db)?\", namespace=~\"dev-db|preview\"})",
           "legendFormat": "{{mode}}"
         }
       ]
@@ -1758,14 +1866,14 @@
       "id": 27,
       "type": "timeseries",
       "title": "임시파일 쓰기 (S)",
-      "description": "정렬/해시가 work_mem 초과로 디스크행 — 쿼리 튜닝 신호.",
+      "description": "정렬/해시가 work_mem 초과로 디스크행 — 쿼리 튜닝 신호. 이 환경에 postgres-exporter가 생기기 전까지 비어 있다.",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
       },
       "gridPos": {
         "x": 8,
-        "y": 64,
+        "y": 71,
         "w": 8,
         "h": 7
       },
@@ -1800,7 +1908,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum(rate(pg_stat_database_temp_bytes[$__rate_interval]))",
+          "expr": "sum(rate(pg_stat_database_temp_bytes{namespace=~\"${env}(-db)?\", namespace=~\"dev-db|preview\"}[$__rate_interval]))",
           "legendFormat": "temp bytes/s"
         }
       ]
@@ -1809,14 +1917,14 @@
       "id": 28,
       "type": "timeseries",
       "title": "데드락 · 충돌 (E)",
-      "description": "",
+      "description": "초당 데드락·복제 충돌 수. 이 환경에 postgres-exporter가 생기기 전까지 비어 있다.",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
       },
       "gridPos": {
         "x": 16,
-        "y": 64,
+        "y": 71,
         "w": 8,
         "h": 7
       },
@@ -1867,7 +1975,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum(rate(pg_stat_database_deadlocks[$__rate_interval]))",
+          "expr": "sum(rate(pg_stat_database_deadlocks{namespace=~\"${env}(-db)?\", namespace=~\"dev-db|preview\"}[$__rate_interval]))",
           "legendFormat": "deadlocks/s"
         },
         {
@@ -1876,7 +1984,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum(rate(pg_stat_database_conflicts[$__rate_interval]))",
+          "expr": "sum(rate(pg_stat_database_conflicts{namespace=~\"${env}(-db)?\", namespace=~\"dev-db|preview\"}[$__rate_interval]))",
           "legendFormat": "conflicts/s"
         }
       ]
@@ -1884,11 +1992,11 @@
     {
       "id": 29,
       "type": "row",
-      "title": "④ 호스트 USE — SUT vs generator",
+      "title": "④ 호스트 USE — 운영과 같은 서버",
       "collapsed": false,
       "gridPos": {
         "x": 0,
-        "y": 71,
+        "y": 78,
         "w": 24,
         "h": 1
       },
@@ -1898,14 +2006,14 @@
       "id": 50,
       "type": "timeseries",
       "title": "PSI — 잃어버린 시간 (memory · io · cpu)",
-      "description": "판정 지표. some = 누군가 멈춰 있던 시간 비율, full = 전원이 동시에 멈춰 있던 비율. 이 패널이 0 이면 아래 자원 패널은 볼 필요 없다. 임계 some 0.05 / full 0.01. 커널 4.20+ 필요 — /proc/pressure 가 없으면 빈 그래프이며 그때는 '회수 kswapd vs direct' 로 판정한다.",
+      "description": "판정 지표. some = 누군가 멈춰 있던 시간 비율, full = 전원이 동시에 멈춰 있던 비율. 이 패널이 0이면 아래 자원 패널은 볼 필요 없다. 임계 some 0.05 / full 0.01. 운영 앱·DB도 같은 서버라 운영 부하가 함께 잡힌다.",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
       },
       "gridPos": {
         "x": 0,
-        "y": 72,
+        "y": 79,
         "w": 6,
         "h": 6
       },
@@ -1956,8 +2064,8 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "rate(node_pressure_memory_waiting_seconds_total{role=~\"sut|generator\"}[$__rate_interval])",
-          "legendFormat": "mem some {{role}}"
+          "expr": "rate(node_pressure_memory_waiting_seconds_total{job=\"node-exporter\"}[$__rate_interval])",
+          "legendFormat": "mem some"
         },
         {
           "refId": "B",
@@ -1965,8 +2073,8 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "rate(node_pressure_memory_stalled_seconds_total{role=~\"sut|generator\"}[$__rate_interval])",
-          "legendFormat": "mem full {{role}}"
+          "expr": "rate(node_pressure_memory_stalled_seconds_total{job=\"node-exporter\"}[$__rate_interval])",
+          "legendFormat": "mem full"
         },
         {
           "refId": "C",
@@ -1974,8 +2082,8 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "rate(node_pressure_io_waiting_seconds_total{role=~\"sut|generator\"}[$__rate_interval])",
-          "legendFormat": "io some {{role}}"
+          "expr": "rate(node_pressure_io_waiting_seconds_total{job=\"node-exporter\"}[$__rate_interval])",
+          "legendFormat": "io some"
         },
         {
           "refId": "D",
@@ -1983,8 +2091,8 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "rate(node_pressure_cpu_waiting_seconds_total{role=~\"sut|generator\"}[$__rate_interval])",
-          "legendFormat": "cpu some {{role}}"
+          "expr": "rate(node_pressure_cpu_waiting_seconds_total{job=\"node-exporter\"}[$__rate_interval])",
+          "legendFormat": "cpu some"
         }
       ]
     },
@@ -1992,14 +2100,14 @@
       "id": 30,
       "type": "timeseries",
       "title": "CPU — U 사용률",
-      "description": "generator 가 먼저 상한에 붙으면 측정 무효(생성기 병목). steal = 하이퍼바이저가 코어를 뺏은 시간 — 버스터블 스로틀링의 직접 증거.",
+      "description": "호스트 전체 CPU 사용률. 부하 생성기를 같은 서버에서 돌리면 그 몫도 여기에 섞인다. steal = 하이퍼바이저가 코어를 가져간 시간.",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
       },
       "gridPos": {
         "x": 6,
-        "y": 72,
+        "y": 79,
         "w": 6,
         "h": 6
       },
@@ -2053,8 +2161,8 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "1 - avg by (role) (rate(node_cpu_seconds_total{mode=\"idle\",role=~\"sut|generator\"}[$__rate_interval]))",
-          "legendFormat": "{{role}}"
+          "expr": "1 - avg(rate(node_cpu_seconds_total{mode=\"idle\", job=\"node-exporter\"}[$__rate_interval]))",
+          "legendFormat": "사용률"
         },
         {
           "refId": "B",
@@ -2062,8 +2170,8 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "avg by (role) (rate(node_cpu_seconds_total{mode=\"steal\",role=~\"sut|generator\"}[$__rate_interval]))",
-          "legendFormat": "steal {{role}}"
+          "expr": "avg(rate(node_cpu_seconds_total{mode=\"steal\", job=\"node-exporter\"}[$__rate_interval]))",
+          "legendFormat": "steal"
         }
       ]
     },
@@ -2078,7 +2186,7 @@
       },
       "gridPos": {
         "x": 12,
-        "y": 72,
+        "y": 79,
         "w": 6,
         "h": 6
       },
@@ -2129,8 +2237,8 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "node_load1{role=~\"sut|generator\"} / on(role) group_left count by (role) (node_cpu_seconds_total{mode=\"idle\",role=~\"sut|generator\"})",
-          "legendFormat": "{{role}}"
+          "expr": "node_load1{job=\"node-exporter\"} / on (instance) count by (instance) (node_cpu_seconds_total{mode=\"idle\", job=\"node-exporter\"})",
+          "legendFormat": "run queue/core"
         }
       ]
     },
@@ -2138,14 +2246,14 @@
       "id": 51,
       "type": "timeseries",
       "title": "CPU — S 컨텍스트 스위치",
-      "description": "스레드 200개를 코어 2개에 태울 때 내는 스위칭 세금. 사용률이 안 올라가는데 이 값만 치솟으면 일 대신 전환에 시간을 쓰는 중.",
+      "description": "스레드를 코어보다 많이 돌릴 때 내는 스위칭 비용. 사용률이 안 올라가는데 이 값만 치솟으면 일 대신 전환에 시간을 쓰는 중.",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
       },
       "gridPos": {
         "x": 18,
-        "y": 72,
+        "y": 79,
         "w": 6,
         "h": 6
       },
@@ -2180,29 +2288,29 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "rate(node_context_switches_total{role=~\"sut|generator\"}[$__rate_interval])",
-          "legendFormat": "{{role}}"
+          "expr": "rate(node_context_switches_total{job=\"node-exporter\"}[$__rate_interval])",
+          "legendFormat": "context switches"
         }
       ]
     },
     {
       "id": 52,
       "type": "timeseries",
-      "title": "CPU 크레딧 — EC2 (버스터블)",
-      "description": "SUT 는 t4g.small — 크레딧이 마르면 baseline 으로 스로틀된다. 'run queue 는 높은데 사용률은 낮음' 패턴의 원인을 여기서 확인한다. 정적 JSON 이라 InstanceId 를 박을 수 없어 리전 내 버스터블 인스턴스를 모두 그린다.",
+      "title": "Traefik 메모리 (limit 대비)",
+      "description": "모든 요청이 지나는 Traefik의 working set과 memory limit(512Mi). limit에 닿으면 OOMKilled로 전체 요청이 끊긴다.",
       "datasource": {
-        "type": "cloudwatch",
-        "uid": "cloudwatch"
+        "type": "prometheus",
+        "uid": "prometheus"
       },
       "gridPos": {
         "x": 0,
-        "y": 78,
+        "y": 85,
         "w": 6,
         "h": 6
       },
       "fieldConfig": {
         "defaults": {
-          "unit": "short",
+          "unit": "bytes",
           "custom": {
             "drawStyle": "line",
             "lineWidth": 2,
@@ -2228,42 +2336,20 @@
         {
           "refId": "A",
           "datasource": {
-            "type": "cloudwatch",
-            "uid": "cloudwatch"
+            "type": "prometheus",
+            "uid": "prometheus"
           },
-          "queryMode": "Metrics",
-          "namespace": "AWS/EC2",
-          "metricName": "CPUCreditBalance",
-          "statistic": "Average",
-          "dimensions": {},
-          "region": "ap-northeast-2",
-          "period": "",
-          "id": "",
-          "expression": "",
-          "alias": "{{InstanceId}} balance",
-          "matchExact": false,
-          "metricQueryType": 0,
-          "metricEditorMode": 0
+          "expr": "sum by (pod) (container_memory_working_set_bytes{namespace=\"kube-system\", container=\"traefik\"})",
+          "legendFormat": "working set {{pod}}"
         },
         {
           "refId": "B",
           "datasource": {
-            "type": "cloudwatch",
-            "uid": "cloudwatch"
+            "type": "prometheus",
+            "uid": "prometheus"
           },
-          "queryMode": "Metrics",
-          "namespace": "AWS/EC2",
-          "metricName": "CPUSurplusCreditBalance",
-          "statistic": "Average",
-          "dimensions": {},
-          "region": "ap-northeast-2",
-          "period": "",
-          "id": "",
-          "expression": "",
-          "alias": "{{InstanceId}} surplus",
-          "matchExact": false,
-          "metricQueryType": 0,
-          "metricEditorMode": 0
+          "expr": "max(kube_pod_container_resource_limits{namespace=\"kube-system\", container=\"traefik\", resource=\"memory\"})",
+          "legendFormat": "limit"
         }
       ]
     },
@@ -2271,14 +2357,14 @@
       "id": 32,
       "type": "timeseries",
       "title": "Memory — U 구성 (앱 · 캐시 · free)",
-      "description": "사용률 % 한 숫자가 숨기던 것을 세 겹으로 분해한다. 부하 중 앱 점유가 자라며 페이지 캐시를 밀어내는 과정이 보이고, majflt 급등 시각과 캐시 층이 얇아지는 시각이 겹치면 '캐시 회수 → 코드 페이지 eviction → major fault' 가설이 확인된다. 스택 해석이 섞이지 않도록 SUT 만 그린다 — generator 는 PSI/paging 패널로 본다.",
+      "description": "사용률 % 한 숫자가 숨기던 것을 세 겹으로 분해한다. 부하 중 앱 점유가 자라며 페이지 캐시를 밀어내는 과정이 보이고, majflt 급등 시각과 캐시 층이 얇아지는 시각이 겹치면 '캐시 회수 → 코드 페이지 eviction → major fault' 가설이 확인된다.",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
       },
       "gridPos": {
         "x": 6,
-        "y": 78,
+        "y": 85,
         "w": 6,
         "h": 6
       },
@@ -2298,19 +2384,14 @@
               "group": "A"
             }
           },
-          "max": 1,
           "min": 0,
           "decimals": 0,
           "thresholds": {
             "mode": "absolute",
             "steps": [
               {
-                "color": "transparent",
+                "color": "green",
                 "value": null
-              },
-              {
-                "color": "#F2495C",
-                "value": 0.9
               }
             ]
           }
@@ -2365,7 +2446,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "node_memory_MemTotal_bytes{role=\"sut\"} - node_memory_MemFree_bytes{role=\"sut\"} - node_memory_Cached_bytes{role=\"sut\"} - node_memory_Buffers_bytes{role=\"sut\"}",
+          "expr": "node_memory_MemTotal_bytes{job=\"node-exporter\"} - node_memory_MemFree_bytes{job=\"node-exporter\"} - node_memory_Cached_bytes{job=\"node-exporter\"} - node_memory_Buffers_bytes{job=\"node-exporter\"}",
           "legendFormat": "앱 점유 (근사)"
         },
         {
@@ -2374,7 +2455,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "node_memory_Cached_bytes{role=\"sut\"} + node_memory_Buffers_bytes{role=\"sut\"}",
+          "expr": "node_memory_Cached_bytes{job=\"node-exporter\"} + node_memory_Buffers_bytes{job=\"node-exporter\"}",
           "legendFormat": "페이지 캐시"
         },
         {
@@ -2383,7 +2464,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "node_memory_MemFree_bytes{role=\"sut\"}",
+          "expr": "node_memory_MemFree_bytes{job=\"node-exporter\"}",
           "legendFormat": "free"
         },
         {
@@ -2392,7 +2473,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "node_memory_MemAvailable_bytes{role=\"sut\"}",
+          "expr": "node_memory_MemAvailable_bytes{job=\"node-exporter\"}",
           "legendFormat": "available (커널 계산)"
         }
       ]
@@ -2400,15 +2481,15 @@
     {
       "id": 53,
       "type": "timeseries",
-      "title": "Memory — S 회수 (kswapd vs direct)",
-      "description": "kswapd 만 움직이면 커널이 여유 있게 청소 중(무해). direct 가 0 에서 떨어지는 순간부터 앱 스레드가 할당 도중 멈춰 직접 회수하는 것 — 그 지연이 응답시간에 얹힌다. node-exporter 에 --collector.vmstat.fields 로 pgsteal/pgscan 을 열어야 나온다.",
+      "title": "Memory — E OOM kill",
+      "description": "커널이 메모리 부족으로 프로세스를 죽인 횟수. 0이 아니면 같은 시각 Argo CD에서 OOMKilled Pod를 찾는다.",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
       },
       "gridPos": {
         "x": 12,
-        "y": 78,
+        "y": 85,
         "w": 6,
         "h": 6
       },
@@ -2426,22 +2507,7 @@
           {
             "matcher": {
               "id": "byName",
-              "options": "kswapd sut"
-            },
-            "properties": [
-              {
-                "id": "color",
-                "value": {
-                  "mode": "fixed",
-                  "fixedColor": "green"
-                }
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "direct sut"
+              "options": "oom kill"
             },
             "properties": [
               {
@@ -2474,17 +2540,8 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "rate(node_vmstat_pgsteal_kswapd{role=~\"sut|generator\"}[$__rate_interval])",
-          "legendFormat": "kswapd {{role}}"
-        },
-        {
-          "refId": "B",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "expr": "rate(node_vmstat_pgsteal_direct{role=~\"sut|generator\"}[$__rate_interval])",
-          "legendFormat": "direct {{role}}"
+          "expr": "increase(node_vmstat_oom_kill{job=\"node-exporter\"}[$__rate_interval])",
+          "legendFormat": "oom kill"
         }
       ]
     },
@@ -2499,7 +2556,7 @@
       },
       "gridPos": {
         "x": 18,
-        "y": 78,
+        "y": 85,
         "w": 6,
         "h": 6
       },
@@ -2534,8 +2591,8 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "rate(node_vmstat_pswpin{role=~\"sut|generator\"}[$__rate_interval]) + rate(node_vmstat_pswpout{role=~\"sut|generator\"}[$__rate_interval])",
-          "legendFormat": "swap {{role}}"
+          "expr": "rate(node_vmstat_pswpin{job=\"node-exporter\"}[$__rate_interval]) + rate(node_vmstat_pswpout{job=\"node-exporter\"}[$__rate_interval])",
+          "legendFormat": "swap"
         },
         {
           "refId": "B",
@@ -2543,8 +2600,8 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "rate(node_vmstat_pgmajfault{role=~\"sut|generator\"}[$__rate_interval])",
-          "legendFormat": "majflt {{role}}"
+          "expr": "rate(node_vmstat_pgmajfault{job=\"node-exporter\"}[$__rate_interval])",
+          "legendFormat": "majflt"
         }
       ]
     },
@@ -2552,14 +2609,14 @@
       "id": 34,
       "type": "timeseries",
       "title": "Disk — U busy",
-      "description": "",
+      "description": "디스크가 IO를 처리하던 시간 비율. DB 데이터도 이 서버 디스크에 있다.",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
       },
       "gridPos": {
         "x": 0,
-        "y": 84,
+        "y": 91,
         "w": 6,
         "h": 6
       },
@@ -2597,8 +2654,8 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "max by (role) (rate(node_disk_io_time_seconds_total{role=~\"sut|generator\"}[$__rate_interval]))",
-          "legendFormat": "{{role}}"
+          "expr": "max by (device) (rate(node_disk_io_time_seconds_total{job=\"node-exporter\"}[$__rate_interval]))",
+          "legendFormat": "{{device}}"
         }
       ]
     },
@@ -2613,7 +2670,7 @@
       },
       "gridPos": {
         "x": 6,
-        "y": 84,
+        "y": 91,
         "w": 6,
         "h": 6
       },
@@ -2664,8 +2721,8 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "max by (role) (rate(node_disk_io_time_weighted_seconds_total{role=~\"sut|generator\"}[$__rate_interval]))",
-          "legendFormat": "{{role}}"
+          "expr": "max by (device) (rate(node_disk_io_time_weighted_seconds_total{job=\"node-exporter\"}[$__rate_interval]))",
+          "legendFormat": "{{device}}"
         }
       ]
     },
@@ -2673,14 +2730,14 @@
       "id": 36,
       "type": "timeseries",
       "title": "Network — U throughput",
-      "description": "node-exporter 가 host netns 여야 실제 NIC 값이 나온다 (bridge netns 면 veth 트래픽만 잡혀 수백 B/s 로 보인다).",
+      "description": "물리 NIC(eno*) 송수신량. Pod 사이 트래픽은 NIC를 지나지 않아 빠진다.",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
       },
       "gridPos": {
         "x": 12,
-        "y": 84,
+        "y": 91,
         "w": 6,
         "h": 6
       },
@@ -2715,8 +2772,8 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (role) (rate(node_network_receive_bytes_total{device=~\"e(th|ns|n)[0-9a-z]*\",role=~\"sut|generator\"}[$__rate_interval]))",
-          "legendFormat": "rx {{role}}"
+          "expr": "sum(rate(node_network_receive_bytes_total{device=~\"e(th|ns|n)[0-9a-z]*\", job=\"node-exporter\"}[$__rate_interval]))",
+          "legendFormat": "rx"
         },
         {
           "refId": "B",
@@ -2724,8 +2781,8 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (role) (rate(node_network_transmit_bytes_total{device=~\"e(th|ns|n)[0-9a-z]*\",role=~\"sut|generator\"}[$__rate_interval]))",
-          "legendFormat": "tx {{role}}"
+          "expr": "sum(rate(node_network_transmit_bytes_total{device=~\"e(th|ns|n)[0-9a-z]*\", job=\"node-exporter\"}[$__rate_interval]))",
+          "legendFormat": "tx"
         }
       ]
     },
@@ -2733,14 +2790,14 @@
       "id": 37,
       "type": "timeseries",
       "title": "Network — S·E drops·errs",
-      "description": "EC2 게스트에선 HW E(ECC 등)가 안 보임 — NIC drop/err 가 관측 가능한 E.",
+      "description": "물리 NIC의 drop·error. 관측 가능한 네트워크 E.",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
       },
       "gridPos": {
         "x": 18,
-        "y": 84,
+        "y": 91,
         "w": 6,
         "h": 6
       },
@@ -2775,8 +2832,8 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (role) (rate(node_network_receive_drop_total{device=~\"e(th|ns|n)[0-9a-z]*\",role=~\"sut|generator\"}[$__rate_interval]) + rate(node_network_transmit_drop_total{device=~\"e(th|ns|n)[0-9a-z]*\",role=~\"sut|generator\"}[$__rate_interval]))",
-          "legendFormat": "drop {{role}}"
+          "expr": "sum(rate(node_network_receive_drop_total{device=~\"e(th|ns|n)[0-9a-z]*\", job=\"node-exporter\"}[$__rate_interval]) + rate(node_network_transmit_drop_total{device=~\"e(th|ns|n)[0-9a-z]*\", job=\"node-exporter\"}[$__rate_interval]))",
+          "legendFormat": "drop"
         },
         {
           "refId": "B",
@@ -2784,8 +2841,8 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (role) (rate(node_network_receive_errs_total{device=~\"e(th|ns|n)[0-9a-z]*\",role=~\"sut|generator\"}[$__rate_interval]) + rate(node_network_transmit_errs_total{device=~\"e(th|ns|n)[0-9a-z]*\",role=~\"sut|generator\"}[$__rate_interval]))",
-          "legendFormat": "err {{role}}"
+          "expr": "sum(rate(node_network_receive_errs_total{device=~\"e(th|ns|n)[0-9a-z]*\", job=\"node-exporter\"}[$__rate_interval]) + rate(node_network_transmit_errs_total{device=~\"e(th|ns|n)[0-9a-z]*\", job=\"node-exporter\"}[$__rate_interval]))",
+          "legendFormat": "err"
         }
       ]
     },
@@ -2793,14 +2850,14 @@
       "id": 54,
       "type": "timeseries",
       "title": "Network — S accept 큐 오버플로",
-      "description": "세 번째 대기열. 톰캣이 accept 를 못 따라가면 acceptCount(기본 100) 를 넘은 연결이 여기서 버려진다 — '시작조차 못 한 요청' 의 사인. 0 이 아니면 그 자체로 알람감. node-exporter 가 host netns 여야 유효한 값이다.",
+      "description": "호스트 network namespace의 accept 큐 넘침. Pod 안 Tomcat과 Traefik은 각자 namespace라 그 큐 넘침은 여기에 잡히지 않는다. 0이 아니면 호스트 프로세스 쪽을 본다.",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
       },
       "gridPos": {
         "x": 0,
-        "y": 90,
+        "y": 97,
         "w": 6,
         "h": 6
       },
@@ -2835,8 +2892,8 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "rate(node_netstat_TcpExt_ListenOverflows{role=~\"sut|generator\"}[$__rate_interval])",
-          "legendFormat": "overflow {{role}}"
+          "expr": "rate(node_netstat_TcpExt_ListenOverflows{job=\"node-exporter\"}[$__rate_interval])",
+          "legendFormat": "overflow"
         },
         {
           "refId": "B",
@@ -2844,8 +2901,8 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "rate(node_netstat_TcpExt_ListenDrops{role=~\"sut|generator\"}[$__rate_interval])",
-          "legendFormat": "listen drop {{role}}"
+          "expr": "rate(node_netstat_TcpExt_ListenDrops{job=\"node-exporter\"}[$__rate_interval])",
+          "legendFormat": "listen drop"
         }
       ]
     },
@@ -2853,14 +2910,14 @@
       "id": 55,
       "type": "timeseries",
       "title": "Network — E 재전송률",
-      "description": "재전송 비율 = 링크 품질. 대역폭이 남는데 지연이 늘면 여기부터 본다.",
+      "description": "호스트 network namespace의 TCP 재전송 비율. Pod 안 연결은 각자 namespace라 빠진다.",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
       },
       "gridPos": {
         "x": 6,
-        "y": 90,
+        "y": 97,
         "w": 6,
         "h": 6
       },
@@ -2895,19 +2952,19 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "rate(node_netstat_Tcp_RetransSegs{role=~\"sut|generator\"}[$__rate_interval]) / rate(node_netstat_Tcp_OutSegs{role=~\"sut|generator\"}[$__rate_interval])",
-          "legendFormat": "retrans {{role}}"
+          "expr": "rate(node_netstat_Tcp_RetransSegs{job=\"node-exporter\"}[$__rate_interval]) / rate(node_netstat_Tcp_OutSegs{job=\"node-exporter\"}[$__rate_interval])",
+          "legendFormat": "retrans"
         }
       ]
     },
     {
       "id": 38,
       "type": "row",
-      "title": "⑤ DB 호스트 USE — RDS (CloudWatch)",
+      "title": "⑤ DB 컨테이너 — CPU · memory (limit 대비)",
       "collapsed": false,
       "gridPos": {
         "x": 0,
-        "y": 96,
+        "y": 103,
         "w": 24,
         "h": 1
       },
@@ -2916,43 +2973,29 @@
     {
       "id": 39,
       "type": "timeseries",
-      "title": "CPU — U (%)",
-      "description": "",
+      "title": "DB 컨테이너 CPU (limit 대비)",
+      "description": "cAdvisor 기준 postgres 컨테이너 CPU를 CPU limit으로 나눈 값. 100%에 붙고 ② Hikari pending이 함께 오르면 DB가 먼저 찼다.",
       "datasource": {
-        "type": "cloudwatch",
-        "uid": "cloudwatch"
+        "type": "prometheus",
+        "uid": "prometheus"
       },
       "gridPos": {
         "x": 0,
-        "y": 97,
+        "y": 104,
         "w": 8,
         "h": 6
       },
       "fieldConfig": {
         "defaults": {
-          "unit": "percent",
+          "unit": "percentunit",
           "custom": {
             "drawStyle": "line",
             "lineWidth": 2,
             "fillOpacity": 10,
-            "showPoints": "never",
-            "thresholdsStyle": {
-              "mode": "line"
-            }
+            "showPoints": "never"
           },
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "transparent",
-                "value": null
-              },
-              {
-                "color": "#F2495C",
-                "value": 80
-              }
-            ]
-          }
+          "min": 0,
+          "decimals": 0
         },
         "overrides": []
       },
@@ -2972,39 +3015,80 @@
         {
           "refId": "A",
           "datasource": {
-            "type": "cloudwatch",
-            "uid": "cloudwatch"
+            "type": "prometheus",
+            "uid": "prometheus"
           },
-          "queryMode": "Metrics",
-          "namespace": "AWS/RDS",
-          "metricName": "CPUUtilization",
-          "statistic": "Average",
-          "dimensions": {
-            "DBInstanceIdentifier": "umc-loadtest-pg"
-          },
-          "region": "ap-northeast-2",
-          "period": "",
-          "id": "",
-          "expression": "",
-          "alias": "",
-          "matchExact": true,
-          "metricQueryType": 0,
-          "metricEditorMode": 0
+          "expr": "sum by (pod) (rate(container_cpu_usage_seconds_total{namespace=~\"${env}(-db)?\", namespace=~\"dev-db|preview\", container=\"postgres\"}[$__rate_interval])) / sum by (pod) (kube_pod_container_resource_limits{namespace=~\"${env}(-db)?\", namespace=~\"dev-db|preview\", container=\"postgres\", resource=\"cpu\"})",
+          "legendFormat": "{{pod}}"
         }
       ]
     },
     {
       "id": 40,
       "type": "timeseries",
-      "title": "Memory — U·S (Freeable·Swap)",
-      "description": "Freeable 바닥 + Swap 증가 = 메모리 포화.",
+      "title": "DB CPU throttling",
+      "description": "postgres 컨테이너가 CPU 제한에 걸린 실행 주기의 비율.",
       "datasource": {
-        "type": "cloudwatch",
-        "uid": "cloudwatch"
+        "type": "prometheus",
+        "uid": "prometheus"
       },
       "gridPos": {
         "x": 8,
-        "y": 97,
+        "y": 104,
+        "w": 8,
+        "h": 6
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "showPoints": "never"
+          },
+          "max": 1,
+          "min": 0,
+          "decimals": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "showLegend": true,
+          "displayMode": "list",
+          "placement": "bottom",
+          "calcs": []
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum by (pod) (rate(container_cpu_cfs_throttled_periods_total{namespace=~\"${env}(-db)?\", namespace=~\"dev-db|preview\", container=\"postgres\"}[$__rate_interval])) / sum by (pod) (rate(container_cpu_cfs_periods_total{namespace=~\"${env}(-db)?\", namespace=~\"dev-db|preview\", container=\"postgres\"}[$__rate_interval]))",
+          "legendFormat": "{{pod}}"
+        }
+      ]
+    },
+    {
+      "id": 41,
+      "type": "timeseries",
+      "title": "DB 컨테이너 메모리 (limit 대비)",
+      "description": "postgres 컨테이너 working set과 memory limit. limit에 가까워지면 OOMKilled 위험이고, 페이지 캐시가 밀려 ③ 캐시 적중률이 떨어질 수 있다.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 16,
+        "y": 104,
         "w": 8,
         "h": 6
       },
@@ -3036,524 +3120,85 @@
         {
           "refId": "A",
           "datasource": {
-            "type": "cloudwatch",
-            "uid": "cloudwatch"
+            "type": "prometheus",
+            "uid": "prometheus"
           },
-          "queryMode": "Metrics",
-          "namespace": "AWS/RDS",
-          "metricName": "FreeableMemory",
-          "statistic": "Average",
-          "dimensions": {
-            "DBInstanceIdentifier": "umc-loadtest-pg"
-          },
-          "region": "ap-northeast-2",
-          "period": "",
-          "id": "",
-          "expression": "",
-          "alias": "",
-          "matchExact": true,
-          "metricQueryType": 0,
-          "metricEditorMode": 0
+          "expr": "sum by (pod) (container_memory_working_set_bytes{namespace=~\"${env}(-db)?\", namespace=~\"dev-db|preview\", container=\"postgres\"})",
+          "legendFormat": "working set {{pod}}"
         },
         {
           "refId": "B",
           "datasource": {
-            "type": "cloudwatch",
-            "uid": "cloudwatch"
+            "type": "prometheus",
+            "uid": "prometheus"
           },
-          "queryMode": "Metrics",
-          "namespace": "AWS/RDS",
-          "metricName": "SwapUsage",
-          "statistic": "Average",
-          "dimensions": {
-            "DBInstanceIdentifier": "umc-loadtest-pg"
-          },
-          "region": "ap-northeast-2",
-          "period": "",
-          "id": "",
-          "expression": "",
-          "alias": "",
-          "matchExact": true,
-          "metricQueryType": 0,
-          "metricEditorMode": 0
-        }
-      ]
-    },
-    {
-      "id": 41,
-      "type": "timeseries",
-      "title": "커넥션 수",
-      "description": "",
-      "datasource": {
-        "type": "cloudwatch",
-        "uid": "cloudwatch"
-      },
-      "gridPos": {
-        "x": 16,
-        "y": 97,
-        "w": 8,
-        "h": 6
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short",
-          "custom": {
-            "drawStyle": "line",
-            "lineWidth": 2,
-            "fillOpacity": 10,
-            "showPoints": "never"
-          }
-        },
-        "overrides": []
-      },
-      "options": {
-        "legend": {
-          "showLegend": true,
-          "displayMode": "list",
-          "placement": "bottom",
-          "calcs": []
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "datasource": {
-            "type": "cloudwatch",
-            "uid": "cloudwatch"
-          },
-          "queryMode": "Metrics",
-          "namespace": "AWS/RDS",
-          "metricName": "DatabaseConnections",
-          "statistic": "Average",
-          "dimensions": {
-            "DBInstanceIdentifier": "umc-loadtest-pg"
-          },
-          "region": "ap-northeast-2",
-          "period": "",
-          "id": "",
-          "expression": "",
-          "alias": "",
-          "matchExact": true,
-          "metricQueryType": 0,
-          "metricEditorMode": 0
-        }
-      ]
-    },
-    {
-      "id": 42,
-      "type": "timeseries",
-      "title": "Disk — U IOPS",
-      "description": "",
-      "datasource": {
-        "type": "cloudwatch",
-        "uid": "cloudwatch"
-      },
-      "gridPos": {
-        "x": 0,
-        "y": 103,
-        "w": 6,
-        "h": 6
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "iops",
-          "custom": {
-            "drawStyle": "line",
-            "lineWidth": 2,
-            "fillOpacity": 10,
-            "showPoints": "never"
-          }
-        },
-        "overrides": []
-      },
-      "options": {
-        "legend": {
-          "showLegend": true,
-          "displayMode": "list",
-          "placement": "bottom",
-          "calcs": []
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "datasource": {
-            "type": "cloudwatch",
-            "uid": "cloudwatch"
-          },
-          "queryMode": "Metrics",
-          "namespace": "AWS/RDS",
-          "metricName": "ReadIOPS",
-          "statistic": "Average",
-          "dimensions": {
-            "DBInstanceIdentifier": "umc-loadtest-pg"
-          },
-          "region": "ap-northeast-2",
-          "period": "",
-          "id": "",
-          "expression": "",
-          "alias": "",
-          "matchExact": true,
-          "metricQueryType": 0,
-          "metricEditorMode": 0
-        },
-        {
-          "refId": "B",
-          "datasource": {
-            "type": "cloudwatch",
-            "uid": "cloudwatch"
-          },
-          "queryMode": "Metrics",
-          "namespace": "AWS/RDS",
-          "metricName": "WriteIOPS",
-          "statistic": "Average",
-          "dimensions": {
-            "DBInstanceIdentifier": "umc-loadtest-pg"
-          },
-          "region": "ap-northeast-2",
-          "period": "",
-          "id": "",
-          "expression": "",
-          "alias": "",
-          "matchExact": true,
-          "metricQueryType": 0,
-          "metricEditorMode": 0
-        }
-      ]
-    },
-    {
-      "id": 43,
-      "type": "timeseries",
-      "title": "Disk — S QueueDepth",
-      "description": "상승 = IO 포화. gp3 baseline 소진은 IOPS 와 같이 본다.",
-      "datasource": {
-        "type": "cloudwatch",
-        "uid": "cloudwatch"
-      },
-      "gridPos": {
-        "x": 6,
-        "y": 103,
-        "w": 6,
-        "h": 6
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short",
-          "custom": {
-            "drawStyle": "line",
-            "lineWidth": 2,
-            "fillOpacity": 10,
-            "showPoints": "never"
-          }
-        },
-        "overrides": []
-      },
-      "options": {
-        "legend": {
-          "showLegend": true,
-          "displayMode": "list",
-          "placement": "bottom",
-          "calcs": []
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "datasource": {
-            "type": "cloudwatch",
-            "uid": "cloudwatch"
-          },
-          "queryMode": "Metrics",
-          "namespace": "AWS/RDS",
-          "metricName": "DiskQueueDepth",
-          "statistic": "Average",
-          "dimensions": {
-            "DBInstanceIdentifier": "umc-loadtest-pg"
-          },
-          "region": "ap-northeast-2",
-          "period": "",
-          "id": "",
-          "expression": "",
-          "alias": "",
-          "matchExact": true,
-          "metricQueryType": 0,
-          "metricEditorMode": 0
-        }
-      ]
-    },
-    {
-      "id": 44,
-      "type": "timeseries",
-      "title": "Disk — Latency",
-      "description": "",
-      "datasource": {
-        "type": "cloudwatch",
-        "uid": "cloudwatch"
-      },
-      "gridPos": {
-        "x": 12,
-        "y": 103,
-        "w": 6,
-        "h": 6
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "s",
-          "custom": {
-            "drawStyle": "line",
-            "lineWidth": 2,
-            "fillOpacity": 10,
-            "showPoints": "never"
-          }
-        },
-        "overrides": []
-      },
-      "options": {
-        "legend": {
-          "showLegend": true,
-          "displayMode": "list",
-          "placement": "bottom",
-          "calcs": []
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "datasource": {
-            "type": "cloudwatch",
-            "uid": "cloudwatch"
-          },
-          "queryMode": "Metrics",
-          "namespace": "AWS/RDS",
-          "metricName": "ReadLatency",
-          "statistic": "Average",
-          "dimensions": {
-            "DBInstanceIdentifier": "umc-loadtest-pg"
-          },
-          "region": "ap-northeast-2",
-          "period": "",
-          "id": "",
-          "expression": "",
-          "alias": "",
-          "matchExact": true,
-          "metricQueryType": 0,
-          "metricEditorMode": 0
-        },
-        {
-          "refId": "B",
-          "datasource": {
-            "type": "cloudwatch",
-            "uid": "cloudwatch"
-          },
-          "queryMode": "Metrics",
-          "namespace": "AWS/RDS",
-          "metricName": "WriteLatency",
-          "statistic": "Average",
-          "dimensions": {
-            "DBInstanceIdentifier": "umc-loadtest-pg"
-          },
-          "region": "ap-northeast-2",
-          "period": "",
-          "id": "",
-          "expression": "",
-          "alias": "",
-          "matchExact": true,
-          "metricQueryType": 0,
-          "metricEditorMode": 0
-        }
-      ]
-    },
-    {
-      "id": 45,
-      "type": "timeseries",
-      "title": "Network — U",
-      "description": "",
-      "datasource": {
-        "type": "cloudwatch",
-        "uid": "cloudwatch"
-      },
-      "gridPos": {
-        "x": 18,
-        "y": 103,
-        "w": 6,
-        "h": 6
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "Bps",
-          "custom": {
-            "drawStyle": "line",
-            "lineWidth": 2,
-            "fillOpacity": 10,
-            "showPoints": "never"
-          }
-        },
-        "overrides": []
-      },
-      "options": {
-        "legend": {
-          "showLegend": true,
-          "displayMode": "list",
-          "placement": "bottom",
-          "calcs": []
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "datasource": {
-            "type": "cloudwatch",
-            "uid": "cloudwatch"
-          },
-          "queryMode": "Metrics",
-          "namespace": "AWS/RDS",
-          "metricName": "NetworkReceiveThroughput",
-          "statistic": "Average",
-          "dimensions": {
-            "DBInstanceIdentifier": "umc-loadtest-pg"
-          },
-          "region": "ap-northeast-2",
-          "period": "",
-          "id": "",
-          "expression": "",
-          "alias": "",
-          "matchExact": true,
-          "metricQueryType": 0,
-          "metricEditorMode": 0
-        },
-        {
-          "refId": "B",
-          "datasource": {
-            "type": "cloudwatch",
-            "uid": "cloudwatch"
-          },
-          "queryMode": "Metrics",
-          "namespace": "AWS/RDS",
-          "metricName": "NetworkTransmitThroughput",
-          "statistic": "Average",
-          "dimensions": {
-            "DBInstanceIdentifier": "umc-loadtest-pg"
-          },
-          "region": "ap-northeast-2",
-          "period": "",
-          "id": "",
-          "expression": "",
-          "alias": "",
-          "matchExact": true,
-          "metricQueryType": 0,
-          "metricEditorMode": 0
-        }
-      ]
-    },
-    {
-      "id": 46,
-      "type": "timeseries",
-      "title": "CPU 크레딧 (버스터블)",
-      "description": "t4g 는 크레딧 소진 시 baseline(vCPU당 20%)으로 추락. 실행 전 잔고 = 실험 조건 — 연속 실험 시 앞 실험이 뒤 실험 조건을 바꾼다. SUT(EC2) 크레딧은 ④ 섹션의 'CPU 크레딧 — EC2' 패널 참고.",
-      "datasource": {
-        "type": "cloudwatch",
-        "uid": "cloudwatch"
-      },
-      "gridPos": {
-        "x": 0,
-        "y": 109,
-        "w": 8,
-        "h": 6
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short",
-          "custom": {
-            "drawStyle": "line",
-            "lineWidth": 2,
-            "fillOpacity": 10,
-            "showPoints": "never"
-          }
-        },
-        "overrides": []
-      },
-      "options": {
-        "legend": {
-          "showLegend": true,
-          "displayMode": "list",
-          "placement": "bottom",
-          "calcs": []
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "datasource": {
-            "type": "cloudwatch",
-            "uid": "cloudwatch"
-          },
-          "queryMode": "Metrics",
-          "namespace": "AWS/RDS",
-          "metricName": "CPUCreditBalance",
-          "statistic": "Average",
-          "dimensions": {
-            "DBInstanceIdentifier": "umc-loadtest-pg"
-          },
-          "region": "ap-northeast-2",
-          "period": "",
-          "id": "",
-          "expression": "",
-          "alias": "",
-          "matchExact": true,
-          "metricQueryType": 0,
-          "metricEditorMode": 0
-        },
-        {
-          "refId": "B",
-          "datasource": {
-            "type": "cloudwatch",
-            "uid": "cloudwatch"
-          },
-          "queryMode": "Metrics",
-          "namespace": "AWS/RDS",
-          "metricName": "CPUSurplusCreditBalance",
-          "statistic": "Average",
-          "dimensions": {
-            "DBInstanceIdentifier": "umc-loadtest-pg"
-          },
-          "region": "ap-northeast-2",
-          "period": "",
-          "id": "",
-          "expression": "",
-          "alias": "",
-          "matchExact": true,
-          "metricQueryType": 0,
-          "metricEditorMode": 0
+          "expr": "max(kube_pod_container_resource_limits{namespace=~\"${env}(-db)?\", namespace=~\"dev-db|preview\", container=\"postgres\", resource=\"memory\"})",
+          "legendFormat": "limit"
         }
       ]
     }
   ],
   "templating": {
-    "list": []
+    "list": [
+      {
+        "name": "env",
+        "label": "env",
+        "type": "custom",
+        "query": "dev,preview",
+        "options": [
+          {
+            "selected": true,
+            "text": "dev",
+            "value": "dev"
+          },
+          {
+            "selected": false,
+            "text": "preview",
+            "value": "preview"
+          }
+        ],
+        "current": {
+          "selected": true,
+          "text": "dev",
+          "value": "dev"
+        },
+        "includeAll": false,
+        "multi": false
+      },
+      {
+        "name": "service",
+        "label": "service",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "definition": "label_values(process_uptime_milliseconds{application=~\"${env}-umc-product.*\"}, application)",
+        "query": {
+          "qryType": 1,
+          "query": "label_values(process_uptime_milliseconds{application=~\"${env}-umc-product.*\"}, application)",
+          "refId": "StandardVariableQuery"
+        },
+        "regex": "/^(dev-umc-product|preview-umc-product-pr[0-9]+)$/",
+        "includeAll": false,
+        "multi": false,
+        "refresh": 2,
+        "sort": 1
+      }
+    ]
   },
-  "editable": true
+  "editable": true,
+  "links": [
+    {
+      "asDropdown": false,
+      "icon": "external link",
+      "includeVars": false,
+      "keepTime": true,
+      "tags": [],
+      "targetBlank": false,
+      "title": "System Overview",
+      "type": "link",
+      "url": "/d/umc-product-system-overview"
+    }
+  ]
 }

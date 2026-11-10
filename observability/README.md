@@ -61,7 +61,7 @@ Prometheus 규칙의 `api`는 요청·지연, `database-cache`는 HikariCP·캐�
 
 ## Dashboard 배포 허용 목록
 
-다음 UMC 원본 아홉 개를 Grafana sidecar가 읽는 ConfigMap으로 생성한다. `DASHBOARD_ALLOWLIST`가
+다음 UMC 원본 열 개를 Grafana sidecar가 읽는 ConfigMap으로 생성한다. `DASHBOARD_ALLOWLIST`가
 원본마다 folder를 정한다. `kubernetes-guide.json`만 `Kubernetes` folder에 두고 나머지는 `UMC Product`
 folder에 둔다. Chart의 기본 dashboard는 `Kubernetes` folder로 들어온다. 그 folder의 chart 화면은
 이 저장소에서 제목·설명을 바꿀 수 없으므로 안내 dashboard를 같은 folder에 넣는다.
@@ -76,6 +76,7 @@ Overview는 prod/dev만 비교하고, Traefik edge 행만 모든 host 합계다.
 - `api-flow.json`
 - `api-lifecycle.json` — API·클라이언트 버전별 호출과 계측 누락 현황
 - `cache.json`
+- `k6-load-test.json` — dev·preview 부하 테스트 중 앱·DB·호스트 중 먼저 차는 자원 비교
 - `kubernetes-guide.json` — Kubernetes folder의 chart 화면 묶음과 링크. 제목을 `0.`으로 시작해 이름순
   목록 맨 위에 둔다. `kubernetes-mixin` tag로 chart 화면의 Kubernetes 링크 목록에도 보인다
 - `node-exporter-host.json`
@@ -90,10 +91,14 @@ Overview는 prod/dev만 비교하고, Traefik edge 행만 모든 host 합계다.
 표시하지 않는다. Collector 실패 counter만 예외로, Collector가 수집되는 동안에는 0으로 보인다.
 그 counter는 첫 실패 전까지 생기지 않기 때문이다. 조회·제거 검토 절차는 [API 호환성 사용 가이드](../docs/guides/api-lifecycle.md)를 본다.
 
+`k6-load-test.json`은 `env`(dev·preview) 하나로 앱 Service, 앱·DB namespace를 함께 고른다. 쿼리마다
+dev·preview namespace와 앱 이름을 고정 조건으로 함께 걸어, 주소에 다른 변수 값을 넣어도 운영 값을 그리지 않는다. 호스트 USE 행과 Traefik 메모리만 운영과
+같은 서버 전체 값이다. ① k6 행은 k6 Prometheus remote-write를, ③ DB 내부 행은 그 환경의 postgres-exporter를
+켜기 전까지 비어 있다. 제목은 서버 저장소 `docs/loadtest/diagnosis.md`가 참조하므로 바꾸지 않는다.
+
 다음 원본은 저장소에 보관하지만 초기 배포에서는 제외한다.
 
 - `github.json`
-- `k6-load-test.json`
 
 전용 plugin, token 또는 현재 K3s에 없는 datasource 의존성을 제거하고 검증한 뒤에만
 [`DASHBOARD_ALLOWLIST`](../scripts/gen-configmaps.py)에 추가한다.
