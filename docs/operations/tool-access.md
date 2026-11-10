@@ -142,6 +142,9 @@ ssh -N -L 127.0.0.1:18080:127.0.0.1:18080 "$IDC_SSH_USER@$IDC_NODE_HOST"
 - 앱은 `otel-collector.monitoring.svc.cluster.local:4317/4318`에만 OTLP를 보낸다.
 - Collector ingress는 `app`, `dev-app`, `preview` namespace의 앱 Pod만 허용한다.
 - Grafana는 `kube-system`의 Traefik Pod에서 오는 `3000/TCP`만 별도 허용한다.
+- Grafana의 Prometheus datasource는 `prometheus-query-proxy`를 거친다. 이 proxy는 조회·상태 API만 넘기고
+  쓰기·관리 API는 403으로 막는다. Prometheus Pod는 Collector의 OTLP, 이 proxy, Prometheus 자신의
+  self-scrape만 받는다. 관리자 port-forward는 NetworkPolicy를 거치지 않으므로 Prometheus Service로 직접 점검한다.
 - Actuator 9090은 application Service나 Ingress에 노출하지 않는다.
 - kube-state-metrics는 cluster 상태를 읽지만 Secret과 ConfigMap 내용은 수집하지 않는다.
 - Prometheus는 14일 / 4GB 중 먼저 도달하는 조건, Tempo는 7일, Loki는 운영 90일·dev 30일·Preview 7일 retention을 사용한다.

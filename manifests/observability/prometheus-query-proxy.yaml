@@ -1,0 +1,171 @@
+# Grafana가 Prometheus에 닿는 유일한 경로. 조회·상태 API만 넘기고 쓰기·관리 API는 403으로 막는다.
+# Prometheus Pod ingress는 networkpolicy.yaml에서 이 proxy, Collector, Prometheus 자신만 허용한다.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-query-proxy
+  namespace: monitoring
+data:
+  nginx.conf: |
+    daemon off;
+    worker_processes 1;
+    pid /tmp/nginx.pid;
+    error_log stderr notice;
+
+    events {
+      worker_connections 512;
+    }
+
+    http {
+      client_body_temp_path /tmp/client_temp;
+      proxy_temp_path /tmp/proxy_temp;
+      fastcgi_temp_path /tmp/fastcgi_temp;
+      uwsgi_temp_path /tmp/uwsgi_temp;
+      scgi_temp_path /tmp/scgi_temp;
+
+      # access log에는 PromQL이 담긴 query string과 본문을 남기지 않는다. 오류 로그에는 요청줄이 남을 수 있다.
+      log_format proxy '$remote_addr "$request_method $uri" $status $request_time $upstream_status';
+      access_log /dev/stdout proxy;
+      server_tokens off;
+      default_type text/plain;
+
+      # Prometheus Service 이름은 요청 때 풀어서, Prometheus보다 먼저 배포돼도 proxy가 뜬다.
+      resolver kube-dns.kube-system.svc.cluster.local valid=30s ipv6=off;
+
+      client_max_body_size 1m;
+      client_body_buffer_size 1m;
+      large_client_header_buffers 4 64k;
+      proxy_http_version 1.1;
+      proxy_set_header Connection "";
+      proxy_read_timeout 180s;
+      proxy_max_temp_file_size 0;
+
+      server {
+        listen 8080;
+        merge_slashes on;
+        set $prometheus prometheus-kube-prometheus-prometheus.monitoring.svc.cluster.local:9090;
+
+        location = /healthz {
+          access_log off;
+          if ($request_method !~ ^(GET|HEAD)$) {
+            return 403;
+          }
+          return 200 "ok\n";
+        }
+
+        # location은 정규화된 $uri로 고르고 upstream에도 $uri를 넘긴다. 인코딩이나 ..로 바꾼 경로가
+        # 허용 목록과 다르게 해석될 여지가 없다. Grafana datasource는 기본으로 POST form을 쓴다.
+        location ~ ^/api/v1/(query|query_range|query_exemplars|series|labels|metadata|format_query|parse_query)\z {
+          limit_except GET POST {
+            deny all;
+          }
+          proxy_pass http://$prometheus$uri$is_args$args;
+        }
+
+        location ~ ^/api/v1/label/[A-Za-z_][A-Za-z0-9_]*/values\z {
+          limit_except GET POST {
+            deny all;
+          }
+          proxy_pass http://$prometheus$uri$is_args$args;
+        }
+
+        location ~ ^/api/v1/(rules|alerts|status/(buildinfo|flags|runtimeinfo|tsdb))\z {
+          limit_except GET {
+            deny all;
+          }
+          proxy_pass http://$prometheus$uri$is_args$args;
+        }
+
+        location / {
+          return 403;
+        }
+      }
+    }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: prometheus-query-proxy
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/name: prometheus-query-proxy
+    app.kubernetes.io/component: proxy
+spec:
+  replicas: 1
+  revisionHistoryLimit: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: prometheus-query-proxy
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: prometheus-query-proxy
+        app.kubernetes.io/component: proxy
+      annotations:
+        # nginx는 설정 파일을 다시 읽지 않으므로 ConfigMap이 바뀌면 이 값으로 Pod를 교체한다.
+        checksum/nginx-conf: 22d4268488270292f6ee65a6115c77f1109f3a3eafdfb0fb0251b95fd715857d
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 101
+        runAsGroup: 101
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: nginx
+          image: docker.io/nginxinc/nginx-unprivileged:1.30.6-alpine@sha256:f5116ed4606f3eb015dd4a8e28cb9b351476dc0ad4bc6e9f93b19cec130cdf03
+          imagePullPolicy: IfNotPresent
+          command: [nginx, -e, stderr, -c, /etc/nginx/proxy/nginx.conf]
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          readinessProbe:
+            httpGet: { path: /healthz, port: http }
+            periodSeconds: 10
+            timeoutSeconds: 2
+            failureThreshold: 3
+          livenessProbe:
+            httpGet: { path: /healthz, port: http }
+            periodSeconds: 20
+            timeoutSeconds: 2
+            failureThreshold: 3
+          resources:
+            requests: { cpu: 10m, memory: 16Mi }
+            limits: { memory: 64Mi }
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: config
+              mountPath: /etc/nginx/proxy
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: config
+          configMap:
+            name: prometheus-query-proxy
+        - name: tmp
+          emptyDir:
+            sizeLimit: 16Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: prometheus-query-proxy
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/name: prometheus-query-proxy
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: prometheus-query-proxy
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+      protocol: TCP

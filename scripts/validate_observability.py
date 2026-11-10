@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 import sys
@@ -20,6 +21,14 @@ APPLICATION_DIR = ROOT / "argocd" / "applications" / "platform" / "observability
 EXPECTED_APPLICATIONS = {"grafana", "loki", "otel-collector", "prometheus", "tempo"}
 PROMETHEUS_NAME = "prometheus-kube-prometheus-prometheus"
 ALERTMANAGER_NAME = "prometheus-kube-prometheus-alertmanager"
+# Grafana는 쓰기·관리 API를 막는 이 조회 proxy로만 Prometheus에 닿는다.
+PROMETHEUS_QUERY_PROXY = "prometheus-query-proxy"
+PROMETHEUS_QUERY_PROXY_PORT = 8080
+PROMETHEUS_QUERY_PROXY_URL = f"http://{PROMETHEUS_QUERY_PROXY}.monitoring.svc.cluster.local:{PROMETHEUS_QUERY_PROXY_PORT}"
+# Prometheus API에 직접 닿아도 되는 workload. 이 밖의 source는 조회 proxy를 우회한다.
+PROMETHEUS_INGRESS_SOURCES = {
+    f"Prometheus/{PROMETHEUS_NAME}", "Deployment/otel-collector", f"Deployment/{PROMETHEUS_QUERY_PROXY}"
+}
 # Preview는 dev profile로 떠서 environment label로는 dev와 구분되지 않는다.
 # Spring 앱 지표의 application label과 Argo CD Application 이름은 서로 다른 pattern이다.
 PREVIEW_SPRING_APP_PATTERN = "preview-umc-product-pr[0-9]+"
@@ -548,6 +557,55 @@ def admits_prometheus_ingress(policies: list[dict], target: dict, prometheus_lab
         for rule in policy["spec"].get("ingress", []) for peer in rule.get("from", []))
 
 
+# monitoring의 NetworkPolicy가 Prometheus Pod에 들이는 source를 실제 workload로 풀어 허용 목록과 대조한다.
+# 빈 from, namespace·ipBlock peer, 넓은 podSelector는 Grafana 등이 조회 proxy를 우회하게 한다.
+def validate_prometheus_ingress_sources(policies: list[dict], workloads: dict[str, dict[str, str]],
+                                        prometheus_labels: dict[str, str]) -> None:
+    for policy in policies:
+        if (policy.get("kind") != "NetworkPolicy" or policy["metadata"].get("namespace", "monitoring") != "monitoring"
+                or not selector_matches(policy["spec"].get("podSelector", {}), prometheus_labels)):
+            continue
+        name = policy["metadata"]["name"]
+        for rule in policy["spec"].get("ingress", []):
+            require(bool(rule.get("from")), f"NetworkPolicy/{name} admits every source to Prometheus")
+            for peer in rule["from"]:
+                require(set(peer) == {"podSelector"},
+                        f"NetworkPolicy/{name}: Prometheus sources must be selected monitoring Pods")
+                sources = {identity for identity, labels in workloads.items()
+                           if selector_matches(peer["podSelector"], labels)}
+                require(bool(sources) and sources <= PROMETHEUS_INGRESS_SOURCES,
+                        f"NetworkPolicy/{name} admits {sorted(sources - PROMETHEUS_INGRESS_SOURCES) or 'no known workload'}"
+                        " to Prometheus")
+
+
+# Grafana 사용자는 datasource를 거쳐 Prometheus에 요청을 보낼 수 있다. 조회 proxy를 지나야 쓰기·관리 API가 막히고,
+# prometheusType을 주면 Grafana가 그 datasource를 recording rule 결과를 쓰는 대상으로 다룰 수 있다.
+def validate_grafana_datasources(datasources: list[dict]) -> None:
+    sources = {source.get("uid"): source for source in datasources}
+    require(sources.get("prometheus", {}).get("url") == PROMETHEUS_QUERY_PROXY_URL,
+            "Grafana: stable prometheus datasource UID must go through the read-only query proxy")
+    require(sources.get("alertmanager", {}).get("url")
+            == f"http://{ALERTMANAGER_NAME}.monitoring.svc.cluster.local:9093",
+            "Grafana: stable alertmanager datasource UID must reach the operator Service")
+    require(not any("prometheusType" in source.get("jsonData", {}) for source in datasources),
+            "Grafana: datasources must not declare prometheusType (it opens Grafana writes to Prometheus)")
+
+
+# 조회 proxy가 operator Service로 요청을 넘기고, nginx가 다시 읽지 않는 설정이 바뀌면 Pod가 교체되는지 본다.
+def validate_prometheus_query_proxy(resources: list[dict]) -> str:
+    config = configmap_value(resources, PROMETHEUS_QUERY_PROXY, "nginx.conf")
+    require(f"set $prometheus {PROMETHEUS_NAME}.monitoring.svc.cluster.local:9090;" in config,
+            "prometheus-query-proxy: upstream must be the operator Prometheus Service")
+    digest = hashlib.sha256(config.encode("utf-8")).hexdigest()
+    template = named_resource(resources, "Deployment", PROMETHEUS_QUERY_PROXY)["spec"]["template"]
+    require(template["metadata"].get("annotations", {}).get("checksum/nginx-conf") == digest,
+            f"prometheus-query-proxy: set the pod annotation checksum/nginx-conf to {digest}")
+    service = named_resource(resources, "Service", PROMETHEUS_QUERY_PROXY)
+    require(any(port.get("port") == PROMETHEUS_QUERY_PROXY_PORT for port in service["spec"].get("ports", [])),
+            f"Service/{PROMETHEUS_QUERY_PROXY}: port must match the Grafana datasource URL")
+    return config
+
+
 # 전역 알림 경로와 Secret 참조를 검사하고 기존 평문 기반 설정이 함께 되살아나는 것을 막는다.
 def validate_alertmanager_config(resources: list[dict]) -> None:
     alertmanager = named_resource(resources, "Alertmanager", ALERTMANAGER_NAME)
@@ -787,11 +845,7 @@ def validate_runtime_configs(rendered: dict[str, list[dict]]) -> dict[str, str]:
             f"http://{ALERTMANAGER_NAME}.monitoring.svc.cluster.local:9093",
             "Loki: ruler must send alerts to operator-managed Alertmanager")
     datasources = yaml.safe_load(configmap_value(rendered["grafana"], "grafana", "datasources.yaml"))
-    sources = {source.get("uid"): source for source in datasources.get("datasources", [])}
-    for uid, service, port in (("prometheus", PROMETHEUS_NAME, 9090),
-                               ("alertmanager", ALERTMANAGER_NAME, 9093)):
-        require(sources.get(uid, {}).get("url") == f"http://{service}.monitoring.svc.cluster.local:{port}",
-                f"Grafana: stable {uid} datasource UID must reach the operator Service")
+    validate_grafana_datasources(datasources.get("datasources", []))
 
     validate_prometheus(rendered["prometheus"])
     return {
@@ -856,11 +910,13 @@ def main() -> int:
         "kube-state-metrics: cluster workload collectors without Secret or ConfigMap access",
     )
 
-    rendered: dict[str, list[dict]] = {}
+    rendered = dict(render_application(path, output_dir) for path in application_paths)
+    # monitoring-config Application이 directory로 배포하는 manifest도 chart 렌더와 같은 workload 계약을 따른다.
+    config_resources = [resource for path in sorted((ROOT / "manifests/observability").rglob("*.yaml"))
+                        for resource in yaml.safe_load_all(path.read_text(encoding="utf-8")) if resource]
     pod_labels: list[dict[str, str]] = []
-    for path in application_paths:
-        name, resources = render_application(path, output_dir)
-        rendered[name] = resources
+    monitoring_workloads: dict[str, dict[str, str]] = {}
+    for name, resources in [*rendered.items(), ("monitoring-config", config_resources)]:
         chart_pod_labels: list[dict[str, str]] = []
         for resource in resources:
             kind = resource["kind"]
@@ -879,6 +935,7 @@ def main() -> int:
             labels = workload_labels(resource)
             chart_pod_labels.append(labels)
             pod_labels.append(labels)
+            monitoring_workloads[identity] = labels
             containers = workload.get("initContainers", []) + workload.get("containers", [])
             require(containers, f"{name}: {identity} has no containers")
             for container in containers:
@@ -988,6 +1045,8 @@ def main() -> int:
 
     for filename, content in validate_runtime_configs(rendered).items():
         (output_dir / filename).write_text(content, encoding="utf-8")
+    (output_dir / "prometheus-query-proxy-nginx.conf").write_text(
+        validate_prometheus_query_proxy(config_resources), encoding="utf-8")
 
     with (ROOT / "manifests" / "observability" / "networkpolicy.yaml").open(
         encoding="utf-8"
@@ -1000,6 +1059,7 @@ def main() -> int:
             f"NetworkPolicy/{policy['metadata']['name']} selects no rendered workload",
         )
     prometheus_labels = workload_labels(prometheus)
+    validate_prometheus_ingress_sources(all_resources + external_resources, monitoring_workloads, prometheus_labels)
     for exporter in ("postgres-exporter", "postgres-preview-exporter"):
         require(admits_prometheus_ingress(external_resources,
                                           named_resource(external_resources, "Deployment", exporter),

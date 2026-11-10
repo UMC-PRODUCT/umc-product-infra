@@ -134,7 +134,8 @@ spec:
                 type: prometheus
                 uid: prometheus
                 access: proxy
-                url: http://prometheus-kube-prometheus-prometheus.monitoring.svc.cluster.local:9090
+                # 쓰기·관리 API를 막는 조회 proxy를 거친다. Prometheus Service로 직접 가는 경로는 NetworkPolicy가 막는다.
+                url: http://prometheus-query-proxy.monitoring.svc.cluster.local:8080
                 isDefault: true
                 jsonData:
                   timeInterval: 30s
