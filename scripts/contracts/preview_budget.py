@@ -53,7 +53,7 @@ def pod_resource_totals(pod: dict) -> tuple[int, int, int]:
 
 
 # quota 합계를 손으로 맞추지 않도록 실제 PR render와 공용 manifest에서 다시 계산한다.
-# PR 한 개의 앱·생성 Job·삭제 Job이 슬롯 2개만큼 동시에 돌고, 공용 DB와 고아 DB 점검이 하나씩 더해진다.
+# PR 한 개의 앱·생성 Job·삭제 Job이 슬롯 2개만큼 동시에 돌고, 공용 DB·고아 DB 점검·DB exporter가 하나씩 더해진다.
 def validate_preview_budget_arithmetic(pr_resources: list[dict]) -> None:
     quota = resource(
         yaml_documents(common.ROOT / "manifests" / "cluster" / "preview-resourcequota.yaml"),
@@ -66,6 +66,7 @@ def validate_preview_budget_arithmetic(pr_resources: list[dict]) -> None:
             yaml_documents(preview_directory / "orphan-database-check-cronjob.yaml"),
             "CronJob",
         ),
+        resource(yaml_documents(preview_directory / "postgres-exporter.yaml"), "Deployment"),
     ]
     per_slot = [
         item for item in pr_resources if item.get("kind") in {"Deployment", "Job"}
@@ -111,7 +112,7 @@ def validate_preview_budget() -> None:
         == {
             "count/certificates.cert-manager.io": "2",
             "count/services": "4",
-            "count/deployments.apps": "2",
+            "count/deployments.apps": "3",
             "count/persistentvolumeclaims": "1",
             "requests.storage": "5Gi",
         },

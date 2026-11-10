@@ -1,0 +1,112 @@
+# 공유 Preview PostgreSQL의 내부 상태를 Prometheus 형식으로 노출한다.
+# DB Pod sidecar로 두지 않는다. postgres image는 loopback 접속을 비밀번호 없이 신뢰하고,
+# exporter 변경이 모든 PR이 쓰는 DB를 재시작시킨다.
+# preview AppProject가 ConfigMap·ServiceAccount를 막고 quota가 Service 수를 묶으므로
+# Deployment만 두고 PodMonitor가 Pod를 직접 수집한다.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgres-preview-exporter
+  namespace: preview
+  labels:
+    app.kubernetes.io/name: postgres-preview-exporter
+    app.kubernetes.io/component: metrics
+    environment: preview
+  annotations:
+    # role bootstrap Job(wave 2)이 완료된 뒤 시작한다.
+    argocd.argoproj.io/sync-wave: "3"
+spec:
+  replicas: 1
+  revisionHistoryLimit: 2
+  minReadySeconds: 5
+  progressDeadlineSeconds: 120
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: postgres-preview-exporter
+      app.kubernetes.io/component: metrics
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: postgres-preview-exporter
+        app.kubernetes.io/component: metrics
+        environment: preview
+    spec:
+      priorityClassName: preview-lowest
+      # 전용 ServiceAccount 없이 default를 쓰므로 Kubernetes API 토큰 마운트를 Pod에서 끈다.
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 30
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        runAsGroup: 65534
+        fsGroup: 65534
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: postgres-exporter
+          image: quay.io/prometheuscommunity/postgres-exporter:v0.20.1@sha256:ac5ec343104fae0e2d84a27bb8d69b38430a11910c5382cad85d478d2bab713e
+          imagePullPolicy: IfNotPresent
+          args:
+            # config 파일을 두지 않는다. v0.20.1은 기본 파일이 없으면 경고만 남기고
+            # postgres_exporter_config_last_reload_successful을 0으로 둔 채 DATA_SOURCE_* 로 접속한다.
+            # custom query/stat_statements collector를 사용하지 않아 SQL 원문을 노출하지 않는다.
+            - --log.level=info
+          ports:
+            - name: metrics
+              containerPort: 9187
+              protocol: TCP
+          env:
+            - name: DATA_SOURCE_URI
+              value: postgres-preview.preview.svc.cluster.local:5432/preview_bootstrap?sslmode=disable
+            - name: DATA_SOURCE_USER
+              value: umc_product_preview_exporter
+            - name: DATA_SOURCE_PASS_FILE
+              value: /var/run/secrets/postgres-exporter/POSTGRES_EXPORTER_PASSWORD
+            # Prometheus scrape timeout(10s)보다 먼저 DB query를 중단한다.
+            - name: PG_EXPORTER_COLLECTION_TIMEOUT
+              value: 8s
+          startupProbe:
+            tcpSocket: { port: metrics }
+            periodSeconds: 2
+            timeoutSeconds: 1
+            failureThreshold: 30
+          readinessProbe:
+            # HTTP endpoint만 확인한다. DB 상태는 Prometheus가 pg_up=0으로 계속 수집해야 한다.
+            httpGet: { path: /metrics, port: metrics }
+            periodSeconds: 30
+            timeoutSeconds: 9
+            failureThreshold: 3
+          livenessProbe:
+            # 외부 의존성인 DB 상태를 liveness에 넣지 않는다.
+            tcpSocket: { port: metrics }
+            periodSeconds: 30
+            timeoutSeconds: 2
+            failureThreshold: 3
+          resources:
+            requests: { cpu: 10m, memory: 32Mi }
+            limits: { memory: 64Mi }
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: credentials
+              mountPath: /var/run/secrets/postgres-exporter
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: credentials
+          secret:
+            secretName: postgres-exporter
+            defaultMode: 0440
+        - name: tmp
+          emptyDir:
+            sizeLimit: 16Mi

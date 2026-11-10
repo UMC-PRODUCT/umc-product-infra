@@ -69,7 +69,7 @@ def build(theme: dict) -> None:
 
         with Cluster("k3s · namespace preview", graph_attr=ca):
             quota = Quota(
-                "preview-budget\nDeployment 최대 2 · Service 최대 4\nCertificate 최대 2 (wildcard · Mailpit loopback)",
+                "preview-budget\nDeployment 최대 3 (DB exporter 1 · PR 2) · Service 최대 4\nCertificate 최대 2 (wildcard · Mailpit loopback)",
                 fontcolor=fg,
             )
             certificate = Secret(

@@ -8,7 +8,7 @@
 #   - 백업 없음. 프리뷰 데이터는 언제든 버려도 되는 것이다
 #   - 메모리·shared_buffers는 dev와 같다 (2Gi, 512MB)
 #   - preview-lowest 우선순위 — 가장 낮은 보호 우선순위이며 실제 축출 순서는 다른 조건도 함께 판단
-#   - max_connections 40 — PR 2개 × Hikari 10과 생성·복원·삭제 Job/운영 여유
+#   - max_connections 40 — PR 2개 × Hikari 10과 생성·복원·삭제 Job·exporter(최대 3)/운영 여유
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
@@ -53,7 +53,7 @@ spec:
             - -c
             - shared_buffers=512MB # dev와 같은 값, limits.memory 2Gi의 25%
             - -c
-            # PR 2개 × Hikari 풀 10 + 생성·복원·삭제 Job/운영 여유
+            # PR 2개 × Hikari 풀 10 + 생성·복원·삭제 Job·exporter(최대 3)/운영 여유
             - max_connections=40
           ports:
             - name: postgres

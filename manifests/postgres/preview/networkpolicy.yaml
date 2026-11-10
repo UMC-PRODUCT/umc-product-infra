@@ -108,7 +108,7 @@ spec:
       ports:
         - { protocol: TCP, port: 443 }
 ---
-# 공유 DB의 5432는 같은 namespace의 PR 앱과 DB 생성·삭제·role 초기화 Job에 연다.
+# 공유 DB의 5432는 같은 namespace의 PR 앱, DB 생성·삭제·role 초기화 Job과 exporter에 연다.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -145,6 +145,10 @@ spec:
         - podSelector:
             matchLabels:
               app.kubernetes.io/component: database-audit
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: postgres-preview-exporter
+              app.kubernetes.io/component: metrics
       ports:
         - { protocol: TCP, port: 5432 }
 ---
@@ -201,3 +205,56 @@ spec:
               app.kubernetes.io/component: database
       ports:
         - { protocol: TCP, port: 5432 }
+---
+# exporter는 공유 DB로만 query를 보내며 DNS 허용은 첫 정책이 담당한다.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: postgres-preview-exporter-allow-db-egress
+  namespace: preview
+  labels:
+    environment: preview
+  annotations:
+    argocd.argoproj.io/sync-wave: "-2"
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: postgres-preview-exporter
+      app.kubernetes.io/component: metrics
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: postgres-preview
+              app.kubernetes.io/component: database
+      ports:
+        - { protocol: TCP, port: 5432 }
+---
+# monitoring의 Prometheus Pod만 exporter metrics 9187을 수집할 수 있게 두 selector를 함께 적용한다.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: postgres-preview-exporter-allow-prometheus-ingress
+  namespace: preview
+  labels:
+    environment: preview
+  annotations:
+    argocd.argoproj.io/sync-wave: "-2"
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: postgres-preview-exporter
+      app.kubernetes.io/component: metrics
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: prometheus
+              operator.prometheus.io/name: prometheus-kube-prometheus-prometheus
+      ports:
+        - { protocol: TCP, port: 9187 }
