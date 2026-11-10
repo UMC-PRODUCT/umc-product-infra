@@ -23,3 +23,26 @@ spec:
         - sourceLabels: [__name__]
           regex: traefik_(entrypoint|service)_requests_total
           action: keep
+---
+# jobLabel로 job=postgres-preview-exporter가 되어 prod 경보·대시보드의 job="postgres-exporter"와 섞이지 않는다.
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: postgres-preview-exporter
+  namespace: monitoring
+  labels:
+    release: prometheus
+spec:
+  jobLabel: app.kubernetes.io/name
+  namespaceSelector:
+    matchNames: [preview]
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: postgres-preview-exporter
+      app.kubernetes.io/component: metrics
+      environment: preview
+  podTargetLabels: [environment]
+  podMetricsEndpoints:
+    - port: metrics
+      interval: 30s
+      scrapeTimeout: 10s

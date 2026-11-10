@@ -24,6 +24,7 @@ from validate_observability import (
     validate_grafana_dashboard_startup,
     validate_k3s_traefik_metrics,
     validate_traefik_pod_monitor_job,
+    validate_preview_exporter_pod_monitor_job,
     validate_loki_ingestion_limits,
     validate_loki_memory,
     validate_loki_query_budget,
@@ -148,6 +149,22 @@ class OperatorContractsTest(unittest.TestCase):
         for name, broken in {"dropped": dropped, "instance label": instance}.items():
             with self.subTest(name), self.assertRaisesRegex(SystemExit, "jobLabel"):
                 validate_traefik_pod_monitor_job(broken)
+
+    def test_preview_exporter_pod_monitor_job_stays_apart_from_prod_alerts(self) -> None:
+        monitor = next(resource for resource in yaml.safe_load_all(
+            (ROOT / "manifests/observability-integrations/pod-monitors.yaml").read_text())
+            if resource and resource["metadata"]["name"] == "postgres-preview-exporter")
+        deployment = yaml.safe_load(
+            (ROOT / "manifests/postgres/preview/postgres-exporter.yaml").read_text())
+        validate_preview_exporter_pod_monitor_job(monitor, deployment)
+        dropped = copy.deepcopy(monitor)
+        del dropped["spec"]["jobLabel"]
+        relabeled = copy.deepcopy(monitor)
+        relabeled["spec"]["podMetricsEndpoints"][0]["relabelings"] = [
+            {"targetLabel": "job", "replacement": "postgres-exporter"}]
+        for name, broken in {"dropped": dropped, "relabeled to prod job": relabeled}.items():
+            with self.subTest(name), self.assertRaisesRegex(SystemExit, "postgres-preview-exporter PodMonitor"):
+                validate_preview_exporter_pod_monitor_job(broken, deployment)
 
     def test_operator_workload_remains_in_image_resource_and_network_checks(self) -> None:
         workload = pod_spec(self.prometheus)

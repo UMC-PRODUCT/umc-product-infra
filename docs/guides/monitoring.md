@@ -160,6 +160,10 @@ DB 상세의 CPU·memory는 Kubernetes에 선언한 예약/limit이다. 실제 P
 workload dashboard에서 namespace `db`로 조회한다. dev에는 PostgreSQL exporter를 배포하지
 않으므로 dev DB workload는 namespace `dev-db`로 조회한다.
 
+공유 Preview DB에는 `postgres-preview-exporter`가 있다. 이 지표는 `namespace="preview"`,
+`job="postgres-preview-exporter"`로 들어오며 부하 테스트 dashboard의 ③ DB 내부 행이 쓴다.
+`PostgreSQL Detail`과 prod DB 알림은 `job="postgres-exporter"`만 보므로 Preview 값이 섞이지 않는다.
+
 `Kubernetes / Persistent Volumes`의 사용량은 `local-path`에서 여러 PVC가 공유하는 파일시스템의
 capacity·used·available 값일 수 있다. 개별 PVC 폴더의 실제 점유량이나 요청 용량 대비 quota로
 해석하지 않는다. 선언된 요청 용량은 PostgreSQL Detail에서, 노드 전체 디스크 여유는

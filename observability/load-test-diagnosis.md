@@ -28,7 +28,7 @@
 
 - **앱 CPU**는 ② `앱 컨테이너 CPU (limit 대비)`로 본다. ② `앱 CPU 사용률 (JVM이 보는 process vs host)`의 `process_cpu_usage`는 JVM 이 보는 CPU 2개 기준이고 limit 은 1.5코어라, limit 에 붙어도 약 75% 로 보인다.
 - **DB CPU**는 ⑤ `DB 컨테이너 CPU (limit 대비)`로 본다.
-- ③ DB 내부 행은 dev·preview 에 postgres-exporter 가 생기기 전까지 비어 있다. 그동안 ③ 을 보라는 줄(커넥션 상태별·락·캐시 적중률·임시파일)은 판정할 수 없다.
+- ③ DB 내부 행은 preview 에서만 채워진다. dev 에는 postgres-exporter 가 없어 dev 에서는 ③ 을 보라는 줄(커넥션 상태별·락·캐시 적중률·임시파일)을 판정할 수 없다.
 
 읽는 순서: 헤더 스탯으로 이상 감지 → ① 행에서 증상 확정 → 공유 크로스헤어로 같은 시각의 ②~⑤ 를 위에서 아래로.
 ④ 행은 **PSI 패널이 관문**이다 — memory/io/cpu 가 모두 0 이면 그 자원은 무죄이므로 아래 패널을 볼 필요 없다.

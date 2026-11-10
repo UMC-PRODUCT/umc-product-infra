@@ -48,8 +48,9 @@ property 목록은 문서에 복사하지 않고 위 코드에서 확인한다.
 - `DOCS_BASIC_AUTH_USERS`는 `umc-docs:<bcrypt hash>` 형식의 htpasswd 한 줄이다. 원문
   비밀번호는 로컬 worksheet에서만 확인하고 AWS·Kubernetes에는 이 해시만 저장한다.
   prod/dev/preview마다 다른 비밀번호를 사용하며, bootstrap은 환경 간 동일 htpasswd 복사를 거부한다.
-- `POSTGRES_EXPORTER_PASSWORD`는 prod 모니터링 role 전용 값이다. DB 관리자,
-  앱, readonly password와 모두 다른 난수를 쓴다.
+- `POSTGRES_EXPORTER_PASSWORD`는 `.env.prod`와 `.env.preview`에 각각 두는 모니터링 role 전용 값이다.
+  prod는 `umc_product_exporter`, Preview는 공유 DB의 `umc_product_preview_exporter`가 쓴다. 두 환경에
+  서로 다른 난수를 쓰고, DB 관리자·앱·readonly password와도 모두 다르게 둔다.
 - `POSTGRES_BACKUP_PASSWORD`는 prod `pg_dump` 전용 role(`umc_product_backup`) 값이다. 다른 DB
   password와 모두 다른 난수를 쓴다. `pg-backup`은 S3로 나가는 Pod이므로 관리자 password 대신 조회만 허용하는
   이 role로 dump한다.
@@ -360,15 +361,39 @@ Secret을 읽지 않으므로 문서 비밀번호 회전만으로 앱을 재시�
 
 단일 replica이므로 재시작 중 짧은 중단이 생길 수 있다.
 
+## Preview DB exporter 활성화
+
+`preview/postgres-exporter` ExternalSecret은 `/umc-product/preview/postgres-exporter`를 읽는다. source가 없으면
+`postgres-exporter-role` Job이 Secret을 찾지 못해 300초 뒤 실패하고 `preview-postgres` sync가 멈춘다. 공유 DB와
+PR 앱은 영향을 받지 않지만 exporter가 뜨지 않으므로 아래 1~3단계를 이 변경을 머지하기 전에 끝낸다.
+
+1. `.env.preview`에 `POSTGRES_EXPORTER_PASSWORD`를 새 난수로 추가한다. prod exporter와 다른 모든 DB password와도
+   다른 값이어야 하며 bootstrap이 재사용을 거부한다.
+2. `cloud/aws/external-secrets-iam.yaml`을 반영해 PreviewRole(`umc-secrets-preview`)에 이 source 읽기 권한을 추가한다.
+3. `bootstrap_aws_secrets.py` dry-run으로 기존 source가 worksheet와 일치하고 이 source만 missing인지 확인한 뒤
+   `--apply`로 생성한다.
+4. 머지한다. 머지 시점에 Preview PR 앱 Deployment가 이미 2개면 quota 증설과 exporter 생성의 동기화 순서에 따라
+   exporter 생성이 거부될 수 있으니 `preview-postgres`를 다시 sync한다.
+5. `preview/postgres-exporter` ExternalSecret `Ready=True`, `postgres-exporter-role` Job Complete를 확인하고
+   Prometheus에서 `pg_up{namespace="preview"} == 1`을 확인한다.
+
 ## PostgreSQL exporter password 회전
 
-1. `/umc-product/prod/postgres-exporter`의 `POSTGRES_EXPORTER_PASSWORD`를 새 값으로 갱신한다.
-2. `db/postgres-exporter` ExternalSecret을 force-sync하고 `Ready=True`를 확인한다.
-3. `postgres-exporter-role` Job을 재실행해 DB role password를 먼저 바꾼다.
-4. `postgres-exporter` Deployment를 재시작한다.
-5. Prometheus에서 `up{job="postgres-exporter"} == 1`을 확인한 뒤 이전 version을 폐기한다.
+prod와 Preview는 이름이 같은 절차를 각자의 namespace에서 따로 진행한다.
+
+| 환경 | AWS source | namespace | Deployment | Prometheus job |
+|---|---|---|---|---|
+| prod | `/umc-product/prod/postgres-exporter` | `db` | `postgres-exporter` | `postgres-exporter` |
+| Preview | `/umc-product/preview/postgres-exporter` | `preview` | `postgres-preview-exporter` | `postgres-preview-exporter` |
+
+1. 환경의 AWS source에서 `POSTGRES_EXPORTER_PASSWORD`를 새 값으로 갱신한다.
+2. 그 namespace의 `postgres-exporter` ExternalSecret을 force-sync하고 `Ready=True`를 확인한다.
+3. 그 namespace의 `postgres-exporter-role` Job을 재실행해 DB role password를 먼저 바꾼다.
+4. 표의 exporter Deployment를 재시작한다.
+5. Prometheus에서 `up{job="<표의 job>"} == 1`을 확인한 뒤 이전 version을 폐기한다.
 
 이 절차는 별도 exporter Deployment만 재시작하며 PostgreSQL StatefulSet을 재시작하지 않는다.
+Preview에서도 공유 DB와 PR 앱은 그대로 둔다.
 
 ## PostgreSQL backup role password 회전
 

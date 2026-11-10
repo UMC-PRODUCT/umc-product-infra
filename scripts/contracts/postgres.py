@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass
 from pathlib import Path
 
 import yaml
@@ -113,53 +114,20 @@ def validate_postgres() -> None:
         "ALTER ROLE umc_product_ro SET idle_in_transaction_session_timeout = '5min';",
     ):
         require(statement in readonly_script, f"prod: readonly role limit {statement}")
-    exporter_role_script = role_job_script(
-        prod_directory / "postgres-exporter-role-job.yaml",
-        "EXPORTER_PASSWORD",
-        {"name": "postgres-exporter", "key": "POSTGRES_EXPORTER_PASSWORD"},
-    )
-    require(
-        "GRANT pg_monitor TO umc_product_exporter;" in exporter_role_script
-        and "NOBYPASSRLS" in exporter_role_script
-        and "GRANT SELECT" not in exporter_role_script,
-        "prod: exporter role must be monitoring-only",
-    )
-
-    exporter_resources = yaml_documents(prod_directory / "postgres-exporter.yaml")
-    exporter_config = resource(exporter_resources, "ConfigMap")
-    exporter_service_account = resource(exporter_resources, "ServiceAccount")
-    exporter_service = resource(exporter_resources, "Service")
-    exporter_deployment = resource(exporter_resources, "Deployment")
-    exporter_pod = exporter_deployment["spec"]["template"]["spec"]
-    exporter_container = exporter_pod["containers"][0]
-    exporter_env = {item["name"]: item["value"] for item in exporter_container["env"]}
+    exporter_resources = {
+        exporter.environment: validate_exporter(exporter) for exporter in EXPORTERS
+    }
+    exporter_config = resource(exporter_resources["prod"], "ConfigMap")
+    exporter_service_account = resource(exporter_resources["prod"], "ServiceAccount")
+    exporter_service = resource(exporter_resources["prod"], "Service")
     require(
         exporter_config.get("data")
         == {"postgres_exporter.yml": "auth_modules: {}\n"},
         "prod: exporter config contains no credentials",
     )
     require(
-        exporter_service_account.get("automountServiceAccountToken") is False
-        and exporter_pod.get("automountServiceAccountToken") is False,
+        exporter_service_account.get("automountServiceAccountToken") is False,
         "prod: exporter Kubernetes API token disabled",
-    )
-    require(
-        exporter_container["image"] == POSTGRES_EXPORTER_IMAGE,
-        "prod: postgres-exporter image",
-    )
-    require(
-        exporter_env
-        == {
-            "DATA_SOURCE_URI": (
-                "postgres.db.svc.cluster.local:5432/umc_product?sslmode=disable"
-            ),
-            "DATA_SOURCE_USER": "umc_product_exporter",
-            "DATA_SOURCE_PASS_FILE": (
-                "/var/run/secrets/postgres-exporter/POSTGRES_EXPORTER_PASSWORD"
-            ),
-            "PG_EXPORTER_COLLECTION_TIMEOUT": "8s",
-        },
-        "prod: exporter connection contract",
     )
     require(
         exporter_service["spec"]
@@ -180,82 +148,10 @@ def validate_postgres() -> None:
         },
         "prod: exporter internal-only Service",
     )
+    # preview-budget의 Service 4개는 공용 DB 2개와 PR 2개 몫이다.
     require(
-        exporter_container["resources"]
-        == {
-            "requests": {"cpu": "10m", "memory": "32Mi"},
-            "limits": {"memory": "64Mi"},
-        },
-        "prod: exporter resource budget",
-    )
-    require(
-        exporter_pod["securityContext"].get("runAsNonRoot") is True
-        and exporter_container["securityContext"]
-        == {
-            "allowPrivilegeEscalation": False,
-            "readOnlyRootFilesystem": True,
-            "capabilities": {"drop": ["ALL"]},
-        },
-        "prod: exporter restricted security context",
-    )
-
-    policies = {
-        item["metadata"]["name"]: item
-        for item in yaml_documents(prod_directory / "networkpolicy.yaml")
-        if item.get("kind") == "NetworkPolicy"
-    }
-    require(
-        policies["postgres-exporter-allow-db-egress"]["spec"]
-        == {
-            "podSelector": {
-                "matchLabels": {
-                    "app.kubernetes.io/name": "postgres-exporter",
-                    "app.kubernetes.io/component": "metrics",
-                }
-            },
-            "policyTypes": ["Egress"],
-            "egress": [
-                {
-                    "to": [
-                        {
-                            "podSelector": {
-                                "matchLabels": {
-                                    "app.kubernetes.io/name": "postgres",
-                                    "app.kubernetes.io/component": "database",
-                                }
-                            }
-                        }
-                    ],
-                    "ports": [{"protocol": "TCP", "port": 5432}],
-                }
-            ],
-        },
-        "prod: exporter DB-only egress",
-    )
-    prometheus_ingress = policies["postgres-exporter-allow-prometheus-ingress"][
-        "spec"
-    ]
-    require(
-        prometheus_ingress["policyTypes"] == ["Ingress"]
-        and prometheus_ingress["ingress"][0]["ports"]
-        == [{"protocol": "TCP", "port": 9187}]
-        and prometheus_ingress["ingress"][0]["from"]
-        == [
-            {
-                "namespaceSelector": {
-                    "matchLabels": {
-                        "kubernetes.io/metadata.name": "monitoring"
-                    }
-                },
-                "podSelector": {
-                    "matchLabels": {
-                        "app.kubernetes.io/name": "prometheus",
-                        "operator.prometheus.io/name": "prometheus-kube-prometheus-prometheus",
-                    }
-                },
-            }
-        ],
-        "prod: exporter metrics ingress restricted to Prometheus",
+        [item["kind"] for item in exporter_resources["preview"]] == ["Deployment"],
+        "preview: exporter must be a lone Deployment without a Service",
     )
 
     require(not (prod_directory / "kube-state-metrics-role.yaml").exists(),
@@ -264,16 +160,179 @@ def validate_postgres() -> None:
 
 
 # role 생성 Job은 고정한 PostGIS image로 실행하고 그 role 전용 Secret의 password만 받는다.
-def role_job_script(path: Path, password_env: str, secret: dict[str, str]) -> str:
-    require(path.is_file(), f"prod: {path.name} is missing")
+def role_job_script(environment: str, path: Path, password_env: str, secret: dict[str, str]) -> str:
+    require(path.is_file(), f"{environment}: {path.name} is missing")
     container = resource(yaml_documents(path), "Job")["spec"]["template"]["spec"]["containers"][0]
     env = {item["name"]: item for item in container["env"]}
-    require(container["image"] == POSTGIS_IMAGE, f"prod: {path.name} image")
+    require(container["image"] == POSTGIS_IMAGE, f"{environment}: {path.name} image")
     require(
         env.get(password_env, {}).get("valueFrom", {}).get("secretKeyRef") == secret,
-        f"prod: {path.name} must read {password_env} from Secret {secret['name']}",
+        f"{environment}: {path.name} must read {password_env} from Secret {secret['name']}",
     )
     return container["args"][0]
+
+
+@dataclass(frozen=True)
+class Exporter:
+    environment: str
+    name: str
+    role: str
+    database: str
+    database_host: str
+    database_pod_name: str
+
+
+EXPORTERS = (
+    Exporter(
+        "prod",
+        "postgres-exporter",
+        "umc_product_exporter",
+        "umc_product",
+        "postgres.db.svc.cluster.local",
+        "postgres",
+    ),
+    Exporter(
+        "preview",
+        "postgres-preview-exporter",
+        "umc_product_preview_exporter",
+        "preview_bootstrap",
+        "postgres-preview.preview.svc.cluster.local",
+        "postgres-preview",
+    ),
+)
+
+
+def validate_exporter(exporter: Exporter) -> list[dict]:
+    environment = exporter.environment
+    directory = common.ROOT / "manifests" / "postgres" / environment
+    role_job_path = directory / "postgres-exporter-role-job.yaml"
+    role_script = role_job_script(
+        environment,
+        role_job_path,
+        "EXPORTER_PASSWORD",
+        {"name": "postgres-exporter", "key": "POSTGRES_EXPORTER_PASSWORD"},
+    )
+    require(
+        f"GRANT pg_monitor TO {exporter.role};" in role_script
+        and f"GRANT CONNECT ON DATABASE {exporter.database} TO {exporter.role};" in role_script
+        and "NOBYPASSRLS" in role_script
+        and "CONNECTION LIMIT 3;" in role_script
+        and "GRANT SELECT" not in role_script,
+        f"{environment}: exporter role must be monitoring-only",
+    )
+    require(
+        "\\getenv exporter_pw EXPORTER_PASSWORD" in role_script and "--set" not in role_script,
+        f"{environment}: exporter role password must not appear in psql arguments",
+    )
+
+    resources = yaml_documents(directory / "postgres-exporter.yaml")
+    deployment = resource(resources, "Deployment")
+    pod = deployment["spec"]["template"]["spec"]
+    container = pod["containers"][0]
+    labels = {"app.kubernetes.io/name": exporter.name, "app.kubernetes.io/component": "metrics"}
+    require(
+        deployment["metadata"]["name"] == exporter.name
+        and deployment["spec"]["selector"]["matchLabels"] == labels
+        and labels.items() <= deployment["spec"]["template"]["metadata"]["labels"].items(),
+        f"{environment}: exporter Deployment name and Pod labels",
+    )
+    require(
+        sync_wave(deployment) > sync_wave(resource(yaml_documents(role_job_path), "Job")),
+        f"{environment}: exporter must start after its role Job",
+    )
+    require(
+        pod.get("automountServiceAccountToken") is False,
+        f"{environment}: exporter Kubernetes API token disabled",
+    )
+    require(container["image"] == POSTGRES_EXPORTER_IMAGE, f"{environment}: postgres-exporter image")
+    require(
+        {item["name"]: item["value"] for item in container["env"]}
+        == {
+            "DATA_SOURCE_URI": (
+                f"{exporter.database_host}:5432/{exporter.database}?sslmode=disable"
+            ),
+            "DATA_SOURCE_USER": exporter.role,
+            "DATA_SOURCE_PASS_FILE": (
+                "/var/run/secrets/postgres-exporter/POSTGRES_EXPORTER_PASSWORD"
+            ),
+            "PG_EXPORTER_COLLECTION_TIMEOUT": "8s",
+        },
+        f"{environment}: exporter connection contract",
+    )
+    require(
+        container["resources"]
+        == {
+            "requests": {"cpu": "10m", "memory": "32Mi"},
+            "limits": {"memory": "64Mi"},
+        },
+        f"{environment}: exporter resource budget",
+    )
+    require(
+        pod["securityContext"].get("runAsNonRoot") is True
+        and container["securityContext"]
+        == {
+            "allowPrivilegeEscalation": False,
+            "readOnlyRootFilesystem": True,
+            "capabilities": {"drop": ["ALL"]},
+        },
+        f"{environment}: exporter restricted security context",
+    )
+
+    policies = {
+        item["metadata"]["name"]: item["spec"]
+        for item in yaml_documents(directory / "networkpolicy.yaml")
+        if item.get("kind") == "NetworkPolicy"
+    }
+    database_labels = {
+        "app.kubernetes.io/name": exporter.database_pod_name,
+        "app.kubernetes.io/component": "database",
+    }
+    require(
+        {"podSelector": {"matchLabels": labels}}
+        in policies[f"{exporter.database_pod_name}-allow-required-ingress"]["ingress"][0]["from"],
+        f"{environment}: PostgreSQL must admit the exporter on 5432",
+    )
+    require(
+        policies[f"{exporter.name}-allow-db-egress"]
+        == {
+            "podSelector": {"matchLabels": labels},
+            "policyTypes": ["Egress"],
+            "egress": [
+                {
+                    "to": [{"podSelector": {"matchLabels": database_labels}}],
+                    "ports": [{"protocol": "TCP", "port": 5432}],
+                }
+            ],
+        },
+        f"{environment}: exporter DB-only egress",
+    )
+    require(
+        policies[f"{exporter.name}-allow-prometheus-ingress"]
+        == {
+            "podSelector": {"matchLabels": labels},
+            "policyTypes": ["Ingress"],
+            "ingress": [
+                {
+                    "from": [
+                        {
+                            "namespaceSelector": {
+                                "matchLabels": {"kubernetes.io/metadata.name": "monitoring"}
+                            },
+                            "podSelector": {
+                                "matchLabels": {
+                                    "app.kubernetes.io/name": "prometheus",
+                                    "operator.prometheus.io/name": "prometheus-kube-prometheus-prometheus",
+                                }
+                            },
+                        }
+                    ],
+                    "ports": [{"protocol": "TCP", "port": 9187}],
+                }
+            ],
+        },
+        f"{environment}: exporter metrics ingress restricted to Prometheus",
+    )
+    return resources
 
 
 def sync_wave(item: dict) -> int:
@@ -332,6 +391,7 @@ $role_check$;
 def validate_backup_role(prod_directory: Path) -> None:
     role_job_path = prod_directory / "postgres-backup-role-job.yaml"
     role_script = role_job_script(
+        "prod",
         role_job_path,
         "BACKUP_PASSWORD",
         {"name": "postgres-backup", "key": "POSTGRES_BACKUP_PASSWORD"},

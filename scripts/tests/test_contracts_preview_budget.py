@@ -82,6 +82,7 @@ class PreviewBudgetArithmeticTest(unittest.TestCase):
             "manifests/cluster/preview-resourcequota.yaml",
             "manifests/postgres/preview/statefulset.yaml",
             "manifests/postgres/preview/orphan-database-check-cronjob.yaml",
+            "manifests/postgres/preview/postgres-exporter.yaml",
         ):
             (self.root / relative).parent.mkdir(parents=True, exist_ok=True)
             shutil.copy(REPO_ROOT / relative, self.root / relative)
@@ -109,13 +110,13 @@ class PreviewBudgetArithmeticTest(unittest.TestCase):
         quota = self.root / "manifests/cluster/preview-resourcequota.yaml"
         text = quota.read_text(encoding="utf-8")
         for current, single_dropdb in (
-            ("requests.cpu: 1110m", "requests.cpu: 1060m"),
-            ("requests.memory: 6688Mi", "requests.memory: 6624Mi"),
-            ("limits.memory: 9792Mi", "limits.memory: 9664Mi"),
+            ("requests.cpu: 1120m", "requests.cpu: 1070m"),
+            ("requests.memory: 6720Mi", "requests.memory: 6656Mi"),
+            ("limits.memory: 9856Mi", "limits.memory: 9728Mi"),
         ):
             text = text.replace(current, single_dropdb)
         quota.write_text(text, encoding="utf-8")
-        with self.assertRaisesRegex(SystemExit, r"quota \[1060, 6624, 9664\]"):
+        with self.assertRaisesRegex(SystemExit, r"quota \[1070, 6656, 9728\]"):
             self.validate(self.PR_RESOURCES)
 
     def test_rejects_pr_persistent_volume_claim(self) -> None:
