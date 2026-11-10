@@ -110,6 +110,9 @@ spec:
               tag: v3.11.3 # 기존 compose/runtime와 동일
               sha: c0b857aead0d5793aa566adb8f49a9983d6f6031652098759d521a330cfa050f
             enableOTLPReceiver: true
+            # 같은 namespace의 Grafana를 거친 요청이 HTTP 종료·reload 경로에 닿지 않게 한다.
+            # config-reloader는 HTTP 대신 SIGHUP으로 설정과 rule을 다시 읽게 한다.
+            reloadStrategy: ProcessSignal
             serviceDiscoveryRole: EndpointSlice
             scrapeInterval: 30s
             evaluationInterval: 30s
