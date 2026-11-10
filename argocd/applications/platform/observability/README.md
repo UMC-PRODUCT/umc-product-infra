@@ -18,7 +18,7 @@ Dashboard와 alert 원본을 수정하려면 [원본 관리 README](../../../../
       └─ traces  → Tempo
 
 Grafana
-  ├─ Prometheus 조회
+  ├─ Prometheus 조회 → prometheus-query-proxy (조회 API만) → Prometheus
   ├─ Loki 조회
   └─ Tempo 조회
 ```
@@ -43,7 +43,7 @@ trace가 없는 로그(기동 실패 등)는 표본 추출 없이 보낸다. Pre
 
 1. [`prometheus.yaml`](prometheus.yaml): kube-prometheus-stack 버전, Operator·CRD, 수집·알림·권한
 2. [`integrations.yaml`](integrations.yaml): UMC ServiceMonitor·PodMonitor와 생성된 PrometheusRule
-3. [`config.yaml`](config.yaml): NetworkPolicy, UMC dashboard와 Loki rule ConfigMap
+3. [`config.yaml`](config.yaml): NetworkPolicy, Prometheus 조회 proxy, UMC dashboard와 Loki rule ConfigMap
 4. [`otel-collector.yaml`](otel-collector.yaml): 앱 신호를 받는 입구와 exporter
 5. [`loki.yaml`](loki.yaml), [`tempo.yaml`](tempo.yaml): log와 trace 저장
 6. [`grafana.yaml`](grafana.yaml): 기존 Grafana의 datasource, dashboard와 외부 접근
@@ -82,7 +82,7 @@ SecretKeySelector로 읽어 runtime 설정을 생성한다. `useExistingSecret: 
 
 | Application | 역할 | 보존 |
 |---|---|---|
-| `monitoring-config` | NetworkPolicy, UMC dashboard와 Loki rule ConfigMap | 해당 없음 |
+| `monitoring-config` | NetworkPolicy, Prometheus 조회 proxy, UMC dashboard와 Loki rule ConfigMap | 해당 없음 |
 | `monitoring-integrations` | UMC ServiceMonitor·PodMonitor·PrometheusRule | 해당 없음 |
 | `otel-collector` | 중앙 OTLP gateway | 저장하지 않음 |
 | `prometheus` | Operator·CRD, metrics, Alertmanager, node-exporter, kube-state-metrics | 14일 / 4GB 중 먼저 도달하는 조건 |
@@ -118,7 +118,9 @@ backup을 대신하지 않는다.
 
 `monitoring` namespace는 ingress default-deny다. 앱의 OTLP `4317/4318`은 `app`, `dev-app`,
 `preview` namespace에서 Collector로 오는 트래픽만 허용한다. Prometheus scrape와 Grafana
-datasource 같은 수신 경로도 필요한 monitoring 내부 통신만 연다. egress default-deny는 아직
+datasource 같은 수신 경로도 필요한 monitoring 내부 통신만 연다. Grafana는 Prometheus에 직접 닿지 못하고
+`manifests/observability/prometheus-query-proxy.yaml`의 조회 proxy를 거친다. Prometheus Pod는 Collector,
+이 proxy, Prometheus 자신만 받는다. egress default-deny는 아직
 적용하지 않았으므로 outbound 제한은 별도 보강 항목이다.
 
 Grafana는 승인된 host의 public HTTPS와 자체 로그인을 사용한다.

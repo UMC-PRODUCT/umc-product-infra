@@ -15,6 +15,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from validate_observability import (
     PROMETHEUS_NAME,
     ALERTMANAGER_NAME,
+    PROMETHEUS_QUERY_PROXY_URL,
     ROOT,
     ManifestLoader,
     admits_prometheus_ingress,
@@ -22,6 +23,7 @@ from validate_observability import (
     selector_matches,
     validate_alertmanager_config,
     validate_grafana_dashboard_startup,
+    validate_grafana_datasources,
     validate_k3s_traefik_metrics,
     validate_traefik_pod_monitor_job,
     validate_preview_exporter_pod_monitor_job,
@@ -33,6 +35,7 @@ from validate_observability import (
     validate_monitor_selection,
     validate_monitoring_rbac,
     validate_preview_application_name,
+    validate_prometheus_ingress_sources,
     workload_labels,
 )
 
@@ -359,6 +362,79 @@ class PrometheusIngressPolicyTest(unittest.TestCase):
             mutate(self.policy)
             with self.subTest(case):
                 self.assertFalse(self.admits())
+
+
+# Grafana나 namespace 전체가 Prometheus Pod에 직접 닿으면 조회 proxy의 쓰기·관리 API 차단을 우회한다.
+class PrometheusIngressSourcesTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self.prometheus_labels = workload_labels({"kind": "Prometheus", "metadata": {"name": PROMETHEUS_NAME},
+                                                  "spec": {}})
+        self.workloads = {
+            f"Prometheus/{PROMETHEUS_NAME}": self.prometheus_labels,
+            "Deployment/otel-collector": {"app.kubernetes.io/name": "opentelemetry-collector",
+                                          "app.kubernetes.io/instance": "otel-collector",
+                                          "component": "standalone-collector"},
+            "Deployment/prometheus-query-proxy": {"app.kubernetes.io/name": "prometheus-query-proxy"},
+            "Deployment/grafana": {"app.kubernetes.io/name": "grafana", "app.kubernetes.io/instance": "grafana"},
+            "StatefulSet/loki": {"app.kubernetes.io/name": "loki"},
+        }
+        path = ROOT / "manifests/observability/networkpolicy.yaml"
+        self.policies = [policy for policy in yaml.safe_load_all(path.read_text()) if policy]
+
+    def policy(self, name: str) -> dict:
+        return next(policy for policy in self.policies if policy["metadata"]["name"] == name)
+
+    def validate(self) -> None:
+        validate_prometheus_ingress_sources(self.policies, self.workloads, self.prometheus_labels)
+
+    def test_committed_policies_admit_only_collector_proxy_and_prometheus(self) -> None:
+        self.validate()
+
+    def prometheus_rule(self) -> dict:
+        return self.policy("prometheus-allow-required-ingress")["spec"]["ingress"][0]
+
+    def test_other_sources_are_rejected(self) -> None:
+        mutations = {
+            "Grafana peer": lambda: self.prometheus_rule()["from"].append(
+                {"podSelector": {"matchLabels": {"app.kubernetes.io/name": "grafana"}}}),
+            "every monitoring Pod": lambda: self.prometheus_rule()["from"].append({"podSelector": {}}),
+            "rule without from": lambda: self.prometheus_rule().pop("from"),
+            "namespace peer": lambda: self.prometheus_rule()["from"][0].update(namespaceSelector={}),
+            "ipBlock peer": lambda: self.prometheus_rule()["from"].append({"ipBlock": {"cidr": "10.42.0.0/16"}}),
+            "selector matching no workload": lambda: self.prometheus_rule()["from"].append(
+                {"podSelector": {"matchLabels": {"app.kubernetes.io/name": "future"}}}),
+            "Prometheus back in same-namespace policy": lambda: self.policy("monitoring-allow-same-namespace")[
+                "spec"]["podSelector"]["matchExpressions"][0]["values"].remove("prometheus"),
+        }
+        for case, mutate in mutations.items():
+            self.setUp()
+            mutate()
+            with self.subTest(case), self.assertRaises(SystemExit):
+                self.validate()
+
+
+# Prometheus datasource가 조회 proxy를 건너뛰거나 쓰기 대상으로 열리면 실패해야 한다.
+class GrafanaDatasourcesTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self.datasources = [
+            {"uid": "prometheus", "type": "prometheus", "url": PROMETHEUS_QUERY_PROXY_URL,
+             "jsonData": {"timeInterval": "30s"}},
+            {"uid": "alertmanager", "type": "alertmanager",
+             "url": f"http://{ALERTMANAGER_NAME}.monitoring.svc.cluster.local:9093"},
+        ]
+
+    def test_prometheus_through_query_proxy_passes(self) -> None:
+        validate_grafana_datasources(self.datasources)
+
+    def test_direct_prometheus_url_is_rejected(self) -> None:
+        self.datasources[0]["url"] = f"http://{PROMETHEUS_NAME}.monitoring.svc.cluster.local:9090"
+        with self.assertRaisesRegex(SystemExit, "read-only query proxy"):
+            validate_grafana_datasources(self.datasources)
+
+    def test_prometheus_type_is_rejected(self) -> None:
+        self.datasources[0]["jsonData"]["prometheusType"] = "Prometheus"
+        with self.assertRaisesRegex(SystemExit, "prometheusType"):
+            validate_grafana_datasources(self.datasources)
 
 
 # 끝나지 않는 WATCH를 일반 initContainer에 두면 Grafana가 시작하지 못하는 회귀를 재현한다.

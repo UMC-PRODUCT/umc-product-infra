@@ -9,8 +9,8 @@ spec:
   podSelector: {}
   policyTypes: [Ingress]
 ---
-# Prometheus, Grafana, Loki 등 platform 내부 통신. Collector와 Tempo는 아래의
-# port별 정책으로 더 좁게 열기 위해 이 정책의 대상에서 제외한다.
+# Grafana, Loki, Alertmanager 등 platform 내부 통신. Collector, Tempo, Prometheus와
+# Prometheus 조회 proxy는 아래의 전용 정책으로 더 좁게 열기 위해 이 정책의 대상에서 제외한다.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -21,7 +21,7 @@ spec:
     matchExpressions:
       - key: app.kubernetes.io/name
         operator: NotIn
-        values: [opentelemetry-collector, tempo]
+        values: [opentelemetry-collector, tempo, prometheus, prometheus-query-proxy]
   policyTypes: [Ingress]
   ingress:
     - from:
@@ -118,3 +118,58 @@ spec:
       ports:
         - { protocol: TCP, port: 3100 }
         - { protocol: TCP, port: 4318 }
+---
+# Prometheus API에는 OTLP를 보내는 Collector, 조회 proxy, self-scrape하는 Prometheus만 닿는다.
+# Grafana는 prometheus-query-proxy를 거쳐 조회 API만 쓴다. kubelet probe는 노드에서 오므로 이 정책과 무관하다.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: prometheus-allow-required-ingress
+  namespace: monitoring
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: prometheus
+      operator.prometheus.io/name: prometheus-kube-prometheus-prometheus
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: opentelemetry-collector
+              app.kubernetes.io/instance: otel-collector
+              component: standalone-collector
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: prometheus-query-proxy
+      ports:
+        - { protocol: TCP, port: 9090 }
+    # self-scrape: Prometheus web과 config-reloader metrics
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: prometheus
+              operator.prometheus.io/name: prometheus-kube-prometheus-prometheus
+      ports:
+        - { protocol: TCP, port: 9090 }
+        - { protocol: TCP, port: 8080 }
+---
+# 조회 proxy는 Grafana에서 오는 요청만 받는다.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: prometheus-query-proxy-allow-grafana
+  namespace: monitoring
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: prometheus-query-proxy
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: grafana
+              app.kubernetes.io/instance: grafana
+      ports:
+        - { protocol: TCP, port: 8080 }

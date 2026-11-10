@@ -526,6 +526,13 @@ if optional_check "observability runtime config validation" docker info; then
     -v "$validation_dir:/validation:ro" \
     otel/opentelemetry-collector-contrib@sha256:f41d7995565df3733b7568702073a9c490792f9c6ac60684fe6a4da21a313f8d \
     validate --config=/validation/otel-collector-config.yaml
+  # 조회 proxy는 manifest의 image로 검사한다. resolver 이름은 nginx가 시작할 때 풀므로 가짜 주소를 준다.
+  proxy_image="$(python3 -c 'import sys, yaml; print(next(d for d in yaml.safe_load_all(open(sys.argv[1])) if d and d["kind"] == "Deployment")["spec"]["template"]["spec"]["containers"][0]["image"])' manifests/observability/prometheus-query-proxy.yaml)"
+  docker run --rm --network none --read-only --tmpfs /tmp \
+    --add-host kube-dns.kube-system.svc.cluster.local:127.0.0.1 \
+    -v "$validation_dir:/validation:ro" \
+    --entrypoint nginx "$proxy_image" \
+    -t -e stderr -c /validation/prometheus-query-proxy-nginx.conf
 fi
 
 finish_validation
