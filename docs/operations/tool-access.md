@@ -198,7 +198,7 @@ tunnel이 끊기면 k6를 멈춘다. 실행이 끝나면 port-forward와 tunnel�
   쓰기·관리 API는 403으로 막는다. Prometheus Pod는 Collector의 OTLP, 이 proxy, Prometheus 자신의
   self-scrape만 받는다. 관리자 port-forward는 NetworkPolicy를 거치지 않으므로 Prometheus Service로 직접 점검한다.
 - Prometheus remote write 수신(`/api/v1/write`)은 k6 결과 전송에만 쓰고 관리자의 loopback port-forward로만 보낸다.
-  9090에 닿는 Pod는 OTLP를 보내는 Collector와 조회 proxy뿐이며, proxy는 쓰기 경로를 403으로 막는다.
+  9090에 닿는 Pod는 OTLP를 보내는 Collector, 조회 proxy, Prometheus 자신(self-scrape)뿐이며, proxy는 쓰기 경로를 403으로 막는다.
   Grafana datasource에는 `prometheusType`을 넣지 않는다.
 - Actuator 9090은 application Service나 Ingress에 노출하지 않는다.
 - kube-state-metrics는 cluster 상태를 읽지만 Secret과 ConfigMap 내용은 수집하지 않는다.
