@@ -57,6 +57,8 @@ probes:
 
 env:
   SPRING_PROFILES_ACTIVE: dev
+  API_RATE_LIMIT_AUTH_REQUESTS_PER_SECOND: "1000"
+  API_RATE_LIMIT_AUTH_REQUESTS_PER_MINUTE: "60000"
   # 문서 경로는 Preview 공용 Basic Auth를 적용한 별도 Ingress에서 제공한다.
   OPENAPI_ENABLE: "true"
   SPRING_APPLICATION_NAME: preview-umc-product-bootstrap-required
