@@ -1,7 +1,7 @@
 {
   "uid": "umc-product-k6-load-test",
   "title": "부하 테스트 (k6)",
-  "description": "dev·preview 부하 테스트 중 어느 자원이 먼저 차는지 볼 때 연다. 상단 env로 환경을 고르면 앱·DB 패널이 모두 따라간다. 헤더(현재 상태) ①k6 판정 ②앱 내부 ③DB 내부 ④호스트 USE ⑤DB 컨테이너. 공유 크로스헤어로 같은 시각을 위에서 아래로 읽는다. k6 스크립트는 umc-product-server의 loadtest/에 있고, 결과를 보내는 방법은 umc-product-infra docs/operations/tool-access.md의 부하 테스트 결과 보내기 절에 있다.",
+  "description": "dev·preview 부하 테스트 중 어느 자원이 먼저 차는지 볼 때 연다. 상단 env로 환경을 고르면 앱·DB 패널이 모두 따라간다. 헤더(현재 상태) ①k6 판정 ②앱 내부 ③DB 내부 ④$env 컨테이너 자원 ⑤운영 영향(같은 서버 전체, 접어 둠). 공유 크로스헤어로 같은 시각을 위에서 아래로 읽는다. k6 스크립트는 umc-product-server의 loadtest/에 있고, 결과를 보내는 방법은 umc-product-infra docs/operations/tool-access.md의 부하 테스트 결과 보내기 절에 있다.",
   "tags": [
     "umc-product",
     "load-test",
@@ -959,7 +959,7 @@
     {
       "id": 15,
       "type": "row",
-      "title": "② 앱 내부 ($service · Hikari · Tomcat · JVM · 컨테이너 CPU)",
+      "title": "② 앱 내부 ($service · Hikari · Tomcat · JVM · 컨테이너 CPU · 메모리)",
       "collapsed": false,
       "gridPos": {
         "x": 0,
@@ -1535,7 +1535,7 @@
       "id": 56,
       "type": "timeseries",
       "title": "앱 컨테이너 CPU (limit 대비)",
-      "description": "cAdvisor 기준 앱 컨테이너 CPU를 CPU limit(1.5코어)으로 나눈 값. 100%에 붙으면 CPU가 먼저 찼다. Preview PR이 여럿이면 Pod 이름의 pr-<번호>로 구분한다.",
+      "description": "cAdvisor 기준 앱 컨테이너 CPU를 CPU limit(1.5코어)으로 나눈 값. 100%에 붙으면 CPU가 먼저 찼다. $service의 Pod만 그린다. 다른 PR 앱이 같이 떠 있어도 섞이지 않는다.",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
@@ -1543,7 +1543,7 @@
       "gridPos": {
         "x": 0,
         "y": 56,
-        "w": 12,
+        "w": 8,
         "h": 7
       },
       "fieldConfig": {
@@ -1579,7 +1579,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (pod) (rate(container_cpu_usage_seconds_total{namespace=~\"${env}(-app)?\", namespace=~\"dev-app|preview\", pod=~\"umc-product-server-.*\", container=\"umc-product-server\"}[$__rate_interval]) and on (namespace, pod) kube_pod_info{namespace=~\"${env}(-app)?\", namespace=~\"dev-app|preview\", created_by_kind=\"ReplicaSet\"}) / sum by (pod) (kube_pod_container_resource_limits{namespace=~\"${env}(-app)?\", namespace=~\"dev-app|preview\", pod=~\"umc-product-server-.*\", container=\"umc-product-server\", resource=\"cpu\"} and on (namespace, pod) kube_pod_info{namespace=~\"${env}(-app)?\", namespace=~\"dev-app|preview\", created_by_kind=\"ReplicaSet\"})",
+          "expr": "sum by (pod) (rate(container_cpu_usage_seconds_total{namespace=~\"${env}(-app)?\", namespace=~\"dev-app|preview\", pod=~\"umc-product-server-.*\", container=\"umc-product-server\"}[$__rate_interval]) and on (namespace, pod) (label_replace(kube_pod_info{namespace=~\"${env}(-app)?\", namespace=~\"dev-app|preview\", created_by_kind=\"ReplicaSet\", pod=~\"umc-product-server-.*\"}, \"pr\", \"$1\", \"pod\", \"umc-product-server-pr-([0-9]+)-.*\") and on (pr) label_replace(label_replace(vector(1), \"application\", \"$service\", \"\", \"\"), \"pr\", \"$1\", \"application\", \".*-pr([0-9]+)\"))) / sum by (pod) (kube_pod_container_resource_limits{namespace=~\"${env}(-app)?\", namespace=~\"dev-app|preview\", pod=~\"umc-product-server-.*\", container=\"umc-product-server\", resource=\"cpu\"} and on (namespace, pod) (label_replace(kube_pod_info{namespace=~\"${env}(-app)?\", namespace=~\"dev-app|preview\", created_by_kind=\"ReplicaSet\", pod=~\"umc-product-server-.*\"}, \"pr\", \"$1\", \"pod\", \"umc-product-server-pr-([0-9]+)-.*\") and on (pr) label_replace(label_replace(vector(1), \"application\", \"$service\", \"\", \"\"), \"pr\", \"$1\", \"application\", \".*-pr([0-9]+)\")))",
           "legendFormat": "{{pod}}"
         }
       ]
@@ -1594,9 +1594,9 @@
         "uid": "prometheus"
       },
       "gridPos": {
-        "x": 12,
+        "x": 8,
         "y": 56,
-        "w": 12,
+        "w": 8,
         "h": 7
       },
       "fieldConfig": {
@@ -1633,15 +1633,112 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (pod) (rate(container_cpu_cfs_throttled_periods_total{namespace=~\"${env}(-app)?\", namespace=~\"dev-app|preview\", pod=~\"umc-product-server-.*\", container=\"umc-product-server\"}[$__rate_interval]) and on (namespace, pod) kube_pod_info{namespace=~\"${env}(-app)?\", namespace=~\"dev-app|preview\", created_by_kind=\"ReplicaSet\"}) / sum by (pod) (rate(container_cpu_cfs_periods_total{namespace=~\"${env}(-app)?\", namespace=~\"dev-app|preview\", pod=~\"umc-product-server-.*\", container=\"umc-product-server\"}[$__rate_interval]) and on (namespace, pod) kube_pod_info{namespace=~\"${env}(-app)?\", namespace=~\"dev-app|preview\", created_by_kind=\"ReplicaSet\"})",
+          "expr": "sum by (pod) (rate(container_cpu_cfs_throttled_periods_total{namespace=~\"${env}(-app)?\", namespace=~\"dev-app|preview\", pod=~\"umc-product-server-.*\", container=\"umc-product-server\"}[$__rate_interval]) and on (namespace, pod) (label_replace(kube_pod_info{namespace=~\"${env}(-app)?\", namespace=~\"dev-app|preview\", created_by_kind=\"ReplicaSet\", pod=~\"umc-product-server-.*\"}, \"pr\", \"$1\", \"pod\", \"umc-product-server-pr-([0-9]+)-.*\") and on (pr) label_replace(label_replace(vector(1), \"application\", \"$service\", \"\", \"\"), \"pr\", \"$1\", \"application\", \".*-pr([0-9]+)\"))) / sum by (pod) (rate(container_cpu_cfs_periods_total{namespace=~\"${env}(-app)?\", namespace=~\"dev-app|preview\", pod=~\"umc-product-server-.*\", container=\"umc-product-server\"}[$__rate_interval]) and on (namespace, pod) (label_replace(kube_pod_info{namespace=~\"${env}(-app)?\", namespace=~\"dev-app|preview\", created_by_kind=\"ReplicaSet\", pod=~\"umc-product-server-.*\"}, \"pr\", \"$1\", \"pod\", \"umc-product-server-pr-([0-9]+)-.*\") and on (pr) label_replace(label_replace(vector(1), \"application\", \"$service\", \"\", \"\"), \"pr\", \"$1\", \"application\", \".*-pr([0-9]+)\")))",
           "legendFormat": "{{pod}}"
         }
       ]
     },
     {
+      "id": 58,
+      "type": "timeseries",
+      "title": "앱 컨테이너 메모리 (limit 대비)",
+      "description": "$service 앱 컨테이너의 working set과 memory limit. limit에 닿으면 커널이 컨테이너를 OOMKilled로 죽인다. JVM 힙 max는 limit의 75%라 힙 밖(non-heap·스레드 스택·direct buffer)이 나머지 25%를 나눠 쓴다. 힙이 여유인데 이 값만 limit에 다가가면 힙 밖이 자라는 중이다.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "showPoints": "never"
+          },
+          "min": 0
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "limit"
+            },
+            "properties": [
+              {
+                "id": "custom.fillOpacity",
+                "value": 0
+              },
+              {
+                "id": "custom.stacking",
+                "value": {
+                  "mode": "none"
+                }
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "red"
+                }
+              },
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "fill": "dash",
+                  "dash": [
+                    8,
+                    4
+                  ]
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "showLegend": true,
+          "displayMode": "list",
+          "placement": "bottom",
+          "calcs": []
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum by (pod) (container_memory_working_set_bytes{namespace=~\"${env}(-app)?\", namespace=~\"dev-app|preview\", container=\"umc-product-server\"} and on (namespace, pod) (label_replace(kube_pod_info{namespace=~\"${env}(-app)?\", namespace=~\"dev-app|preview\", created_by_kind=\"ReplicaSet\", pod=~\"umc-product-server-.*\"}, \"pr\", \"$1\", \"pod\", \"umc-product-server-pr-([0-9]+)-.*\") and on (pr) label_replace(label_replace(vector(1), \"application\", \"$service\", \"\", \"\"), \"pr\", \"$1\", \"application\", \".*-pr([0-9]+)\")))",
+          "legendFormat": "working set {{pod}}"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "max(kube_pod_container_resource_limits{namespace=~\"${env}(-app)?\", namespace=~\"dev-app|preview\", container=\"umc-product-server\", resource=\"memory\"} and on (namespace, pod) (label_replace(kube_pod_info{namespace=~\"${env}(-app)?\", namespace=~\"dev-app|preview\", created_by_kind=\"ReplicaSet\", pod=~\"umc-product-server-.*\"}, \"pr\", \"$1\", \"pod\", \"umc-product-server-pr-([0-9]+)-.*\") and on (pr) label_replace(label_replace(vector(1), \"application\", \"$service\", \"\", \"\"), \"pr\", \"$1\", \"application\", \".*-pr([0-9]+)\")))",
+          "legendFormat": "limit"
+        }
+      ],
+      "gridPos": {
+        "x": 16,
+        "y": 56,
+        "w": 8,
+        "h": 7
+      }
+    },
+    {
       "id": 22,
       "type": "row",
-      "title": "③ DB 내부 (postgres-exporter) — exporter가 연결되면 채워진다",
+      "title": "③ DB 내부 (postgres-exporter) — preview만 채워진다. dev는 exporter가 없다",
       "collapsed": true,
       "gridPos": {
         "x": 0,
@@ -2023,381 +2120,23 @@
     {
       "id": 29,
       "type": "row",
-      "title": "④ 호스트 USE — 운영과 같은 서버",
+      "title": "④ $env 컨테이너 자원 — 메모리 · 압박 · 재시작",
       "collapsed": false,
       "gridPos": {
         "x": 0,
         "y": 78,
         "w": 24,
         "h": 1
-      },
-      "panels": []
+      }
     },
     {
-      "id": 50,
+      "id": 59,
       "type": "timeseries",
-      "title": "PSI — 잃어버린 시간 (memory · io · cpu)",
-      "description": "판정 지표. some = 누군가 멈춰 있던 시간 비율, full = 전원이 동시에 멈춰 있던 비율. 이 패널이 0이면 아래 자원 패널은 볼 필요 없다. 임계 some 0.05 / full 0.01. 운영 앱·DB도 같은 서버라 운영 부하가 함께 잡힌다.",
+      "title": "$env 컨테이너 메모리 (쌓기)",
+      "description": "$env namespace의 모든 컨테이너 working set을 쌓은 값. preview는 앱·mailpit·DB·exporter가 한 namespace에 있어 부하 중 어느 컨테이너가 자라는지 한눈에 보인다. ④ 행은 namespace 전체라 다른 PR 앱이 같이 떠 있으면 그 Pod도 따로 그려진다. limit 대비는 ② 앱 컨테이너 메모리와 아래 DB 컨테이너 메모리에서 본다.",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
-      },
-      "gridPos": {
-        "x": 0,
-        "y": 79,
-        "w": 6,
-        "h": 6
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "percentunit",
-          "custom": {
-            "drawStyle": "line",
-            "lineWidth": 2,
-            "fillOpacity": 10,
-            "showPoints": "never",
-            "thresholdsStyle": {
-              "mode": "dashed"
-            }
-          },
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "red",
-                "value": 0.05
-              }
-            ]
-          }
-        },
-        "overrides": []
-      },
-      "options": {
-        "legend": {
-          "showLegend": true,
-          "displayMode": "list",
-          "placement": "bottom",
-          "calcs": []
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "expr": "rate(node_pressure_memory_waiting_seconds_total{job=\"node-exporter\"}[$__rate_interval])",
-          "legendFormat": "mem some"
-        },
-        {
-          "refId": "B",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "expr": "rate(node_pressure_memory_stalled_seconds_total{job=\"node-exporter\"}[$__rate_interval])",
-          "legendFormat": "mem full"
-        },
-        {
-          "refId": "C",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "expr": "rate(node_pressure_io_waiting_seconds_total{job=\"node-exporter\"}[$__rate_interval])",
-          "legendFormat": "io some"
-        },
-        {
-          "refId": "D",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "expr": "rate(node_pressure_cpu_waiting_seconds_total{job=\"node-exporter\"}[$__rate_interval])",
-          "legendFormat": "cpu some"
-        }
-      ]
-    },
-    {
-      "id": 30,
-      "type": "timeseries",
-      "title": "CPU — U 사용률",
-      "description": "호스트 전체 CPU 사용률. 부하 생성기를 같은 서버에서 돌리면 그 몫도 여기에 섞인다. steal = 하이퍼바이저가 코어를 가져간 시간.",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "gridPos": {
-        "x": 6,
-        "y": 79,
-        "w": 6,
-        "h": 6
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "percentunit",
-          "custom": {
-            "drawStyle": "line",
-            "lineWidth": 2,
-            "fillOpacity": 10,
-            "showPoints": "never",
-            "thresholdsStyle": {
-              "mode": "line"
-            }
-          },
-          "max": 1,
-          "min": 0,
-          "decimals": 0,
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "transparent",
-                "value": null
-              },
-              {
-                "color": "#F2495C",
-                "value": 0.8
-              }
-            ]
-          }
-        },
-        "overrides": []
-      },
-      "options": {
-        "legend": {
-          "showLegend": true,
-          "displayMode": "list",
-          "placement": "bottom",
-          "calcs": []
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "expr": "1 - avg(rate(node_cpu_seconds_total{mode=\"idle\", job=\"node-exporter\"}[$__rate_interval]))",
-          "legendFormat": "사용률"
-        },
-        {
-          "refId": "B",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "expr": "avg(rate(node_cpu_seconds_total{mode=\"steal\", job=\"node-exporter\"}[$__rate_interval]))",
-          "legendFormat": "steal"
-        }
-      ]
-    },
-    {
-      "id": 31,
-      "type": "timeseries",
-      "title": "CPU — S run queue/core",
-      "description": "1 초과 지속 = 코어보다 대기 스레드가 많음(포화).",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "gridPos": {
-        "x": 12,
-        "y": 79,
-        "w": 6,
-        "h": 6
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short",
-          "custom": {
-            "drawStyle": "line",
-            "lineWidth": 2,
-            "fillOpacity": 10,
-            "showPoints": "never",
-            "thresholdsStyle": {
-              "mode": "line"
-            }
-          },
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "transparent",
-                "value": null
-              },
-              {
-                "color": "#F2495C",
-                "value": 1
-              }
-            ]
-          }
-        },
-        "overrides": []
-      },
-      "options": {
-        "legend": {
-          "showLegend": true,
-          "displayMode": "list",
-          "placement": "bottom",
-          "calcs": []
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "expr": "node_load1{job=\"node-exporter\"} / on (instance) count by (instance) (node_cpu_seconds_total{mode=\"idle\", job=\"node-exporter\"})",
-          "legendFormat": "run queue/core"
-        }
-      ]
-    },
-    {
-      "id": 51,
-      "type": "timeseries",
-      "title": "CPU — S 컨텍스트 스위치",
-      "description": "스레드를 코어보다 많이 돌릴 때 내는 스위칭 비용. 사용률이 안 올라가는데 이 값만 치솟으면 일 대신 전환에 시간을 쓰는 중.",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "gridPos": {
-        "x": 18,
-        "y": 79,
-        "w": 6,
-        "h": 6
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short",
-          "custom": {
-            "drawStyle": "line",
-            "lineWidth": 2,
-            "fillOpacity": 10,
-            "showPoints": "never"
-          }
-        },
-        "overrides": []
-      },
-      "options": {
-        "legend": {
-          "showLegend": true,
-          "displayMode": "list",
-          "placement": "bottom",
-          "calcs": []
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "expr": "rate(node_context_switches_total{job=\"node-exporter\"}[$__rate_interval])",
-          "legendFormat": "context switches"
-        }
-      ]
-    },
-    {
-      "id": 52,
-      "type": "timeseries",
-      "title": "Traefik 메모리 (limit 대비)",
-      "description": "모든 요청이 지나는 Traefik의 working set과 memory limit(512Mi). limit에 닿으면 OOMKilled로 전체 요청이 끊긴다.",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "gridPos": {
-        "x": 0,
-        "y": 85,
-        "w": 6,
-        "h": 6
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "bytes",
-          "custom": {
-            "drawStyle": "line",
-            "lineWidth": 2,
-            "fillOpacity": 10,
-            "showPoints": "never"
-          }
-        },
-        "overrides": []
-      },
-      "options": {
-        "legend": {
-          "showLegend": true,
-          "displayMode": "list",
-          "placement": "bottom",
-          "calcs": []
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "expr": "sum by (pod) (container_memory_working_set_bytes{namespace=\"kube-system\", container=\"traefik\"})",
-          "legendFormat": "working set {{pod}}"
-        },
-        {
-          "refId": "B",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "expr": "max(kube_pod_container_resource_limits{namespace=\"kube-system\", container=\"traefik\", resource=\"memory\"})",
-          "legendFormat": "limit"
-        }
-      ]
-    },
-    {
-      "id": 32,
-      "type": "timeseries",
-      "title": "Memory — U 구성 (앱 · 캐시 · free)",
-      "description": "사용률 % 한 숫자가 숨기던 것을 세 겹으로 분해한다. 부하 중 앱 점유가 자라며 페이지 캐시를 밀어내는 과정이 보이고, majflt 급등 시각과 캐시 층이 얇아지는 시각이 겹치면 '캐시 회수 → 코드 페이지 eviction → major fault' 가설이 확인된다.",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "gridPos": {
-        "x": 6,
-        "y": 85,
-        "w": 6,
-        "h": 6
       },
       "fieldConfig": {
         "defaults": {
@@ -2407,199 +2146,12 @@
             "lineWidth": 2,
             "fillOpacity": 40,
             "showPoints": "never",
-            "thresholdsStyle": {
-              "mode": "line"
-            },
             "stacking": {
               "mode": "normal",
               "group": "A"
             }
           },
-          "min": 0,
-          "decimals": 0,
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              }
-            ]
-          }
-        },
-        "overrides": [
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "available (커널 계산)"
-            },
-            "properties": [
-              {
-                "id": "custom.stacking",
-                "value": {
-                  "mode": "none"
-                }
-              },
-              {
-                "id": "custom.fillOpacity",
-                "value": 0
-              },
-              {
-                "id": "custom.lineStyle",
-                "value": {
-                  "fill": "dash",
-                  "dash": [
-                    8,
-                    4
-                  ]
-                }
-              }
-            ]
-          }
-        ]
-      },
-      "options": {
-        "legend": {
-          "showLegend": true,
-          "displayMode": "list",
-          "placement": "bottom",
-          "calcs": []
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "expr": "node_memory_MemTotal_bytes{job=\"node-exporter\"} - node_memory_MemFree_bytes{job=\"node-exporter\"} - node_memory_Cached_bytes{job=\"node-exporter\"} - node_memory_Buffers_bytes{job=\"node-exporter\"}",
-          "legendFormat": "앱 점유 (근사)"
-        },
-        {
-          "refId": "B",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "expr": "node_memory_Cached_bytes{job=\"node-exporter\"} + node_memory_Buffers_bytes{job=\"node-exporter\"}",
-          "legendFormat": "페이지 캐시"
-        },
-        {
-          "refId": "C",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "expr": "node_memory_MemFree_bytes{job=\"node-exporter\"}",
-          "legendFormat": "free"
-        },
-        {
-          "refId": "D",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "expr": "node_memory_MemAvailable_bytes{job=\"node-exporter\"}",
-          "legendFormat": "available (커널 계산)"
-        }
-      ]
-    },
-    {
-      "id": 53,
-      "type": "timeseries",
-      "title": "Memory — E OOM kill",
-      "description": "커널이 메모리 부족으로 프로세스를 죽인 횟수. 0이 아니면 같은 시각 Argo CD에서 OOMKilled Pod를 찾는다.",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "gridPos": {
-        "x": 12,
-        "y": 85,
-        "w": 6,
-        "h": 6
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short",
-          "custom": {
-            "drawStyle": "line",
-            "lineWidth": 2,
-            "fillOpacity": 10,
-            "showPoints": "never"
-          }
-        },
-        "overrides": [
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "oom kill"
-            },
-            "properties": [
-              {
-                "id": "color",
-                "value": {
-                  "mode": "fixed",
-                  "fixedColor": "red"
-                }
-              }
-            ]
-          }
-        ]
-      },
-      "options": {
-        "legend": {
-          "showLegend": true,
-          "displayMode": "list",
-          "placement": "bottom",
-          "calcs": []
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "expr": "increase(node_vmstat_oom_kill{job=\"node-exporter\"}[$__rate_interval])",
-          "legendFormat": "oom kill"
-        }
-      ]
-    },
-    {
-      "id": 33,
-      "type": "timeseries",
-      "title": "Memory — S anonymous paging",
-      "description": "swap 발생 자체가 메모리 포화 신호.",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "gridPos": {
-        "x": 18,
-        "y": 85,
-        "w": 6,
-        "h": 6
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short",
-          "custom": {
-            "drawStyle": "line",
-            "lineWidth": 2,
-            "fillOpacity": 10,
-            "showPoints": "never"
-          }
+          "min": 0
         },
         "overrides": []
       },
@@ -2622,45 +2174,35 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "rate(node_vmstat_pswpin{job=\"node-exporter\"}[$__rate_interval]) + rate(node_vmstat_pswpout{job=\"node-exporter\"}[$__rate_interval])",
-          "legendFormat": "swap"
-        },
-        {
-          "refId": "B",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "expr": "rate(node_vmstat_pgmajfault{job=\"node-exporter\"}[$__rate_interval])",
-          "legendFormat": "majflt"
+          "expr": "sum by (pod, container) (container_memory_working_set_bytes{namespace=~\"${env}(-app|-db)?\", namespace=~\"dev-app|dev-db|preview\", container!=\"\", container!=\"POD\"})",
+          "legendFormat": "{{container}} ({{pod}})"
         }
-      ]
+      ],
+      "gridPos": {
+        "x": 0,
+        "y": 79,
+        "w": 12,
+        "h": 7
+      }
     },
     {
-      "id": 34,
+      "id": 60,
       "type": "timeseries",
-      "title": "Disk — U busy",
-      "description": "디스크가 IO를 처리하던 시간 비율. DB 데이터도 이 서버 디스크에 있다.",
+      "title": "재시작 · OOMKilled",
+      "description": "$env 컨테이너가 재시작한 횟수. 'OOMKilled' 줄은 그 구간의 재시작 원인이 memory limit 초과일 때만 나타난다. 재시작 시각을 ① 에러율 급등과 맞춰 본다.",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
       },
-      "gridPos": {
-        "x": 0,
-        "y": 91,
-        "w": 6,
-        "h": 6
-      },
       "fieldConfig": {
         "defaults": {
-          "unit": "percentunit",
+          "unit": "short",
           "custom": {
             "drawStyle": "line",
             "lineWidth": 2,
             "fillOpacity": 10,
             "showPoints": "never"
           },
-          "max": 1,
           "min": 0,
           "decimals": 0
         },
@@ -2685,92 +2227,34 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "max by (device) (rate(node_disk_io_time_seconds_total{job=\"node-exporter\"}[$__rate_interval]))",
-          "legendFormat": "{{device}}"
-        }
-      ]
-    },
-    {
-      "id": 35,
-      "type": "timeseries",
-      "title": "Disk — S avg queue",
-      "description": "1 이상 지속 = IO 대기 큐 형성.",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "gridPos": {
-        "x": 6,
-        "y": 91,
-        "w": 6,
-        "h": 6
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short",
-          "custom": {
-            "drawStyle": "line",
-            "lineWidth": 2,
-            "fillOpacity": 10,
-            "showPoints": "never",
-            "thresholdsStyle": {
-              "mode": "line"
-            }
-          },
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "transparent",
-                "value": null
-              },
-              {
-                "color": "#F2495C",
-                "value": 1
-              }
-            ]
-          }
+          "expr": "sum by (pod, container) (increase(kube_pod_container_status_restarts_total{namespace=~\"${env}(-app|-db)?\", namespace=~\"dev-app|dev-db|preview\"}[$__rate_interval]))",
+          "legendFormat": "재시작 {{container}} ({{pod}})"
         },
-        "overrides": []
-      },
-      "options": {
-        "legend": {
-          "showLegend": true,
-          "displayMode": "list",
-          "placement": "bottom",
-          "calcs": []
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
-      },
-      "targets": [
         {
-          "refId": "A",
+          "refId": "B",
           "datasource": {
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "max by (device) (rate(node_disk_io_time_weighted_seconds_total{job=\"node-exporter\"}[$__rate_interval]))",
-          "legendFormat": "{{device}}"
+          "expr": "max by (namespace, pod, container) (kube_pod_container_status_last_terminated_reason{namespace=~\"${env}(-app|-db)?\", namespace=~\"dev-app|dev-db|preview\", reason=\"OOMKilled\"}) * on (namespace, pod, container) (sum by (namespace, pod, container) (increase(kube_pod_container_status_restarts_total{namespace=~\"${env}(-app|-db)?\", namespace=~\"dev-app|dev-db|preview\"}[$__rate_interval])) > 0)",
+          "legendFormat": "OOMKilled {{container}} ({{pod}})"
         }
-      ]
+      ],
+      "gridPos": {
+        "x": 12,
+        "y": 79,
+        "w": 6,
+        "h": 7
+      }
     },
     {
-      "id": 36,
+      "id": 61,
       "type": "timeseries",
-      "title": "Network — U throughput",
-      "description": "물리 NIC(eno*) 송수신량. Pod 사이 트래픽은 NIC를 지나지 않아 빠진다.",
+      "title": "Pod 네트워크 (수신 · 송신)",
+      "description": "$env Pod별 송수신량. 앱 Pod의 수신이 늘지 않는데 ① RPS만 오르면 요청이 앱 앞(Traefik)에서 막히는 중이다.",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
-      },
-      "gridPos": {
-        "x": 12,
-        "y": 91,
-        "w": 6,
-        "h": 6
       },
       "fieldConfig": {
         "defaults": {
@@ -2803,8 +2287,8 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum(rate(node_network_receive_bytes_total{device=~\"e(th|ns|n)[0-9a-z]*\", job=\"node-exporter\"}[$__rate_interval]))",
-          "legendFormat": "rx"
+          "expr": "sum by (pod) (rate(container_network_receive_bytes_total{namespace=~\"${env}(-app|-db)?\", namespace=~\"dev-app|dev-db|preview\"}[$__rate_interval]))",
+          "legendFormat": "수신 {{pod}}"
         },
         {
           "refId": "B",
@@ -2812,145 +2296,25 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum(rate(node_network_transmit_bytes_total{device=~\"e(th|ns|n)[0-9a-z]*\", job=\"node-exporter\"}[$__rate_interval]))",
-          "legendFormat": "tx"
+          "expr": "-sum by (pod) (rate(container_network_transmit_bytes_total{namespace=~\"${env}(-app|-db)?\", namespace=~\"dev-app|dev-db|preview\"}[$__rate_interval]))",
+          "legendFormat": "송신 {{pod}}"
         }
-      ]
-    },
-    {
-      "id": 37,
-      "type": "timeseries",
-      "title": "Network — S·E drops·errs",
-      "description": "물리 NIC의 drop·error. 관측 가능한 네트워크 E.",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
+      ],
       "gridPos": {
         "x": 18,
-        "y": 91,
+        "y": 79,
         "w": 6,
-        "h": 6
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short",
-          "custom": {
-            "drawStyle": "line",
-            "lineWidth": 2,
-            "fillOpacity": 10,
-            "showPoints": "never"
-          }
-        },
-        "overrides": []
-      },
-      "options": {
-        "legend": {
-          "showLegend": true,
-          "displayMode": "list",
-          "placement": "bottom",
-          "calcs": []
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "expr": "sum(rate(node_network_receive_drop_total{device=~\"e(th|ns|n)[0-9a-z]*\", job=\"node-exporter\"}[$__rate_interval]) + rate(node_network_transmit_drop_total{device=~\"e(th|ns|n)[0-9a-z]*\", job=\"node-exporter\"}[$__rate_interval]))",
-          "legendFormat": "drop"
-        },
-        {
-          "refId": "B",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "expr": "sum(rate(node_network_receive_errs_total{device=~\"e(th|ns|n)[0-9a-z]*\", job=\"node-exporter\"}[$__rate_interval]) + rate(node_network_transmit_errs_total{device=~\"e(th|ns|n)[0-9a-z]*\", job=\"node-exporter\"}[$__rate_interval]))",
-          "legendFormat": "err"
-        }
-      ]
+        "h": 7
+      }
     },
     {
-      "id": 54,
+      "id": 62,
       "type": "timeseries",
-      "title": "Network — S accept 큐 오버플로",
-      "description": "호스트 network namespace의 accept 큐 넘침. Pod 안 Tomcat과 Traefik은 각자 namespace라 그 큐 넘침은 여기에 잡히지 않는다. 0이 아니면 호스트 프로세스 쪽을 본다.",
+      "title": "메모리 대기 PSI (컨테이너별)",
+      "description": "컨테이너의 스레드가 메모리 회수를 기다리며 멈춰 있던 시간 비율. limit 근처에서 커널이 페이지를 회수할 때 오르고, 그 지연이 응답시간에 그대로 얹힌다. 0이면 메모리는 무죄다.",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
-      },
-      "gridPos": {
-        "x": 0,
-        "y": 97,
-        "w": 6,
-        "h": 6
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short",
-          "custom": {
-            "drawStyle": "line",
-            "lineWidth": 2,
-            "fillOpacity": 10,
-            "showPoints": "never"
-          }
-        },
-        "overrides": []
-      },
-      "options": {
-        "legend": {
-          "showLegend": true,
-          "displayMode": "list",
-          "placement": "bottom",
-          "calcs": []
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "expr": "rate(node_netstat_TcpExt_ListenOverflows{job=\"node-exporter\"}[$__rate_interval])",
-          "legendFormat": "overflow"
-        },
-        {
-          "refId": "B",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "expr": "rate(node_netstat_TcpExt_ListenDrops{job=\"node-exporter\"}[$__rate_interval])",
-          "legendFormat": "listen drop"
-        }
-      ]
-    },
-    {
-      "id": 55,
-      "type": "timeseries",
-      "title": "Network — E 재전송률",
-      "description": "호스트 network namespace의 TCP 재전송 비율. Pod 안 연결은 각자 namespace라 빠진다.",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "gridPos": {
-        "x": 6,
-        "y": 97,
-        "w": 6,
-        "h": 6
       },
       "fieldConfig": {
         "defaults": {
@@ -2960,7 +2324,9 @@
             "lineWidth": 2,
             "fillOpacity": 10,
             "showPoints": "never"
-          }
+          },
+          "min": 0,
+          "decimals": 1
         },
         "overrides": []
       },
@@ -2983,23 +2349,122 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "rate(node_netstat_Tcp_RetransSegs{job=\"node-exporter\"}[$__rate_interval]) / rate(node_netstat_Tcp_OutSegs{job=\"node-exporter\"}[$__rate_interval])",
-          "legendFormat": "retrans"
+          "expr": "sum by (pod, container) (rate(container_pressure_memory_waiting_seconds_total{namespace=~\"${env}(-app|-db)?\", namespace=~\"dev-app|dev-db|preview\", container!=\"\", container!=\"POD\"}[$__rate_interval]))",
+          "legendFormat": "{{container}} ({{pod}})"
         }
-      ]
-    },
-    {
-      "id": 38,
-      "type": "row",
-      "title": "⑤ DB 컨테이너 — CPU · memory (limit 대비)",
-      "collapsed": false,
+      ],
       "gridPos": {
         "x": 0,
-        "y": 103,
-        "w": 24,
-        "h": 1
+        "y": 86,
+        "w": 8,
+        "h": 6
+      }
+    },
+    {
+      "id": 63,
+      "type": "timeseries",
+      "title": "CPU 대기 PSI (컨테이너별)",
+      "description": "실행할 일이 있는데 CPU를 못 받아 기다린 시간 비율. CPU limit throttling과 같은 서버의 다른 프로세스와의 경쟁이 함께 잡힌다. 앱 컨테이너 CPU가 limit보다 낮은데 이 값이 오르면 서버 경쟁을 의심하고 ⑤ 서버 CPU를 본다.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
       },
-      "panels": []
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "showPoints": "never"
+          },
+          "min": 0,
+          "decimals": 1
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "showLegend": true,
+          "displayMode": "list",
+          "placement": "bottom",
+          "calcs": []
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum by (pod, container) (rate(container_pressure_cpu_waiting_seconds_total{namespace=~\"${env}(-app|-db)?\", namespace=~\"dev-app|dev-db|preview\", container!=\"\", container!=\"POD\"}[$__rate_interval]))",
+          "legendFormat": "{{container}} ({{pod}})"
+        }
+      ],
+      "gridPos": {
+        "x": 8,
+        "y": 86,
+        "w": 8,
+        "h": 6
+      }
+    },
+    {
+      "id": 64,
+      "type": "timeseries",
+      "title": "IO 대기 PSI (컨테이너별)",
+      "description": "디스크 IO를 기다리며 멈춘 시간 비율. postgres가 오르면 DB가 디스크에 막힌 것이고, ③ 임시파일 쓰기와 ⑤ 서버 Disk busy를 같은 시각에 본다.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "showPoints": "never"
+          },
+          "min": 0,
+          "decimals": 1
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "showLegend": true,
+          "displayMode": "list",
+          "placement": "bottom",
+          "calcs": []
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum by (pod, container) (rate(container_pressure_io_waiting_seconds_total{namespace=~\"${env}(-app|-db)?\", namespace=~\"dev-app|dev-db|preview\", container!=\"\", container!=\"POD\"}[$__rate_interval]))",
+          "legendFormat": "{{container}} ({{pod}})"
+        }
+      ],
+      "gridPos": {
+        "x": 16,
+        "y": 86,
+        "w": 8,
+        "h": 6
+      }
     },
     {
       "id": 39,
@@ -3012,7 +2477,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 104,
+        "y": 92,
         "w": 8,
         "h": 6
       },
@@ -3065,7 +2530,7 @@
       },
       "gridPos": {
         "x": 8,
-        "y": 104,
+        "y": 92,
         "w": 8,
         "h": 6
       },
@@ -3119,7 +2584,7 @@
       },
       "gridPos": {
         "x": 16,
-        "y": 104,
+        "y": 92,
         "w": 8,
         "h": 6
       },
@@ -3133,7 +2598,43 @@
             "showPoints": "never"
           }
         },
-        "overrides": []
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "limit"
+            },
+            "properties": [
+              {
+                "id": "custom.fillOpacity",
+                "value": 0
+              },
+              {
+                "id": "custom.stacking",
+                "value": {
+                  "mode": "none"
+                }
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "red"
+                }
+              },
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "fill": "dash",
+                  "dash": [
+                    8,
+                    4
+                  ]
+                }
+              }
+            ]
+          }
+        ]
       },
       "options": {
         "legend": {
@@ -3165,6 +2666,540 @@
           },
           "expr": "max(kube_pod_container_resource_limits{namespace=~\"${env}(-db)?\", namespace=~\"dev-db|preview\", container=\"postgres\", resource=\"memory\"})",
           "legendFormat": "limit"
+        }
+      ]
+    },
+    {
+      "id": 38,
+      "type": "row",
+      "title": "⑤ 운영 영향 — 같은 서버 전체 (평소 접어 둔다)",
+      "collapsed": true,
+      "gridPos": {
+        "x": 0,
+        "y": 98,
+        "w": 24,
+        "h": 1
+      },
+      "panels": [
+        {
+          "id": 50,
+          "type": "timeseries",
+          "title": "서버 PSI — 잃어버린 시간 (memory · io · cpu)",
+          "description": "서버 전체의 PSI. some = 누군가 멈춰 있던 시간 비율, full = 전원이 동시에 멈춰 있던 비율. 임계 some 0.05 / full 0.01. ④ 컨테이너 PSI가 0인데 여기만 오르면 운영 등 다른 workload가 멈추는 중이다.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "gridPos": {
+            "x": 0,
+            "y": 99,
+            "w": 6,
+            "h": 6
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "percentunit",
+              "custom": {
+                "drawStyle": "line",
+                "lineWidth": 2,
+                "fillOpacity": 10,
+                "showPoints": "never",
+                "thresholdsStyle": {
+                  "mode": "dashed"
+                }
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  },
+                  {
+                    "color": "red",
+                    "value": 0.05
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "showLegend": true,
+              "displayMode": "list",
+              "placement": "bottom",
+              "calcs": []
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "rate(node_pressure_memory_waiting_seconds_total{job=\"node-exporter\"}[$__rate_interval])",
+              "legendFormat": "mem some"
+            },
+            {
+              "refId": "B",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "rate(node_pressure_memory_stalled_seconds_total{job=\"node-exporter\"}[$__rate_interval])",
+              "legendFormat": "mem full"
+            },
+            {
+              "refId": "C",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "rate(node_pressure_io_waiting_seconds_total{job=\"node-exporter\"}[$__rate_interval])",
+              "legendFormat": "io some"
+            },
+            {
+              "refId": "D",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "rate(node_pressure_cpu_waiting_seconds_total{job=\"node-exporter\"}[$__rate_interval])",
+              "legendFormat": "cpu some"
+            }
+          ]
+        },
+        {
+          "id": 30,
+          "type": "timeseries",
+          "title": "서버 CPU 사용률 · steal",
+          "description": "서버 전체 CPU 사용률. 부하 생성기를 같은 서버에서 돌리면 그 몫도 여기에 섞인다. steal은 하이퍼바이저가 코어를 가져간 시간이고, steal이 오른 구간의 측정은 무효로 본다.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "gridPos": {
+            "x": 6,
+            "y": 99,
+            "w": 6,
+            "h": 6
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "percentunit",
+              "custom": {
+                "drawStyle": "line",
+                "lineWidth": 2,
+                "fillOpacity": 10,
+                "showPoints": "never",
+                "thresholdsStyle": {
+                  "mode": "line"
+                }
+              },
+              "max": 1,
+              "min": 0,
+              "decimals": 0,
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "transparent",
+                    "value": null
+                  },
+                  {
+                    "color": "#F2495C",
+                    "value": 0.8
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "showLegend": true,
+              "displayMode": "list",
+              "placement": "bottom",
+              "calcs": []
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "1 - avg(rate(node_cpu_seconds_total{mode=\"idle\", job=\"node-exporter\"}[$__rate_interval]))",
+              "legendFormat": "사용률"
+            },
+            {
+              "refId": "B",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "avg(rate(node_cpu_seconds_total{mode=\"steal\", job=\"node-exporter\"}[$__rate_interval]))",
+              "legendFormat": "steal"
+            }
+          ]
+        },
+        {
+          "id": 32,
+          "type": "timeseries",
+          "title": "서버 메모리 (전체 · available)",
+          "description": "서버 한 대의 전체 메모리와 커널이 계산한 available. available이 줄어 0에 가까워지면 커널이 어느 컨테이너든 죽일 수 있다. 운영·dev·preview·모니터링이 함께 쓰므로 preview 몫은 ④에서 본다.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "gridPos": {
+            "x": 12,
+            "y": 99,
+            "w": 6,
+            "h": 6
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "bytes",
+              "custom": {
+                "drawStyle": "line",
+                "lineWidth": 2,
+                "fillOpacity": 10,
+                "showPoints": "never"
+              },
+              "min": 0,
+              "decimals": 0
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "showLegend": true,
+              "displayMode": "list",
+              "placement": "bottom",
+              "calcs": []
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "node_memory_MemTotal_bytes{job=\"node-exporter\"}",
+              "legendFormat": "전체"
+            },
+            {
+              "refId": "B",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "node_memory_MemAvailable_bytes{job=\"node-exporter\"}",
+              "legendFormat": "available"
+            }
+          ]
+        },
+        {
+          "id": 53,
+          "type": "timeseries",
+          "title": "서버 OOM kill",
+          "description": "커널이 메모리 부족으로 프로세스를 죽인 횟수. 서버 전체 값이라 운영 컨테이너도 잡힌다. 0이 아니면 ④ 재시작 · OOMKilled에서 $env 컨테이너인지 본다.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "gridPos": {
+            "x": 18,
+            "y": 99,
+            "w": 6,
+            "h": 6
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "custom": {
+                "drawStyle": "line",
+                "lineWidth": 2,
+                "fillOpacity": 10,
+                "showPoints": "never"
+              }
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "oom kill"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "mode": "fixed",
+                      "fixedColor": "red"
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          "options": {
+            "legend": {
+              "showLegend": true,
+              "displayMode": "list",
+              "placement": "bottom",
+              "calcs": []
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "increase(node_vmstat_oom_kill{job=\"node-exporter\"}[$__rate_interval])",
+              "legendFormat": "oom kill"
+            }
+          ]
+        },
+        {
+          "id": 34,
+          "type": "timeseries",
+          "title": "서버 Disk busy",
+          "description": "디스크가 IO를 처리하던 시간 비율. DB 데이터도 이 서버 디스크에 있다.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "gridPos": {
+            "x": 0,
+            "y": 105,
+            "w": 6,
+            "h": 6
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "percentunit",
+              "custom": {
+                "drawStyle": "line",
+                "lineWidth": 2,
+                "fillOpacity": 10,
+                "showPoints": "never"
+              },
+              "max": 1,
+              "min": 0,
+              "decimals": 0
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "showLegend": true,
+              "displayMode": "list",
+              "placement": "bottom",
+              "calcs": []
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "max by (device) (rate(node_disk_io_time_seconds_total{job=\"node-exporter\"}[$__rate_interval]))",
+              "legendFormat": "{{device}}"
+            }
+          ]
+        },
+        {
+          "id": 52,
+          "type": "timeseries",
+          "title": "Traefik 메모리 (limit 대비)",
+          "description": "모든 요청이 지나는 Traefik의 working set과 memory limit(512Mi). limit에 닿으면 OOMKilled로 전체 요청이 끊긴다.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "gridPos": {
+            "x": 6,
+            "y": 105,
+            "w": 6,
+            "h": 6
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "bytes",
+              "custom": {
+                "drawStyle": "line",
+                "lineWidth": 2,
+                "fillOpacity": 10,
+                "showPoints": "never"
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "showLegend": true,
+              "displayMode": "list",
+              "placement": "bottom",
+              "calcs": []
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "sum by (pod) (container_memory_working_set_bytes{namespace=\"kube-system\", container=\"traefik\"})",
+              "legendFormat": "working set {{pod}}"
+            },
+            {
+              "refId": "B",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "max(kube_pod_container_resource_limits{namespace=\"kube-system\", container=\"traefik\", resource=\"memory\"})",
+              "legendFormat": "limit"
+            }
+          ]
+        },
+        {
+          "id": 65,
+          "type": "timeseries",
+          "title": "운영 앱 p95 응답시간",
+          "description": "운영 앱(prod-umc-product)의 p95. 부하 테스트 시각에 함께 오르면 같은 서버를 쓰는 운영 사용자가 영향을 받는 중이니 rate를 낮추거나 멈춘다.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "ms",
+              "custom": {
+                "drawStyle": "line",
+                "lineWidth": 2,
+                "fillOpacity": 10,
+                "showPoints": "never"
+              },
+              "min": 0
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "showLegend": true,
+              "displayMode": "list",
+              "placement": "bottom",
+              "calcs": []
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "histogram_quantile(0.95, sum by (le) (rate(http_server_requests_milliseconds_bucket{application=\"prod-umc-product\", uri!~\"/actuator.*\"}[$__rate_interval]))) >= 0",
+              "legendFormat": "운영 p95"
+            }
+          ],
+          "gridPos": {
+            "x": 12,
+            "y": 105,
+            "w": 6,
+            "h": 6
+          }
+        },
+        {
+          "id": 66,
+          "type": "timeseries",
+          "title": "운영 앱 5xx 비율",
+          "description": "운영 앱(prod-umc-product) 요청 중 5xx 비율. 부하 테스트 시각에 0이 아니면 ① 에러율과 시각을 맞춰 보고 테스트를 멈춘다.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "percentunit",
+              "custom": {
+                "drawStyle": "line",
+                "lineWidth": 2,
+                "fillOpacity": 10,
+                "showPoints": "never"
+              },
+              "min": 0
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "showLegend": true,
+              "displayMode": "list",
+              "placement": "bottom",
+              "calcs": []
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "(sum(rate(http_server_requests_milliseconds_count{application=\"prod-umc-product\", uri!~\"/actuator.*\", status=~\"5..\"}[$__rate_interval])) or vector(0)) / clamp_min(sum(rate(http_server_requests_milliseconds_count{application=\"prod-umc-product\", uri!~\"/actuator.*\"}[$__rate_interval])), 1e-9)",
+              "legendFormat": "운영 5xx"
+            }
+          ],
+          "gridPos": {
+            "x": 18,
+            "y": 105,
+            "w": 6,
+            "h": 6
+          }
         }
       ]
     }
