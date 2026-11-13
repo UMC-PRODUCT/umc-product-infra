@@ -1,8 +1,0 @@
-{
-  "release": {
-    "prNumber": "1494",
-    "headSha": "edb734c62d596bde8cf3a8a61e6ec827794003e8",
-    "imageTag": "edb734c62d59",
-    "imageDigest": "sha256:18fd95c076da00a771f86b32173e43dbe396be2a1dcd48b26ac089931b51fe75"
-  }
-}
