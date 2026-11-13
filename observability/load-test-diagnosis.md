@@ -4,7 +4,7 @@
 
 대시보드("부하 테스트 (k6)", [`dashboards/k6-load-test.json`](dashboards/k6-load-test.json)) 앞에서 "지금 뭐가 병목인가"를 판정하는 절차.
 패널을 바꾸면 이 문서도 같은 PR에서 고친다. k6 스크립트는 서버 저장소 [`loadtest/`](https://github.com/UMC-PRODUCT/umc-product-server/tree/develop/loadtest), 실행 기록은 [`docs/loadtest/`](https://github.com/UMC-PRODUCT/umc-product-server/tree/develop/docs/loadtest)에 있다.
-핵심 프레임: **① 행(k6)이 증상, ②~⑤ 행이 용의자.** 진단은 단일 지표가 아니라 조합 패턴 매칭이다.
+핵심 프레임: **① 행(k6)이 증상, ②~④ 행이 용의자, ⑤ 행은 운영 피해 감시.** 진단은 단일 지표가 아니라 조합 패턴 매칭이다.
 
 ## 1. 증상 조합 매트릭스
 
@@ -12,28 +12,30 @@
 |----------|------|----------|
 | TPS 평탄 + 앱 CPU ≈100% | **CPU 바운드** — 연산·JSON 직렬화·GC | ② `GC overhead`가 같이 오르고 `JVM 힙`이 max 에 자주 닿으면 힙 문제, 아니면 순수 연산 비용 |
 | TPS 평탄 + **앱 CPU 낮음**(<50%) + p95 급등 | **대기 병목** — CPU 가 아닌 무언가에 줄 서 있음. 가장 흔한 케이스 | ② Hikari pending → ③ DB → 외부 API 순서로 추적 |
-| Hikari pending>0 + DB CPU 높음 | DB 가 못 받아줌 — 쿼리/인덱스 문제 | ③ 락·④ `Disk — S avg queue` 확인. 쿼리 튜닝 대상 |
+| Hikari pending>0 + DB CPU 높음 | DB 가 못 받아줌 — 쿼리/인덱스 문제 | ③ 락·④ `IO 대기 PSI (컨테이너별)`의 postgres 확인. 쿼리 튜닝 대상 |
 | Hikari pending>0 + DB CPU 낮음 | 풀 크기 부족 또는 **트랜잭션이 커넥션을 오래 점유** | ③ 커넥션 상태별 — `idle in transaction` 누적이면 트랜잭션 범위 문제 |
 | Tomcat busy=max + Hikari 여유 | 스레드풀 병목 — DB 아닌 느린 것(외부 API 등)에 스레드가 묶임 | 트레이싱으로 느린 구간 특정 |
 | p95 만 튀고 avg 정상 | **tail latency** — GC stop-the-world, 락 경합, 특정 느린 쿼리 | ② `GC overhead` 스파이크와 시각 비교. 이 패널은 구간 평균이라 짧은 stop-the-world 는 묻힐 수 있다 |
 | VUs 급증 (arrival-rate 실행 중) | SUT 지연으로 동시성이 축적되는 중 — 그 자체가 포화 신호 | 포화점을 이미 지났다는 뜻 |
-| ④ `CPU — U 사용률` ≈100% | **측정 무효 가능** — 호스트가 포화. 이 패널은 호스트 전체라 운영 앱·DB 부하가 섞이고, k6 를 같은 서버에서 돌리면 그 몫도 섞인다. 생성기만 따로 보는 패널은 없다 | rate 를 낮추거나 k6 를 다른 머신에서 돌린다. 시험 대상 몫은 ② `앱 컨테이너 CPU (limit 대비)`·⑤ `DB 컨테이너 CPU (limit 대비)`로 따로 본다 |
-| ④ `Disk — S avg queue` 1 이상 지속 + `Disk — U busy` 상승 | 디스크 한계 — IO 대기 큐 형성. DB 데이터도 이 서버 디스크에 있다 | ③ 임시파일 쓰기와 시각 비교. 스토리지 설정 |
+| ④ `CPU 대기 PSI (컨테이너별)` 상승 + 컨테이너 CPU 는 limit 보다 낮음 | **서버 CPU 경쟁** — limit 에 닿지 않았는데 CPU 를 못 받는다 | ⑤ `서버 CPU 사용률 · steal` ≈100% 면 **측정 무효 가능**. 이 패널은 서버 전체라 운영 앱·DB 부하와, k6 를 같은 서버에서 돌린 몫이 섞인다. rate 를 낮추거나 k6 를 다른 머신에서 돌린다 |
+| ④ `IO 대기 PSI (컨테이너별)` postgres 상승 + ⑤ `서버 Disk busy` 상승 | 디스크 한계 — DB 가 IO 를 기다리며 멈춘다. DB 데이터는 운영과 같은 서버 디스크에 있다 | ③ 임시파일 쓰기와 시각 비교. 스토리지 설정 |
 | ③ 캐시 적중률 하락 + temp bytes 증가 | 워킹셋 > shared_buffers, 정렬/해시가 work_mem 초과 | 쿼리·메모리 파라미터 |
 | 에러율 급등 + k6 dropped iterations | k6 VU 풀(maxVUs) 고갈 — 생성기 설정 문제이지 SUT 문제 아님 | [`profiles.js`](https://github.com/UMC-PRODUCT/umc-product-server/blob/develop/loadtest/k6/config/profiles.js) vuPool 상향 |
-| 요청이 **시작조차 못 함**(connection reset/timeout) | **accept 큐 넘침** 의심 — Tomcat 이 accept 를 못 따라가 연결이 큐에서 버려짐. 커넥션 pending·run queue 에 이은 세 번째 대기열 | ④ `Network — S accept 큐 오버플로`는 호스트 network namespace 만 본다. Pod 안 Tomcat·Traefik 의 넘침은 여기에 잡히지 않으므로 0 이어도 무죄가 아니다. ② Tomcat busy=max 동반이면 스레드풀이 원인, 아니면 `server.tomcat.accept-count`(기본 100)와 Pod 의 `net.core.somaxconn` |
-| ④ PSI memory some 상승 (+ `Memory — E OOM kill` > 0) | **메모리 부족** — PSI 상승은 할당하던 스레드가 회수를 기다리며 멈춘 시간이고, 그 지연이 응답시간에 그대로 얹힌다. OOM kill 이 0 이 아니면 커널이 이미 프로세스를 죽였다 | Memory U 구성에서 페이지 캐시가 얇아지는 시각과 맞춰 본다. majflt 동반이면 코드 페이지까지 evict 된 상태. OOM kill 이 있으면 같은 시각 Argo CD 에서 OOMKilled Pod 를 찾는다 |
-| pswpout > 0 | 스왑 아웃 — 힙이 디스크로 나가는 중. GC 가 디스크를 훑기 시작하면 회복 불가 | 즉시 중단. 스왑을 껐는데도 0 이 아니면 설정 오류 |
-| ④ run queue 높음 + **CPU 사용률은 낮음** + steal 상승 | **하이퍼바이저가 코어를 회수 중** | CPU 크레딧 패널은 없다. steal 이 오른 구간의 측정은 무효로 본다 |
-| ④ `Traefik 메모리 (limit 대비)`가 limit(512Mi) 근처 | 모든 요청이 지나는 Traefik 이 OOMKilled 직전 — 죽으면 전체 요청이 끊긴다 | ① 에러율 급등과 시각 비교. `Memory — E OOM kill` 확인 |
+| 요청이 **시작조차 못 함**(connection reset/timeout) | **accept 큐 넘침** 의심 — Tomcat 이 accept 를 못 따라가 연결이 큐에서 버려짐. 커넥션 pending·CPU 대기에 이은 세 번째 대기열 | Pod 안 accept 큐 넘침을 보는 패널은 없다. ② Tomcat busy=max 동반이면 스레드풀이 원인, 아니면 `server.tomcat.accept-count`(기본 100)와 Pod 의 `net.core.somaxconn` |
+| ④ `메모리 대기 PSI (컨테이너별)` 상승 (+ `재시작 · OOMKilled`) | **메모리 부족** — PSI 상승은 할당하던 스레드가 회수를 기다리며 멈춘 시간이고, 그 지연이 응답시간에 그대로 얹힌다. OOMKilled 가 1 이면 커널이 이미 그 컨테이너를 죽였다 | 앱이면 ② `앱 컨테이너 메모리 (limit 대비)`와 `JVM 힙`을 같은 시각에 본다. 힙은 여유인데 working set 만 limit 에 다가가면 힙 밖(non-heap·스레드·direct buffer)이 자라는 중이다. DB 면 ④ `DB 컨테이너 메모리 (limit 대비)` |
+| ④ CPU 대기 PSI 높음 + ⑤ **서버 CPU 사용률은 낮음** + steal 상승 | **하이퍼바이저가 코어를 회수 중** | CPU 크레딧 패널은 없다. steal 이 오른 구간의 측정은 무효로 본다 |
+| ⑤ `Traefik 메모리 (limit 대비)`가 limit(512Mi) 근처 | 모든 요청이 지나는 Traefik 이 OOMKilled 직전 — 죽으면 운영을 포함한 전체 요청이 끊긴다 | ① 에러율 급등과 시각 비교. ⑤ `서버 OOM kill` 확인 |
+| ⑤ `운영 앱 p95 응답시간`·`운영 앱 5xx 비율`이 테스트 시각에 함께 오름 | 같은 서버를 쓰는 운영 사용자가 영향을 받는 중 | rate 를 낮추거나 테스트를 멈춘다 |
 | ② JVM blocked 스레드 급증 | 락 또는 커넥션 대기 — run queue 의 JVM 판 | Hikari pending 과 시각 비교. runnable 이 코어 수보다 훨씬 높으면 CPU 경쟁 |
 
 - **앱 CPU**는 ② `앱 컨테이너 CPU (limit 대비)`로 본다. ② `앱 CPU 사용률 (JVM이 보는 process vs host)`의 `process_cpu_usage`는 JVM 이 보는 CPU 2개 기준이고 limit 은 1.5코어라, limit 에 붙어도 약 75% 로 보인다.
-- **DB CPU**는 ⑤ `DB 컨테이너 CPU (limit 대비)`로 본다.
+- **DB CPU**는 ④ `DB 컨테이너 CPU (limit 대비)`로 본다.
+- ② 앱 컨테이너 패널은 `$service` 의 PR Pod 만 그린다. ④ `$env 컨테이너 메모리 (쌓기)`는 namespace 전체라 다른 PR 앱이 떠 있으면 같이 쌓인다.
 - ③ DB 내부 행은 preview 에서만 채워진다. dev 에는 postgres-exporter 가 없어 dev 에서는 ③ 을 보라는 줄(커넥션 상태별·락·캐시 적중률·임시파일)을 판정할 수 없다.
 
-읽는 순서: 헤더 스탯으로 이상 감지 → ① 행에서 증상 확정 → 공유 크로스헤어로 같은 시각의 ②~⑤ 를 위에서 아래로.
-④ 행은 **PSI 패널이 관문**이다 — memory/io/cpu 가 모두 0 이면 그 자원은 무죄이므로 아래 패널을 볼 필요 없다.
+읽는 순서: 헤더 스탯으로 이상 감지 → ① 행에서 증상 확정 → 공유 크로스헤어로 같은 시각의 ②~④ 를 위에서 아래로.
+④ 행은 **컨테이너 PSI 패널 세 개가 관문**이다 — memory/cpu/io 가 모두 0 이면 그 자원은 무죄다.
+⑤ 운영 영향 행은 평소 접어 두고, 운영이 같이 느려지는지 볼 때와 ④ 컨테이너 PSI 는 0 인데 증상이 있을 때 펼친다.
 
 ## 2. 커넥션 풀은 어떤 자원을 먹나
 
@@ -45,7 +47,7 @@
 ```
 
 - Hikari 고갈은 Tomcat 스레드 고갈로 **연쇄**된다. pending 이 0 이 아니면 이미 병목.
-- 비용은 DB 쪽이 크다: PostgreSQL 은 **커넥션당 OS 프로세스 1개** + 커넥션당 수 MB 메모리(work_mem 등). dev·preview DB 컨테이너는 memory limit 2Gi(shared_buffers 512MB), max_connections 는 dev 30·preview 40 이라 커넥션 수십 개면 메모리 압박. ⑤ `DB 컨테이너 메모리 (limit 대비)`로 본다.
+- 비용은 DB 쪽이 크다: PostgreSQL 은 **커넥션당 OS 프로세스 1개** + 커넥션당 수 MB 메모리(work_mem 등). dev·preview DB 컨테이너는 memory limit 2Gi(shared_buffers 512MB), max_connections 는 dev 30·preview 40 이라 커넥션 수십 개면 메모리 압박. ④ `DB 컨테이너 메모리 (limit 대비)`로 본다.
 - **풀을 키운다고 빨라지지 않는다.** DB CPU 가 한계면 커넥션 추가는 컨텍스트 스위칭만 늘린다. Hikari 권장 공식: `코어 수 × 2 + 디스크 수` — 작게 유지가 정석.
 - 실효 동시성 = min(Tomcat max threads, Hikari pool, DB max_connections). **셋 중 최솟값이 시스템의 동시 처리 한도.**
 
