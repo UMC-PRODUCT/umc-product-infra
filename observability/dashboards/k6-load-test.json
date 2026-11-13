@@ -1535,7 +1535,7 @@
       "id": 56,
       "type": "timeseries",
       "title": "앱 컨테이너 CPU (limit 대비)",
-      "description": "cAdvisor 기준 앱 컨테이너 CPU를 CPU limit(1.5코어)으로 나눈 값. 100%에 붙으면 CPU가 먼저 찼다. Preview PR이 여럿이면 Pod 이름의 pr-<번호>로 구분한다. $service의 Pod만 그린다. 다른 PR 앱이 같이 떠 있어도 섞이지 않는다.",
+      "description": "cAdvisor 기준 앱 컨테이너 CPU를 CPU limit(1.5코어)으로 나눈 값. 100%에 붙으면 CPU가 먼저 찼다. $service의 Pod만 그린다. 다른 PR 앱이 같이 떠 있어도 섞이지 않는다.",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
@@ -1579,7 +1579,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (pod) (rate(container_cpu_usage_seconds_total{namespace=~\"${env}(-app)?\", namespace=~\"dev-app|preview\", pod=~\"umc-product-server-.*\", container=\"umc-product-server\"}[$__rate_interval]) and on (namespace, pod) (label_replace(kube_pod_info{namespace=~\"${env}(-app)?\", namespace=~\"dev-app|preview\", created_by_kind=\"ReplicaSet\", pod=~\"umc-product-server-.*\"}, \"pr\", \"$1\", \"pod\", \"umc-product-server-pr-([0-9]+)-.*\") and on (pr) label_replace(last_over_time(process_uptime_milliseconds{application=\"$service\", application=~\"dev-umc-product|preview-umc-product-pr[0-9]+\"}[5m]), \"pr\", \"$1\", \"application\", \".*-pr([0-9]+)\"))) / sum by (pod) (kube_pod_container_resource_limits{namespace=~\"${env}(-app)?\", namespace=~\"dev-app|preview\", pod=~\"umc-product-server-.*\", container=\"umc-product-server\", resource=\"cpu\"} and on (namespace, pod) (label_replace(kube_pod_info{namespace=~\"${env}(-app)?\", namespace=~\"dev-app|preview\", created_by_kind=\"ReplicaSet\", pod=~\"umc-product-server-.*\"}, \"pr\", \"$1\", \"pod\", \"umc-product-server-pr-([0-9]+)-.*\") and on (pr) label_replace(last_over_time(process_uptime_milliseconds{application=\"$service\", application=~\"dev-umc-product|preview-umc-product-pr[0-9]+\"}[5m]), \"pr\", \"$1\", \"application\", \".*-pr([0-9]+)\")))",
+          "expr": "sum by (pod) (rate(container_cpu_usage_seconds_total{namespace=~\"${env}(-app)?\", namespace=~\"dev-app|preview\", pod=~\"umc-product-server-.*\", container=\"umc-product-server\"}[$__rate_interval]) and on (namespace, pod) (label_replace(kube_pod_info{namespace=~\"${env}(-app)?\", namespace=~\"dev-app|preview\", created_by_kind=\"ReplicaSet\", pod=~\"umc-product-server-.*\"}, \"pr\", \"$1\", \"pod\", \"umc-product-server-pr-([0-9]+)-.*\") and on (pr) label_replace(label_replace(vector(1), \"application\", \"$service\", \"\", \"\"), \"pr\", \"$1\", \"application\", \".*-pr([0-9]+)\"))) / sum by (pod) (kube_pod_container_resource_limits{namespace=~\"${env}(-app)?\", namespace=~\"dev-app|preview\", pod=~\"umc-product-server-.*\", container=\"umc-product-server\", resource=\"cpu\"} and on (namespace, pod) (label_replace(kube_pod_info{namespace=~\"${env}(-app)?\", namespace=~\"dev-app|preview\", created_by_kind=\"ReplicaSet\", pod=~\"umc-product-server-.*\"}, \"pr\", \"$1\", \"pod\", \"umc-product-server-pr-([0-9]+)-.*\") and on (pr) label_replace(label_replace(vector(1), \"application\", \"$service\", \"\", \"\"), \"pr\", \"$1\", \"application\", \".*-pr([0-9]+)\")))",
           "legendFormat": "{{pod}}"
         }
       ]
@@ -1633,10 +1633,107 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (pod) (rate(container_cpu_cfs_throttled_periods_total{namespace=~\"${env}(-app)?\", namespace=~\"dev-app|preview\", pod=~\"umc-product-server-.*\", container=\"umc-product-server\"}[$__rate_interval]) and on (namespace, pod) (label_replace(kube_pod_info{namespace=~\"${env}(-app)?\", namespace=~\"dev-app|preview\", created_by_kind=\"ReplicaSet\", pod=~\"umc-product-server-.*\"}, \"pr\", \"$1\", \"pod\", \"umc-product-server-pr-([0-9]+)-.*\") and on (pr) label_replace(last_over_time(process_uptime_milliseconds{application=\"$service\", application=~\"dev-umc-product|preview-umc-product-pr[0-9]+\"}[5m]), \"pr\", \"$1\", \"application\", \".*-pr([0-9]+)\"))) / sum by (pod) (rate(container_cpu_cfs_periods_total{namespace=~\"${env}(-app)?\", namespace=~\"dev-app|preview\", pod=~\"umc-product-server-.*\", container=\"umc-product-server\"}[$__rate_interval]) and on (namespace, pod) (label_replace(kube_pod_info{namespace=~\"${env}(-app)?\", namespace=~\"dev-app|preview\", created_by_kind=\"ReplicaSet\", pod=~\"umc-product-server-.*\"}, \"pr\", \"$1\", \"pod\", \"umc-product-server-pr-([0-9]+)-.*\") and on (pr) label_replace(last_over_time(process_uptime_milliseconds{application=\"$service\", application=~\"dev-umc-product|preview-umc-product-pr[0-9]+\"}[5m]), \"pr\", \"$1\", \"application\", \".*-pr([0-9]+)\")))",
+          "expr": "sum by (pod) (rate(container_cpu_cfs_throttled_periods_total{namespace=~\"${env}(-app)?\", namespace=~\"dev-app|preview\", pod=~\"umc-product-server-.*\", container=\"umc-product-server\"}[$__rate_interval]) and on (namespace, pod) (label_replace(kube_pod_info{namespace=~\"${env}(-app)?\", namespace=~\"dev-app|preview\", created_by_kind=\"ReplicaSet\", pod=~\"umc-product-server-.*\"}, \"pr\", \"$1\", \"pod\", \"umc-product-server-pr-([0-9]+)-.*\") and on (pr) label_replace(label_replace(vector(1), \"application\", \"$service\", \"\", \"\"), \"pr\", \"$1\", \"application\", \".*-pr([0-9]+)\"))) / sum by (pod) (rate(container_cpu_cfs_periods_total{namespace=~\"${env}(-app)?\", namespace=~\"dev-app|preview\", pod=~\"umc-product-server-.*\", container=\"umc-product-server\"}[$__rate_interval]) and on (namespace, pod) (label_replace(kube_pod_info{namespace=~\"${env}(-app)?\", namespace=~\"dev-app|preview\", created_by_kind=\"ReplicaSet\", pod=~\"umc-product-server-.*\"}, \"pr\", \"$1\", \"pod\", \"umc-product-server-pr-([0-9]+)-.*\") and on (pr) label_replace(label_replace(vector(1), \"application\", \"$service\", \"\", \"\"), \"pr\", \"$1\", \"application\", \".*-pr([0-9]+)\")))",
           "legendFormat": "{{pod}}"
         }
       ]
+    },
+    {
+      "id": 58,
+      "type": "timeseries",
+      "title": "앱 컨테이너 메모리 (limit 대비)",
+      "description": "$service 앱 컨테이너의 working set과 memory limit. limit에 닿으면 커널이 컨테이너를 OOMKilled로 죽인다. JVM 힙 max는 limit의 75%라 힙 밖(non-heap·스레드 스택·direct buffer)이 나머지 25%를 나눠 쓴다. 힙이 여유인데 이 값만 limit에 다가가면 힙 밖이 자라는 중이다.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "showPoints": "never"
+          },
+          "min": 0
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "limit"
+            },
+            "properties": [
+              {
+                "id": "custom.fillOpacity",
+                "value": 0
+              },
+              {
+                "id": "custom.stacking",
+                "value": {
+                  "mode": "none"
+                }
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "red"
+                }
+              },
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "fill": "dash",
+                  "dash": [
+                    8,
+                    4
+                  ]
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "showLegend": true,
+          "displayMode": "list",
+          "placement": "bottom",
+          "calcs": []
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum by (pod) (container_memory_working_set_bytes{namespace=~\"${env}(-app)?\", namespace=~\"dev-app|preview\", container=\"umc-product-server\"} and on (namespace, pod) (label_replace(kube_pod_info{namespace=~\"${env}(-app)?\", namespace=~\"dev-app|preview\", created_by_kind=\"ReplicaSet\", pod=~\"umc-product-server-.*\"}, \"pr\", \"$1\", \"pod\", \"umc-product-server-pr-([0-9]+)-.*\") and on (pr) label_replace(label_replace(vector(1), \"application\", \"$service\", \"\", \"\"), \"pr\", \"$1\", \"application\", \".*-pr([0-9]+)\")))",
+          "legendFormat": "working set {{pod}}"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "max(kube_pod_container_resource_limits{namespace=~\"${env}(-app)?\", namespace=~\"dev-app|preview\", container=\"umc-product-server\", resource=\"memory\"} and on (namespace, pod) (label_replace(kube_pod_info{namespace=~\"${env}(-app)?\", namespace=~\"dev-app|preview\", created_by_kind=\"ReplicaSet\", pod=~\"umc-product-server-.*\"}, \"pr\", \"$1\", \"pod\", \"umc-product-server-pr-([0-9]+)-.*\") and on (pr) label_replace(label_replace(vector(1), \"application\", \"$service\", \"\", \"\"), \"pr\", \"$1\", \"application\", \".*-pr([0-9]+)\")))",
+          "legendFormat": "limit"
+        }
+      ],
+      "gridPos": {
+        "x": 16,
+        "y": 56,
+        "w": 8,
+        "h": 7
+      }
     },
     {
       "id": 22,
@@ -2021,103 +2118,6 @@
       ]
     },
     {
-      "id": 58,
-      "type": "timeseries",
-      "title": "앱 컨테이너 메모리 (limit 대비)",
-      "description": "$service 앱 컨테이너의 working set과 memory limit. limit에 닿으면 커널이 컨테이너를 OOMKilled로 죽인다. JVM 힙 max는 limit의 75%라 힙 밖(non-heap·스레드 스택·direct buffer)이 나머지 25%를 나눠 쓴다. 힙이 여유인데 이 값만 limit에 다가가면 힙 밖이 자라는 중이다.",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "bytes",
-          "custom": {
-            "drawStyle": "line",
-            "lineWidth": 2,
-            "fillOpacity": 10,
-            "showPoints": "never"
-          },
-          "min": 0
-        },
-        "overrides": [
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "limit"
-            },
-            "properties": [
-              {
-                "id": "custom.fillOpacity",
-                "value": 0
-              },
-              {
-                "id": "custom.stacking",
-                "value": {
-                  "mode": "none"
-                }
-              },
-              {
-                "id": "color",
-                "value": {
-                  "mode": "fixed",
-                  "fixedColor": "red"
-                }
-              },
-              {
-                "id": "custom.lineStyle",
-                "value": {
-                  "fill": "dash",
-                  "dash": [
-                    8,
-                    4
-                  ]
-                }
-              }
-            ]
-          }
-        ]
-      },
-      "options": {
-        "legend": {
-          "showLegend": true,
-          "displayMode": "list",
-          "placement": "bottom",
-          "calcs": []
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "expr": "sum by (pod) (container_memory_working_set_bytes{namespace=~\"${env}(-app)?\", namespace=~\"dev-app|preview\", container=\"umc-product-server\"} and on (namespace, pod) (label_replace(kube_pod_info{namespace=~\"${env}(-app)?\", namespace=~\"dev-app|preview\", created_by_kind=\"ReplicaSet\", pod=~\"umc-product-server-.*\"}, \"pr\", \"$1\", \"pod\", \"umc-product-server-pr-([0-9]+)-.*\") and on (pr) label_replace(last_over_time(process_uptime_milliseconds{application=\"$service\", application=~\"dev-umc-product|preview-umc-product-pr[0-9]+\"}[5m]), \"pr\", \"$1\", \"application\", \".*-pr([0-9]+)\")))",
-          "legendFormat": "working set {{pod}}"
-        },
-        {
-          "refId": "B",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "expr": "max(kube_pod_container_resource_limits{namespace=~\"${env}(-app)?\", namespace=~\"dev-app|preview\", container=\"umc-product-server\", resource=\"memory\"} and on (namespace, pod) (label_replace(kube_pod_info{namespace=~\"${env}(-app)?\", namespace=~\"dev-app|preview\", created_by_kind=\"ReplicaSet\", pod=~\"umc-product-server-.*\"}, \"pr\", \"$1\", \"pod\", \"umc-product-server-pr-([0-9]+)-.*\") and on (pr) label_replace(last_over_time(process_uptime_milliseconds{application=\"$service\", application=~\"dev-umc-product|preview-umc-product-pr[0-9]+\"}[5m]), \"pr\", \"$1\", \"application\", \".*-pr([0-9]+)\")))",
-          "legendFormat": "limit"
-        }
-      ],
-      "gridPos": {
-        "x": 16,
-        "y": 56,
-        "w": 8,
-        "h": 7
-      }
-    },
-    {
       "id": 29,
       "type": "row",
       "title": "④ $env 컨테이너 자원 — 메모리 · 압박 · 재시작",
@@ -2133,7 +2133,7 @@
       "id": 59,
       "type": "timeseries",
       "title": "$env 컨테이너 메모리 (쌓기)",
-      "description": "$env namespace의 모든 컨테이너 working set을 쌓은 값. preview는 앱·mailpit·DB·exporter가 한 namespace에 있어 부하 중 어느 컨테이너가 자라는지 한눈에 보인다. 다른 PR 앱이 같이 떠 있으면 그 Pod도 쌓인다. limit 대비는 ② 앱 컨테이너 메모리와 아래 DB 컨테이너 메모리에서 본다.",
+      "description": "$env namespace의 모든 컨테이너 working set을 쌓은 값. preview는 앱·mailpit·DB·exporter가 한 namespace에 있어 부하 중 어느 컨테이너가 자라는지 한눈에 보인다. ④ 행은 namespace 전체라 다른 PR 앱이 같이 떠 있으면 그 Pod도 따로 그려진다. limit 대비는 ② 앱 컨테이너 메모리와 아래 DB 컨테이너 메모리에서 본다.",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
@@ -2189,7 +2189,7 @@
       "id": 60,
       "type": "timeseries",
       "title": "재시작 · OOMKilled",
-      "description": "$env 컨테이너가 재시작한 횟수. 'OOMKilled' 줄이 1이면 그 컨테이너의 마지막 종료 원인이 memory limit 초과다. 재시작 시각을 ① 에러율 급등과 맞춰 본다.",
+      "description": "$env 컨테이너가 재시작한 횟수. 'OOMKilled' 줄은 그 구간의 재시작 원인이 memory limit 초과일 때만 나타난다. 재시작 시각을 ① 에러율 급등과 맞춰 본다.",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
@@ -2227,8 +2227,8 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (container) (increase(kube_pod_container_status_restarts_total{namespace=~\"${env}(-app|-db)?\", namespace=~\"dev-app|dev-db|preview\"}[$__rate_interval]))",
-          "legendFormat": "재시작 {{container}}"
+          "expr": "sum by (pod, container) (increase(kube_pod_container_status_restarts_total{namespace=~\"${env}(-app|-db)?\", namespace=~\"dev-app|dev-db|preview\"}[$__rate_interval]))",
+          "legendFormat": "재시작 {{container}} ({{pod}})"
         },
         {
           "refId": "B",
@@ -2236,8 +2236,8 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "max by (container) (kube_pod_container_status_last_terminated_reason{namespace=~\"${env}(-app|-db)?\", namespace=~\"dev-app|dev-db|preview\", reason=\"OOMKilled\"})",
-          "legendFormat": "OOMKilled {{container}}"
+          "expr": "max by (namespace, pod, container) (kube_pod_container_status_last_terminated_reason{namespace=~\"${env}(-app|-db)?\", namespace=~\"dev-app|dev-db|preview\", reason=\"OOMKilled\"}) * on (namespace, pod, container) (sum by (namespace, pod, container) (increase(kube_pod_container_status_restarts_total{namespace=~\"${env}(-app|-db)?\", namespace=~\"dev-app|dev-db|preview\"}[$__rate_interval])) > 0)",
+          "legendFormat": "OOMKilled {{container}} ({{pod}})"
         }
       ],
       "gridPos": {
@@ -2349,8 +2349,8 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "max by (container) (rate(container_pressure_memory_waiting_seconds_total{namespace=~\"${env}(-app|-db)?\", namespace=~\"dev-app|dev-db|preview\", container!=\"\", container!=\"POD\"}[$__rate_interval]))",
-          "legendFormat": "{{container}}"
+          "expr": "sum by (pod, container) (rate(container_pressure_memory_waiting_seconds_total{namespace=~\"${env}(-app|-db)?\", namespace=~\"dev-app|dev-db|preview\", container!=\"\", container!=\"POD\"}[$__rate_interval]))",
+          "legendFormat": "{{container}} ({{pod}})"
         }
       ],
       "gridPos": {
@@ -2402,8 +2402,8 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "max by (container) (rate(container_pressure_cpu_waiting_seconds_total{namespace=~\"${env}(-app|-db)?\", namespace=~\"dev-app|dev-db|preview\", container!=\"\", container!=\"POD\"}[$__rate_interval]))",
-          "legendFormat": "{{container}}"
+          "expr": "sum by (pod, container) (rate(container_pressure_cpu_waiting_seconds_total{namespace=~\"${env}(-app|-db)?\", namespace=~\"dev-app|dev-db|preview\", container!=\"\", container!=\"POD\"}[$__rate_interval]))",
+          "legendFormat": "{{container}} ({{pod}})"
         }
       ],
       "gridPos": {
@@ -2455,8 +2455,8 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "max by (container) (rate(container_pressure_io_waiting_seconds_total{namespace=~\"${env}(-app|-db)?\", namespace=~\"dev-app|dev-db|preview\", container!=\"\", container!=\"POD\"}[$__rate_interval]))",
-          "legendFormat": "{{container}}"
+          "expr": "sum by (pod, container) (rate(container_pressure_io_waiting_seconds_total{namespace=~\"${env}(-app|-db)?\", namespace=~\"dev-app|dev-db|preview\", container!=\"\", container!=\"POD\"}[$__rate_interval]))",
+          "legendFormat": "{{container}} ({{pod}})"
         }
       ],
       "gridPos": {
@@ -2920,7 +2920,7 @@
           "id": 53,
           "type": "timeseries",
           "title": "서버 OOM kill",
-          "description": "커널이 메모리 부족으로 프로세스를 죽인 횟수. 0이 아니면 같은 시각 Argo CD에서 OOMKilled Pod를 찾는다.",
+          "description": "커널이 메모리 부족으로 프로세스를 죽인 횟수. 서버 전체 값이라 운영 컨테이너도 잡힌다. 0이 아니면 ④ 재시작 · OOMKilled에서 $env 컨테이너인지 본다.",
           "datasource": {
             "type": "prometheus",
             "uid": "prometheus"
