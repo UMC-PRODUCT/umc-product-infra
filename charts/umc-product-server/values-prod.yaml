@@ -7,8 +7,8 @@ deployment:
 
 # CI가 tag와 digest를 함께 갱신한다. 실제 컨테이너는 digest로 고정하고 tag는 추적 정보로 남긴다.
 image:
-  tag: "60fdadd2cb0e"
-  digest: "sha256:e34a9e701d38a11b74e73da513e31b4f9893a06f9a098f639b3e4b660a7daee9"
+  tag: "ea582a17c74c"
+  digest: "sha256:906d5a177664e61aa8dd0d87d18c44c55c6c8ec5842a2a4b390921f8bbc78d5a"
 
 # 자원 부족 시 운영 앱을 dev·Preview보다 우선하도록 플랫폼 PriorityClass를 참조한다.
 priorityClassName: app-important
