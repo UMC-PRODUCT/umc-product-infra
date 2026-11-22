@@ -7,8 +7,8 @@ deployment:
 
 # develop 배포 CI가 tag와 digest를 함께 갱신하며 운영 values와 독립적으로 승격한다.
 image:
-  tag: "6e6a7d6ae92e"
-  digest: "sha256:bf539a27601b821cb712409bdfd1e5bcb7ee69c43d3b64c7e8dffb063cafd35b"
+  tag: "cbb3e010d499"
+  digest: "sha256:b9722879d643abe46801e5297c738824e89d1f7156bb1a28a82f1f663c1c7b20"
 
 priorityClassName: dev-low
 
